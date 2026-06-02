@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, isNull } from "drizzle-orm";
 import {
   db,
   runsTable,
@@ -19,6 +19,7 @@ import {
   workingMemoriesTable,
   modelEndpointsTable,
   agentModelPoliciesTable,
+  sharedContextGrantsTable,
   type Run,
   type Intent,
   type ModelEndpoint,
@@ -31,6 +32,12 @@ import {
 } from "./observability";
 import { complete, stubComplete, type LlmResult } from "./llm";
 import { resolveSecret } from "./secretStore";
+import {
+  assembleVisibleContext,
+  normalizePolicy,
+  normalizeFragment,
+  normalizeMemory,
+} from "./contextBroker";
 import { logger } from "./logger";
 
 /**
@@ -211,7 +218,8 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
     const agents = await db
       .select()
       .from(agentsTable)
-      .where(and(eq(agentsTable.tenantId, tenantId), eq(agentsTable.isActive, true)));
+      .where(and(eq(agentsTable.tenantId, tenantId), eq(agentsTable.isActive, true)))
+      .orderBy(agentsTable.createdAt, agentsTable.id);
     const lead = agents.find((a) => a.role === "lead") ?? agents[0];
 
     if (lead) {
@@ -226,6 +234,7 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
         role: lead.role,
         task: `Plan and coordinate: ${intent.goal}`,
         systemPrompt: lead.systemPrompt,
+        contextPolicy: lead.contextPolicy,
       });
       totalTokens += leadResult.tokensUsed;
       totalCost += leadResult.costUsdMicros;
@@ -256,6 +265,7 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
           role: w.role,
           task: `Execute sub-task for: ${intent.goal}`,
           systemPrompt: w.systemPrompt,
+          contextPolicy: w.contextPolicy,
           parentAgentRunId: leadResult.agentRunId,
         });
         totalTokens += wr.tokensUsed;
@@ -600,6 +610,7 @@ interface RunAgentArgs {
     | "memory_manager";
   task: string;
   systemPrompt: string | null;
+  contextPolicy?: string | null;
   parentAgentRunId?: string;
 }
 
@@ -608,11 +619,109 @@ async function runAgent(args: RunAgentArgs): Promise<{
   tokensUsed: number;
   costUsdMicros: number;
 }> {
+  // Context isolation: assemble ONLY what this agent's policy permits it to see
+  // from other agents in the run. This is the single enforcement chokepoint —
+  // the broker fails closed and an independent invariant re-checks its output.
+  const policy = normalizePolicy(args.contextPolicy);
+  const [fragRows, memRows, grantRows] = await Promise.all([
+    db
+      .select()
+      .from(contextFragmentsTable)
+      .where(
+        and(
+          eq(contextFragmentsTable.tenantId, args.tenantId),
+          eq(contextFragmentsTable.runId, args.runId),
+        ),
+      ),
+    db
+      .select()
+      .from(workingMemoriesTable)
+      .where(
+        and(
+          eq(workingMemoriesTable.tenantId, args.tenantId),
+          eq(workingMemoriesTable.runId, args.runId),
+        ),
+      ),
+    db
+      .select()
+      .from(sharedContextGrantsTable)
+      .where(
+        and(
+          eq(sharedContextGrantsTable.tenantId, args.tenantId),
+          or(
+            eq(sharedContextGrantsTable.runId, args.runId),
+            isNull(sharedContextGrantsTable.runId),
+          ),
+        ),
+      ),
+  ]);
+  const contextItems = [
+    ...fragRows.map(normalizeFragment),
+    ...memRows.map(normalizeMemory),
+  ];
+  const assembled = assembleVisibleContext(
+    policy,
+    args.agentId,
+    contextItems,
+    grantRows,
+  );
+
+  // A tripped invariant is a hard security event: record it and fail closed
+  // (the broker already dropped the offending data before returning).
+  if (assembled.violation) {
+    await logEvent(
+      args.tenantId,
+      args.runId,
+      "security.isolation_violation",
+      `Isolation guard tripped for ${args.agentName}: ${assembled.violation}`,
+      "error",
+      { agentId: args.agentId },
+    );
+    await db.insert(auditRecordsTable).values({
+      tenantId: args.tenantId,
+      runId: args.runId,
+      actorType: "agent",
+      action: "security.isolation_violation",
+      resourceType: "agent",
+      resourceId: args.agentId,
+      summary: `Context isolation guard prevented a leak to "${args.agentName}"`,
+      dataJson: { policy, detail: assembled.violation },
+    });
+  }
+
+  const sharedBlock = assembled.visible
+    .filter((v) => v.via !== "self")
+    .map((v) => `- [${v.via}:${v.exposure}] ${v.source}: ${v.content}`)
+    .join("\n");
+
+  await logEvent(
+    args.tenantId,
+    args.runId,
+    "context.scoped",
+    `${args.agentName} context scoped by "${policy}" policy: ${assembled.visible.length} visible, ${assembled.withheldCount} withheld`,
+    "info",
+    { agentId: args.agentId },
+  );
+
+  const messages: {
+    role: "system" | "user" | "assistant";
+    content: string;
+  }[] = [
+    {
+      role: "system",
+      content: args.systemPrompt ?? "You are a helpful agent.",
+    },
+  ];
+  if (sharedBlock) {
+    messages.push({
+      role: "system",
+      content: `Context available to you (scoped by your "${policy}" policy):\n${sharedBlock}`,
+    });
+  }
+  messages.push({ role: "user", content: args.task });
+
   const llmReq = {
-    messages: [
-      { role: "system" as const, content: args.systemPrompt ?? "You are a helpful agent." },
-      { role: "user" as const, content: args.task },
-    ],
+    messages,
     temperature: undefined as number | undefined,
     maxTokens: undefined as number | undefined,
   };
@@ -658,6 +767,15 @@ async function runAgent(args: RunAgentArgs): Promise<{
       role: args.role,
       status: "completed",
       task: args.task,
+      inputJson: {
+        contextVisibility: {
+          policy,
+          visibleFrom: assembled.visibleFrom,
+          visibleCount: assembled.visible.length,
+          withheldCount: assembled.withheldCount,
+          violation: assembled.violation,
+        },
+      },
       outputJson: { content: result.content },
       outputValid: true,
       usedFallback: result.usedStub,
@@ -669,6 +787,24 @@ async function runAgent(args: RunAgentArgs): Promise<{
       completedAt: new Date(),
     })
     .returning();
+
+  // Persist this agent's output as a fragment tagged to it. Downstream agents
+  // see it ONLY if their own policy/grants permit (enforced by the broker above).
+  await db.insert(contextFragmentsTable).values({
+    tenantId: args.tenantId,
+    runId: args.runId,
+    traceId: args.traceId,
+    type: "summary",
+    source: `agent:${args.agentName}`,
+    content: result.content,
+    tokens: result.completionTokens,
+    relevanceScore: 80,
+    selected: true,
+    sensitivity: "internal",
+    redacted: false,
+    agentId: args.agentId,
+    agentRunId: agentRun.id,
+  });
 
   const agentObs = await recordObservation({
     tenantId: args.tenantId,

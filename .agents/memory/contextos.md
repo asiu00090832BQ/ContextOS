@@ -62,3 +62,28 @@ update/delete) — GET+DELETE alone is rejected as incomplete. **How to apply:**
 top-level (not tenant-scoped); everything else filters by `req.tenantId`. After editing paths run
 `pnpm --filter @workspace/api-spec run codegen`; orval dedupes identical response schemas, so a
 create op often reuses `Get<Op>Response` (no `Create<Op>Response` is emitted).
+
+## Context isolation enforcement (multi-agent)
+`contextPolicy` (sharedContextMode enum) is enforced ONLY at one chokepoint:
+`runEngine.runAgent` → `lib/contextBroker.ts`. The broker is pure (no I/O); runAgent loads
+fragments+memories+grants and calls `assembleVisibleContext`, which fails CLOSED (unknown policy →
+isolated via `normalizePolicy`; `assertNoForeignLeak` re-checks output; on failure it drops foreign
+items and returns a `violation` string instead of throwing). Each agent's output is persisted as a
+context fragment tagged `agentId`/`agentRunId`, so siblings see it only if policy/grants allow —
+visibility therefore depends on execution ORDER within a run (an agent never sees agents that run
+after it). Global/run-level context = fragments with `agentId === null`, always visible.
+**Why:** the platform's whole value is that "isolated" agents are truly isolated; policy existed in
+schema but was dead before this. **How to apply:** never assemble agent context outside the broker;
+keep the policy switch exhaustive (assertNever) so a new enum value is a compile error.
+
+## Provenance is stored but NOT in API responses
+Isolation provenance lives in `agent_runs.input_json.contextVisibility`
+(policy/visibleFrom/visibleCount/withheldCount/violation), but the OpenAPI AgentRun schema does
+not declare `inputJson`, so Zod strips it from `/runs/{id}` responses. **How to apply:** verify
+isolation by querying the DB directly (`psql $DATABASE_URL`), not via the API.
+
+## Tooling quirk — rg/bash output mangles identifiers
+In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dialog`→`ln`,
+`split(`→`splln`, `limit(`→`limln`). The `read` tool returns correct content. **How to apply:**
+use `read` for exact strings before editing; don't trust rg/bash output for verbatim identifiers.
+No test runner is configured — bundle standalone checks with esbuild (`scripts/verify-isolation.ts`).
