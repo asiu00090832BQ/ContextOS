@@ -253,10 +253,11 @@ export async function testEndpoint(
 ): Promise<{ ok: boolean; mode: string; latencyMs: number; detail: string }> {
   if (!apiKey) {
     return {
-      ok: true,
-      mode: "stub",
+      ok: false,
+      mode: "not_testable",
       latencyMs: 0,
-      detail: "No API key configured; deterministic stub mode is active.",
+      detail:
+        "No API key configured; a live connection cannot be tested. Runs will use the deterministic stub until a key is added.",
     };
   }
   const start = Date.now();

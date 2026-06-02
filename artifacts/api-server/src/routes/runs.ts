@@ -63,7 +63,7 @@ import {
   serializeAgentMessage,
 } from "../lib/serialize";
 import { runEvents } from "../lib/events";
-import { executeRun } from "../lib/runEngine";
+import { resumeRun } from "../lib/runEngine";
 
 type RunStatus =
   | "pending"
@@ -309,13 +309,15 @@ router.post("/approvals/:id/approve", async (req, res): Promise<void> => {
     .update(actionsTable)
     .set({ status: "completed", outputJson: { ok: true, approved: true }, completedAt: new Date() })
     .where(eq(actionsTable.id, row.actionId));
-  // Resume execution to completion.
+  // Resume the paused run from where it stopped (finalize already-processed
+  // actions) only once every required approval has been granted. This never
+  // re-runs the lifecycle or recreates actions/approvals.
   const remaining = await db
     .select({ c: approvalRequestsTable.id })
     .from(approvalRequestsTable)
     .where(and(eq(approvalRequestsTable.runId, row.runId), eq(approvalRequestsTable.status, "pending")));
   if (remaining.length === 0) {
-    void executeRun(req.tenantId, row.runId);
+    void resumeRun(req.tenantId, row.runId);
   }
   res.json(ApproveApprovalResponse.parse(serializeApproval(row)));
 });

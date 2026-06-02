@@ -13,6 +13,7 @@ import {
   artifactsTable,
   eventLogsTable,
   auditRecordsTable,
+  observationsTable,
   capabilitiesTable,
   type Run,
   type Intent,
@@ -324,6 +325,101 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
       .set({ status: "failed", error: String(err), completedAt: new Date() })
       .where(eq(runsTable.id, runId));
     await logEvent(tenantId, runId, "run.failed", `Run failed: ${String(err)}`, "error");
+  }
+}
+
+/**
+ * Resume a run that was paused at `waiting_approval` once all of its approvals
+ * have been granted. This continues from the paused point — it finalizes the
+ * already-processed actions into a completed run and does NOT re-run the
+ * lifecycle or recreate any actions/approvals.
+ */
+export async function resumeRun(tenantId: string, runId: string): Promise<void> {
+  const startedResume = Date.now();
+  try {
+    const [run] = await db
+      .select()
+      .from(runsTable)
+      .where(and(eq(runsTable.id, runId), eq(runsTable.tenantId, tenantId)));
+    if (!run || run.status !== "waiting_approval") return;
+
+    // Guard: only finalize when there are no remaining pending approvals.
+    const stillPending = await db
+      .select({ id: approvalRequestsTable.id })
+      .from(approvalRequestsTable)
+      .where(and(eq(approvalRequestsTable.runId, runId), eq(approvalRequestsTable.status, "pending")));
+    if (stillPending.length > 0) return;
+
+    const [intent] = await db
+      .select()
+      .from(intentsTable)
+      .where(eq(intentsTable.id, run.intentId));
+    const intentTitle = intent?.title ?? "Run";
+
+    // Transition the run out of waiting_approval first, conditionally on it
+    // still being paused. This makes resume idempotent: concurrent approve
+    // callbacks race on this single update and only the winner finalizes,
+    // so we never create duplicate artifacts/audit records.
+    const [claimed] = await db
+      .update(runsTable)
+      .set({
+        status: "completed",
+        summary: `Completed "${intentTitle}" after human approval using ${run.tokensUsed} tokens.`,
+        completedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(runsTable.id, runId),
+          eq(runsTable.tenantId, tenantId),
+          eq(runsTable.status, "waiting_approval"),
+        ),
+      )
+      .returning();
+    if (!claimed) return;
+
+    await db.insert(artifactsTable).values({
+      tenantId,
+      runId,
+      traceId: run.traceId,
+      name: `${intentTitle} — result`,
+      type: "document",
+      contentType: "text/markdown",
+      content: `# ${intentTitle}\n\n${intent?.goal ?? ""}\n\nCompleted after all required approvals were granted.`,
+      sizeBytes: 256,
+      sensitivity: "internal",
+    });
+
+    await db.insert(auditRecordsTable).values({
+      tenantId,
+      runId,
+      actorType: "agent",
+      action: "run.completed",
+      resourceType: "run",
+      resourceId: runId,
+      summary: `Run completed for intent "${intentTitle}" after approval`,
+      riskTier: intent?.riskTier ?? "L1",
+    });
+
+    if (run.traceId) {
+      const obs = await db
+        .select({ id: observationsTable.id })
+        .from(observationsTable)
+        .where(eq(observationsTable.traceId, run.traceId));
+      await finalizeTrace(
+        run.traceId,
+        "ok",
+        { tokens: run.tokensUsed, costUsdMicros: run.costUsdMicros, durationMs: Date.now() - startedResume },
+        obs.length,
+      );
+    }
+    await logEvent(tenantId, runId, "run.completed", `Run completed after approval (${run.tokensUsed} tokens)`);
+  } catch (err) {
+    logger.error({ err, runId }, "Run resume failed");
+    await db
+      .update(runsTable)
+      .set({ status: "failed", error: String(err), completedAt: new Date() })
+      .where(eq(runsTable.id, runId));
+    await logEvent(tenantId, runId, "run.failed", `Run resume failed: ${String(err)}`, "error");
   }
 }
 

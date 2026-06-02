@@ -35,6 +35,7 @@ import {
   serializeModelEndpoint,
 } from "../lib/serialize";
 import { testEndpoint } from "../lib/llm";
+import { putSecret, deleteSecret, resolveSecret, isSecretRef } from "../lib/secretStore";
 
 type AgentRole =
   | "lead"
@@ -221,24 +222,32 @@ router.post("/model-endpoints", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [row] = await db
-    .insert(modelEndpointsTable)
-    .values({
-      tenantId: req.tenantId,
-      name: parsed.data.name,
-      providerType: parsed.data.providerType as ProviderType,
-      baseUrl: parsed.data.baseUrl ?? null,
-      host: parsed.data.host ?? null,
-      port: parsed.data.port ?? null,
-      modelName: parsed.data.modelName,
-      apiKeyRef: parsed.data.apiKey ?? null,
-      organization: parsed.data.organization ?? null,
-      deployment: parsed.data.deployment ?? null,
-      requestTimeoutMs: parsed.data.requestTimeoutMs ?? undefined,
-      maxRetries: parsed.data.maxRetries ?? undefined,
-      isDefault: parsed.data.isDefault ?? false,
-    })
-    .returning();
+  const apiKeyRef = parsed.data.apiKey ? putSecret(parsed.data.apiKey) : null;
+  let row;
+  try {
+    [row] = await db
+      .insert(modelEndpointsTable)
+      .values({
+        tenantId: req.tenantId,
+        name: parsed.data.name,
+        providerType: parsed.data.providerType as ProviderType,
+        baseUrl: parsed.data.baseUrl ?? null,
+        host: parsed.data.host ?? null,
+        port: parsed.data.port ?? null,
+        modelName: parsed.data.modelName,
+        apiKeyRef,
+        organization: parsed.data.organization ?? null,
+        deployment: parsed.data.deployment ?? null,
+        requestTimeoutMs: parsed.data.requestTimeoutMs ?? undefined,
+        maxRetries: parsed.data.maxRetries ?? undefined,
+        isDefault: parsed.data.isDefault ?? false,
+      })
+      .returning();
+  } catch (err) {
+    // Compensate so we never orphan a stored secret when the row never persists.
+    deleteSecret(apiKeyRef);
+    throw err;
+  }
   res.status(201).json(GetModelEndpointResponse.parse(serializeModelEndpoint(row)));
 });
 
@@ -270,28 +279,61 @@ router.patch("/model-endpoints/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [row] = await db
-    .update(modelEndpointsTable)
-    .set({
-      ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
-      ...(parsed.data.baseUrl !== undefined ? { baseUrl: parsed.data.baseUrl } : {}),
-      ...(parsed.data.host !== undefined ? { host: parsed.data.host } : {}),
-      ...(parsed.data.port !== undefined ? { port: parsed.data.port } : {}),
-      ...(parsed.data.modelName !== undefined ? { modelName: parsed.data.modelName } : {}),
-      ...(parsed.data.apiKey !== undefined ? { apiKeyRef: parsed.data.apiKey } : {}),
-      ...(parsed.data.organization !== undefined ? { organization: parsed.data.organization } : {}),
-      ...(parsed.data.deployment !== undefined ? { deployment: parsed.data.deployment } : {}),
-      ...(parsed.data.requestTimeoutMs !== undefined ? { requestTimeoutMs: parsed.data.requestTimeoutMs } : {}),
-      ...(parsed.data.maxRetries !== undefined ? { maxRetries: parsed.data.maxRetries } : {}),
-      ...(parsed.data.isDefault !== undefined ? { isDefault: parsed.data.isDefault } : {}),
-      ...(parsed.data.status !== undefined ? { status: parsed.data.status as ModelEndpointStatus } : {}),
-    })
-    .where(and(eq(modelEndpointsTable.id, params.data.id), eq(modelEndpointsTable.tenantId, req.tenantId)))
-    .returning();
-  if (!row) {
+  const [existing] = await db
+    .select()
+    .from(modelEndpointsTable)
+    .where(and(eq(modelEndpointsTable.id, params.data.id), eq(modelEndpointsTable.tenantId, req.tenantId)));
+  if (!existing) {
     res.status(404).json({ error: "Model endpoint not found" });
     return;
   }
+  // Resolve the secret mutation, but defer destructive operations until the DB
+  // update has committed so a failed write can never leave a dangling reference
+  // (cleared/rotated secret missing) or an orphaned secret.
+  let apiKeyRefUpdate: { apiKeyRef: string | null } | undefined;
+  let createdRefForRollback: string | null = null;
+  let secretToDeleteAfterCommit: string | null = null;
+  if (parsed.data.apiKey !== undefined) {
+    if (parsed.data.apiKey) {
+      const reusedExistingRef = isSecretRef(existing.apiKeyRef);
+      const ref = putSecret(parsed.data.apiKey, existing.apiKeyRef);
+      if (!reusedExistingRef) createdRefForRollback = ref;
+      apiKeyRefUpdate = { apiKeyRef: ref };
+    } else {
+      secretToDeleteAfterCommit = existing.apiKeyRef;
+      apiKeyRefUpdate = { apiKeyRef: null };
+    }
+  }
+  let row;
+  try {
+    [row] = await db
+      .update(modelEndpointsTable)
+      .set({
+        ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+        ...(parsed.data.baseUrl !== undefined ? { baseUrl: parsed.data.baseUrl } : {}),
+        ...(parsed.data.host !== undefined ? { host: parsed.data.host } : {}),
+        ...(parsed.data.port !== undefined ? { port: parsed.data.port } : {}),
+        ...(parsed.data.modelName !== undefined ? { modelName: parsed.data.modelName } : {}),
+        ...(apiKeyRefUpdate ?? {}),
+        ...(parsed.data.organization !== undefined ? { organization: parsed.data.organization } : {}),
+        ...(parsed.data.deployment !== undefined ? { deployment: parsed.data.deployment } : {}),
+        ...(parsed.data.requestTimeoutMs !== undefined ? { requestTimeoutMs: parsed.data.requestTimeoutMs } : {}),
+        ...(parsed.data.maxRetries !== undefined ? { maxRetries: parsed.data.maxRetries } : {}),
+        ...(parsed.data.isDefault !== undefined ? { isDefault: parsed.data.isDefault } : {}),
+        ...(parsed.data.status !== undefined ? { status: parsed.data.status as ModelEndpointStatus } : {}),
+      })
+      .where(and(eq(modelEndpointsTable.id, params.data.id), eq(modelEndpointsTable.tenantId, req.tenantId)))
+      .returning();
+  } catch (err) {
+    if (createdRefForRollback) deleteSecret(createdRefForRollback);
+    throw err;
+  }
+  if (!row) {
+    if (createdRefForRollback) deleteSecret(createdRefForRollback);
+    res.status(404).json({ error: "Model endpoint not found" });
+    return;
+  }
+  if (secretToDeleteAfterCommit) deleteSecret(secretToDeleteAfterCommit);
   res.json(UpdateModelEndpointResponse.parse(serializeModelEndpoint(row)));
 });
 
@@ -309,6 +351,7 @@ router.delete("/model-endpoints/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Model endpoint not found" });
     return;
   }
+  deleteSecret(row.apiKeyRef);
   res.sendStatus(204);
 });
 
@@ -326,7 +369,7 @@ router.post("/model-endpoints/:id/test", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Model endpoint not found" });
     return;
   }
-  const result = await testEndpoint(row, row.apiKeyRef);
+  const result = await testEndpoint(row, resolveSecret(row.apiKeyRef));
   const usedStub = result.mode !== "live";
   await db
     .update(modelEndpointsTable)
