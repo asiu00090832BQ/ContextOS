@@ -50,7 +50,7 @@ async function loadServerDetail(server: typeof generatedMcpServersTable.$inferSe
   return serializeGeneratedServerDetail(server, caps, tests);
 }
 
-router.get("/blueprints", async (req, res): Promise<void> => {
+router.get("/integration-blueprints", async (req, res): Promise<void> => {
   const rows = await db
     .select()
     .from(integrationBlueprintsTable)
@@ -59,7 +59,7 @@ router.get("/blueprints", async (req, res): Promise<void> => {
   res.json(ListBlueprintsResponse.parse(rows.map(serializeBlueprint)));
 });
 
-router.post("/blueprints", async (req, res): Promise<void> => {
+router.post("/integration-blueprints", async (req, res): Promise<void> => {
   const parsed = CreateBlueprintBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -79,7 +79,7 @@ router.post("/blueprints", async (req, res): Promise<void> => {
   res.status(201).json(GetBlueprintResponse.parse(serializeBlueprint(row)));
 });
 
-router.get("/blueprints/:id", async (req, res): Promise<void> => {
+router.get("/integration-blueprints/:id", async (req, res): Promise<void> => {
   const params = GetBlueprintParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -96,7 +96,7 @@ router.get("/blueprints/:id", async (req, res): Promise<void> => {
   res.json(GetBlueprintResponse.parse(serializeBlueprint(row)));
 });
 
-router.post("/blueprints/:id/analyze", async (req, res): Promise<void> => {
+router.post("/integration-blueprints/:id/analyze", async (req, res): Promise<void> => {
   const params = AnalyzeBlueprintParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -125,7 +125,7 @@ router.post("/blueprints/:id/analyze", async (req, res): Promise<void> => {
   res.json(AnalyzeBlueprintResponse.parse(serializeBlueprint(row)));
 });
 
-router.post("/blueprints/:id/synthesize", async (req, res): Promise<void> => {
+router.post("/integration-blueprints/:id/synthesize", async (req, res): Promise<void> => {
   const params = SynthesizeServerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -169,7 +169,7 @@ router.post("/blueprints/:id/synthesize", async (req, res): Promise<void> => {
   res.status(201).json(GetGeneratedServerResponse.parse(await loadServerDetail(server)));
 });
 
-router.get("/generated-servers", async (req, res): Promise<void> => {
+router.get("/generated-mcp-servers", async (req, res): Promise<void> => {
   const rows = await db
     .select()
     .from(generatedMcpServersTable)
@@ -178,7 +178,7 @@ router.get("/generated-servers", async (req, res): Promise<void> => {
   res.json(ListGeneratedServersResponse.parse(rows.map(serializeGeneratedServer)));
 });
 
-router.get("/generated-servers/:id", async (req, res): Promise<void> => {
+router.get("/generated-mcp-servers/:id", async (req, res): Promise<void> => {
   const params = GetGeneratedServerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -203,7 +203,7 @@ async function loadServer(req: import("express").Request, id: string) {
   return row;
 }
 
-router.post("/generated-servers/:id/test", async (req, res): Promise<void> => {
+router.post("/generated-mcp-servers/:id/test", async (req, res): Promise<void> => {
   const params = TestGeneratedServerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -222,7 +222,7 @@ router.post("/generated-servers/:id/test", async (req, res): Promise<void> => {
   res.json(TestGeneratedServerResponse.parse(await loadServerDetail(updated)));
 });
 
-router.post("/generated-servers/:id/approve", async (req, res): Promise<void> => {
+router.post("/generated-mcp-servers/:id/approve", async (req, res): Promise<void> => {
   const params = ApproveGeneratedServerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -241,7 +241,7 @@ router.post("/generated-servers/:id/approve", async (req, res): Promise<void> =>
   res.json(ApproveGeneratedServerResponse.parse(await loadServerDetail(updated)));
 });
 
-router.post("/generated-servers/:id/deploy", async (req, res): Promise<void> => {
+router.post("/generated-mcp-servers/:id/deploy", async (req, res): Promise<void> => {
   const params = DeployGeneratedServerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -269,7 +269,7 @@ router.post("/generated-servers/:id/deploy", async (req, res): Promise<void> => 
   res.json(DeployGeneratedServerResponse.parse(await loadServerDetail(updated)));
 });
 
-router.post("/generated-servers/:id/register", async (req, res): Promise<void> => {
+router.post("/generated-mcp-servers/:id/register", async (req, res): Promise<void> => {
   const params = RegisterGeneratedServerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -312,7 +312,7 @@ router.post("/generated-servers/:id/register", async (req, res): Promise<void> =
   res.json(RegisterGeneratedServerResponse.parse(await loadServerDetail(updated)));
 });
 
-router.post("/generated-servers/:id/regenerate", async (req, res): Promise<void> => {
+router.post("/generated-mcp-servers/:id/regenerate", async (req, res): Promise<void> => {
   const params = RegenerateGeneratedServerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });

@@ -17,7 +17,7 @@ export function IntentDetail() {
 
   const handleStartRun = async () => {
     try {
-      const run = await startRunMutation.mutateAsync({ id, data: { orchestrationMode: 'autonomous' } });
+      const run = await startRunMutation.mutateAsync({ id, data: { orchestrationMode: 'static_graph' } });
       toast({ title: "Run started", description: `Run ${run.id.slice(0, 8)} initialized.` });
       setLocation(`/runs/${run.id}`);
     } catch (e: any) {
@@ -49,7 +49,7 @@ export function IntentDetail() {
         </div>
         <button 
           onClick={handleStartRun}
-          disabled={startRunMutation.isPending || intent.status !== 'active'}
+          disabled={startRunMutation.isPending || !['draft', 'ready'].includes(intent.status)}
           className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
         >
           <Play className="w-4 h-4" /> Start Run

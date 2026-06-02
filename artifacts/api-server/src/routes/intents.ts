@@ -146,7 +146,7 @@ router.delete("/intents/:id", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
-router.post("/intents/:id/runs", async (req, res): Promise<void> => {
+router.post("/intents/:id/start-run", async (req, res): Promise<void> => {
   const params = StartRunParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });

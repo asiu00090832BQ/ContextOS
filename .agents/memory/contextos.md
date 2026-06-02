@@ -19,9 +19,16 @@ api-server runs from a prebuilt esbuild bundle; its `dev` script = build && star
 API source you MUST `restart_workflow` to rebuild before changes take effect. Curl tests need the
 `https://$REPLIT_DEV_DOMAIN/...` prefix.
 
-## Route mounting gotcha
-Domain routers are mounted with NO path prefix, so synthesis paths are `/api/blueprints` etc.,
-NOT under `/api/integrations/...`. List* responses are bare arrays; Zod strips unknown fields.
+## Backend paths MUST equal OpenAPI paths (contract drift trap)
+The React client builds URLs from `lib/api-spec/openapi.yaml` operationIds/paths, so every
+Express route string must match the OpenAPI path exactly — a backend-only path renders seeded
+GETs fine yet makes UI actions silently 404. **Why:** validation blocked us twice when backend
+names drifted (e.g. `/blueprints`→`/integration-blueprints`, `/generated-servers`→
+`/generated-mcp-servers`, intents `/runs`→`/start-run`, `/evaluations`→`/evaluation-records`).
+**How to apply:** after any route change, diff all `router.METHOD("...")` strings against the
+OpenAPI path list and curl over `https://$REPLIT_DEV_DOMAIN/api/...`; never trust a direct curl to
+a backend-only path. Domain routers mount with NO prefix under `/api`. List* responses are bare
+arrays; Zod strips unknown fields.
 
 ## Secret handling decision
 Model-endpoint API keys must never be stored as raw key material in DB rows. Raw values go through

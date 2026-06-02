@@ -90,12 +90,39 @@ interface ProviderCallArgs {
   req: LlmRequest;
 }
 
+// Provider types that can be reached without an API key (e.g. self-hosted /
+// local OpenAI-compatible servers such as Ollama or vLLM behind host/port).
+const KEYLESS_PROVIDER_TYPES = new Set(["openai_compatible"]);
+
+function providerRequiresKey(providerType: string): boolean {
+  return !KEYLESS_PROVIDER_TYPES.has(providerType);
+}
+
+/**
+ * Resolve the base URL for an endpoint. Prefer an explicit baseUrl; otherwise
+ * derive it from host/port (port 443 implies https); finally fall back to the
+ * provider default. `suffix` is appended only when deriving from host/port.
+ */
+function resolveBaseUrl(
+  endpoint: ModelEndpoint,
+  defaultBase: string,
+  suffix = "",
+): string {
+  if (endpoint.baseUrl) return endpoint.baseUrl;
+  if (endpoint.host) {
+    const scheme = endpoint.port === 443 ? "https" : "http";
+    const portPart = endpoint.port ? `:${endpoint.port}` : "";
+    return `${scheme}://${endpoint.host}${portPart}${suffix}`;
+  }
+  return defaultBase;
+}
+
 async function callOpenAiCompatible({
   endpoint,
   apiKey,
   req,
 }: ProviderCallArgs): Promise<string> {
-  const base = endpoint.baseUrl ?? "https://api.openai.com/v1";
+  const base = resolveBaseUrl(endpoint, "https://api.openai.com/v1", "/v1");
   const url = `${base.replace(/\/$/, "")}/chat/completions`;
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -125,7 +152,7 @@ async function callAnthropic({
   apiKey,
   req,
 }: ProviderCallArgs): Promise<string> {
-  const base = endpoint.baseUrl ?? "https://api.anthropic.com";
+  const base = resolveBaseUrl(endpoint, "https://api.anthropic.com");
   const url = `${base.replace(/\/$/, "")}/v1/messages`;
   const system = req.messages
     .filter((m) => m.role === "system")
@@ -161,8 +188,10 @@ async function callGoogle({
   apiKey,
   req,
 }: ProviderCallArgs): Promise<string> {
-  const base =
-    endpoint.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta";
+  const base = resolveBaseUrl(
+    endpoint,
+    "https://generativelanguage.googleapis.com/v1beta",
+  );
   const url = `${base.replace(/\/$/, "")}/models/${endpoint.modelName}:generateContent?key=${apiKey ?? ""}`;
   const contents = req.messages
     .filter((m) => m.role !== "system")
@@ -200,7 +229,7 @@ export async function complete(
   apiKey: string | null,
   req: LlmRequest,
 ): Promise<LlmResult> {
-  if (!endpoint || !apiKey) {
+  if (!endpoint || (providerRequiresKey(endpoint.providerType) && !apiKey)) {
     return stubComplete(req, endpoint?.name ?? "stub");
   }
 
@@ -251,7 +280,7 @@ export async function testEndpoint(
   endpoint: ModelEndpoint,
   apiKey: string | null,
 ): Promise<{ ok: boolean; mode: string; latencyMs: number; detail: string }> {
-  if (!apiKey) {
+  if (providerRequiresKey(endpoint.providerType) && !apiKey) {
     return {
       ok: false,
       mode: "not_testable",

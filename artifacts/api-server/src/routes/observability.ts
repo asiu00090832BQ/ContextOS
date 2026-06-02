@@ -201,7 +201,7 @@ router.get("/observability/metrics", async (req, res): Promise<void> => {
   );
 });
 
-router.get("/evaluations", async (req, res): Promise<void> => {
+router.get("/evaluation-records", async (req, res): Promise<void> => {
   const rows = await db
     .select()
     .from(evaluationRecordsTable)
@@ -210,7 +210,7 @@ router.get("/evaluations", async (req, res): Promise<void> => {
   res.json(ListEvaluationRecordsResponse.parse(rows.map(serializeEvaluation)));
 });
 
-router.post("/evaluations", async (req, res): Promise<void> => {
+router.post("/evaluation-records", async (req, res): Promise<void> => {
   const parsed = CreateEvaluationRecordBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -233,7 +233,7 @@ router.post("/evaluations", async (req, res): Promise<void> => {
   res.status(201).json(LabelEvaluationRecordResponse.parse(serializeEvaluation(row)));
 });
 
-router.patch("/evaluations/:id", async (req, res): Promise<void> => {
+router.post("/evaluation-records/:id/label", async (req, res): Promise<void> => {
   const params = LabelEvaluationRecordParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
