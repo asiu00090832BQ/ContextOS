@@ -1,0 +1,562 @@
+Add this amendment as a new section called **Full-Stack Observability and Layer Visibility for UI Inspection**. The purpose of this section is to give operators, developers, and admins direct visibility into every meaningful layer of the system in the product UI: user request, run, agent, context, policy, model call, tool call, adapter, memory write, approval, artifact, event, and evaluation. In agent systems, traces become the primary source of truth because failures often come from reasoning, routing, or context quality rather than a traditional code crash, and modern observability guidance consistently emphasizes traces, metrics, and logs across the full execution tree. [youtube](https://www.youtube.com/watch?v=reISMhbZ2XE)
+
+## X+2. Full-Stack Observability and Layer Visibility for UI Inspection
+
+### X+2.1 Purpose
+
+The system must provide **UI-level visibility into all layers** so that users can inspect what happened, why it happened, what context was used, which model or agent made which decision, which tools were called, what policies applied, and where time, tokens, or failures accumulated. Observability for LLM and agent systems requires preserving the full execution context of each request, including prompts, responses, tool calls, and their relationships, rather than relying on generic logs alone. [opentelemetry](https://opentelemetry.io/blog/2024/llm-observability/)
+
+This observability layer must support:
+- debugging,
+- operations monitoring,
+- quality review,
+- cost analysis,
+- compliance auditing,
+- safety review,
+- dataset creation for evals,
+- UX visibility into run internals.
+
+### X+2.2 Core principle
+
+Every top-level user request or system trigger must map to **one root trace**, and everything else must hang beneath it as structured child observations. This trace-tree model is widely recommended because it lets teams inspect one request as a full execution graph spanning agents, model calls, retrieval, tools, and downstream actions. [blogs.oracle](https://blogs.oracle.com/ai-and-datascience/observability-for-multi-agent-systems)
+
+The UI must expose visibility into these layers:
+- request/thread layer,
+- run layer,
+- task graph layer,
+- agent layer,
+- model invocation layer,
+- context assembly layer,
+- memory layer,
+- capability/tool/resource/prompt layer,
+- adapter/network layer,
+- approval/policy layer,
+- artifact/output layer,
+- eval/quality layer,
+- audit/security layer.
+
+### X+2.3 New domain objects
+
+Add the following persistent objects.
+
+#### traces
+
+```ts
+id: string pk
+tenant_id: string fk
+trace_key: string unique
+root_type: enum(user_request, scheduled_job, webhook, api_call, internal_workflow)
+root_id: string nullable
+session_id: string nullable
+thread_id: string nullable
+principal_id: string nullable fk -> principals.id
+run_id: string nullable fk -> runs.id
+status: enum(active, completed, failed, cancelled, partial)
+started_at: datetime
+ended_at: datetime nullable
+total_latency_ms: int nullable
+total_input_tokens: int default 0
+total_output_tokens: int default 0
+total_cost_usd: decimal nullable
+created_at: datetime
+updated_at: datetime
+```
+
+#### observations
+
+```ts
+id: string pk
+tenant_id: string fk
+trace_id: string fk -> traces.id
+parent_observation_id: string nullable fk -> observations.id
+observation_type: enum(run, task_node, agent_run, model_call, context_assembly, retrieval, memory_write, tool_call, resource_read, prompt_fetch, policy_check, approval, artifact_write, event_emit, eval, ui_action, network_call, error)
+reference_id: string nullable
+reference_table: string nullable
+name: string
+status: enum(started, completed, failed, cancelled, skipped, pending)
+started_at: datetime
+ended_at: datetime nullable
+latency_ms: int nullable
+token_input: int nullable
+token_output: int nullable
+cost_usd: decimal nullable
+metadata_json: jsonb
+input_snapshot_json: jsonb nullable
+output_snapshot_json: jsonb nullable
+error_snapshot_json: jsonb nullable
+created_at: datetime
+updated_at: datetime
+```
+
+#### observation_metrics
+
+```ts
+id: string pk
+tenant_id: string fk
+observation_id: string fk -> observations.id
+metric_key: string
+metric_type: enum(count, gauge, histogram, score, duration, currency)
+metric_value_number: float nullable
+metric_value_text: string nullable
+unit: string nullable
+created_at: datetime
+```
+
+#### evaluation_records
+
+```ts
+id: string pk
+tenant_id: string fk
+trace_id: string nullable fk -> traces.id
+run_id: string nullable fk -> runs.id
+agent_run_id: string nullable fk -> agent_runs.id
+evaluation_type: enum(heuristic, model_judge, rule_based, human_review, regression, safety_check, trajectory_check)
+subject_type: enum(trace, observation, output, tool_call, context_pack, memory_note, artifact)
+subject_id: string
+score: float nullable
+label: string nullable
+passed: boolean nullable
+explanation: text nullable
+rubric_json: jsonb nullable
+created_at: datetime
+updated_at: datetime
+```
+
+#### ui_views
+
+```ts
+id: string pk
+tenant_id: string fk
+user_id: string fk -> users.id
+view_key: string
+layout_json: jsonb
+filters_json: jsonb
+created_at: datetime
+updated_at: datetime
+unique(tenant_id, user_id, view_key)
+```
+
+### X+2.4 Trace model
+
+The trace model must be hierarchical.
+
+#### Root trace hierarchy
+
+- Trace
+  - Run observation
+    - Task node observation
+      - Agent run observation
+        - Model call observation
+        - Context assembly observation
+        - Retrieval observation
+        - Tool call observation
+        - Policy check observation
+        - Approval observation
+        - Memory write observation
+        - Artifact write observation
+        - Eval observation
+
+This tree must be reconstructable in the UI as an expandable timeline and as a graph. Agent observability guidance repeatedly recommends trace-centric debugging because the execution path itself is the system behavior. [youtube](https://www.youtube.com/watch?v=FDVdLrloFOw)
+
+### X+2.5 Instrumentation requirements
+
+Every service in the platform must emit traces, logs, and metrics, and the instrumentation model should align with OpenTelemetry conventions rather than inventing isolated proprietary telemetry formats. OpenTelemetry guidance for agent systems explicitly recommends standardized traces, metrics, and logs, plus compatibility with existing instrumentation libraries. [opentelemetry](https://opentelemetry.io/blog/2025/ai-agent-observability/)
+
+#### Required instrumentation points
+
+Emit an observation for:
+- intent creation,
+- policy bundle resolution,
+- adapter discovery,
+- context fragment retrieval,
+- context pack assembly,
+- agent start/end,
+- model invocation,
+- tool proposal,
+- tool execution,
+- resource read,
+- prompt fetch,
+- approval requested/resolved,
+- memory write,
+- compaction,
+- artifact creation,
+- eval execution,
+- error handling,
+- final response render.
+
+#### Required metadata fields
+
+Every observation must include:
+- `tenant_id`
+- `trace_id`
+- `run_id` if applicable
+- `agent_id` if applicable
+- `agent_run_id` if applicable
+- `node_id` if applicable
+- `principal_id` if applicable
+- `adapter_id` if applicable
+- `capability_id` if applicable
+- `model_name` if applicable
+- `status`
+- `started_at`
+- `ended_at`
+- `latency_ms`
+
+### X+2.6 Snapshot requirements
+
+The UI should support drill-down, so each observation type must store the right snapshots.
+
+#### Model call snapshot
+
+`input_snapshot_json` should include:
+- system prompt or instruction reference,
+- conversation messages,
+- selected context summary,
+- tool availability summary,
+- response format schema ref.
+
+`output_snapshot_json` should include:
+- raw text,
+- structured output,
+- tool calls requested,
+- usage and finish reason.
+
+#### Context assembly snapshot
+
+`input_snapshot_json` should include:
+- intent,
+- candidate fragment IDs,
+- policy bundle ref,
+- token budget.
+
+`output_snapshot_json` should include:
+- selected fragment IDs,
+- rejected fragment IDs,
+- scores,
+- reserved tokens,
+- resource handles.
+
+#### Tool call snapshot
+
+`input_snapshot_json` should include:
+- tool name,
+- arguments,
+- policy context,
+- approval state,
+- delegated account ref.
+
+`output_snapshot_json` should include:
+- structured result,
+- returned artifacts,
+- error state,
+- latency,
+- retry count.
+
+#### Policy check snapshot
+
+Should include:
+- matched rules,
+- denied rules,
+- redactions applied,
+- approval requirement decision,
+- risk score.
+
+These detailed snapshots are essential because effective observability for agent systems depends on seeing the causal chain rather than only final outputs. [langfuse](https://langfuse.com/docs/observability/overview)
+
+### X+2.7 New indexes on existing tables
+
+Add these columns to existing tables so the UI can join every layer efficiently:
+
+#### runs
+- `trace_id: string nullable fk -> traces.id`
+
+#### actions
+- `trace_id: string`
+- `observation_id: string nullable fk -> observations.id`
+
+#### context_packs
+- `trace_id: string nullable`
+- `observation_id: string nullable fk -> observations.id`
+
+#### context_fragments
+- `trace_id: string nullable`
+- `source_observation_id: string nullable fk -> observations.id`
+
+#### artifacts
+- `trace_id: string nullable`
+- `source_observation_id: string nullable fk -> observations.id`
+
+#### approval_requests
+- `trace_id: string nullable`
+- `observation_id: string nullable fk -> observations.id`
+
+#### agent_runs
+- `trace_id: string nullable`
+- `observation_id: string nullable fk -> observations.id`
+
+#### event_logs
+- `trace_id: string`
+- `observation_id: string nullable fk -> observations.id`
+
+#### audit_records
+- `trace_id: string`
+- `observation_id: string nullable fk -> observations.id`
+
+### X+2.8 UI requirements
+
+Add a first-class **Observability** section to the app.
+
+#### New routes
+
+- `/workspace/[tenantId]/observability`
+- `/workspace/[tenantId]/observability/traces`
+- `/workspace/[tenantId]/observability/traces/[traceId]`
+- `/workspace/[tenantId]/observability/agents`
+- `/workspace/[tenantId]/observability/models`
+- `/workspace/[tenantId]/observability/tools`
+- `/workspace/[tenantId]/observability/context`
+- `/workspace/[tenantId]/observability/policies`
+- `/workspace/[tenantId]/observability/evals`
+- `/workspace/[tenantId]/observability/errors`
+
+#### Trace list UI
+
+Show:
+- trace ID,
+- root type,
+- principal,
+- status,
+- started time,
+- duration,
+- total tokens,
+- total cost,
+- agent count,
+- tool call count,
+- error badge,
+- eval status.
+
+Support filters:
+- time range,
+- status,
+- principal,
+- agent,
+- model,
+- adapter,
+- tool,
+- risk level,
+- approval required,
+- tenant role.
+
+#### Trace detail UI
+
+The trace detail page must have tabs:
+- Overview
+- Timeline
+- Execution tree
+- Context
+- Agents
+- Tools
+- Policies
+- Artifacts
+- Evals
+- Audit
+- Raw JSON
+
+The page should let a user:
+- expand every observation,
+- inspect inputs/outputs,
+- view token and cost contribution by child span,
+- compare selected context vs rejected context,
+- see the exact policy decision for a blocked action,
+- see inter-agent delegation chain,
+- open related artifacts,
+- inspect model outputs and structured responses.
+
+Trace dashboards and execution trees are increasingly used as the core UI pattern for visibility into agent behavior. [montecarlo](https://montecarlo.ai/blog-agent-trace-dashboards)
+
+### X+2.9 Specialized dashboards
+
+Add the following dashboard pages.
+
+#### Agent dashboard
+Show:
+- runs per agent,
+- success/failure rate,
+- average latency,
+- average tokens,
+- average cost,
+- delegated tasks sent/received,
+- top failure reasons.
+
+#### Model dashboard
+Show:
+- calls per model,
+- average input/output tokens,
+- latency percentile,
+- finish reason distribution,
+- tool-call rate,
+- JSON-schema pass rate.
+
+#### Tool dashboard
+Show:
+- tool calls per capability,
+- success rate,
+- approval frequency,
+- latency percentile,
+- retry frequency,
+- error taxonomy.
+
+#### Context dashboard
+Show:
+- average candidate fragments vs selected fragments,
+- token efficiency,
+- stale fragment rate,
+- context pack size distribution,
+- retrieval latency,
+- summary vs raw usage ratio.
+
+#### Policy dashboard
+Show:
+- denied actions,
+- approval requested rate,
+- redaction counts,
+- risk-level distribution,
+- top blocked tools.
+
+#### Eval dashboard
+Show:
+- pass/fail rates,
+- trajectory quality,
+- safety scores,
+- regression changes,
+- human review queue.
+
+These dashboards align with the common recommendation to combine traces with aggregate metrics and quality signals for operational debugging and continuous improvement. [dev](https://dev.to/kuldeep_paul/a-comprehensive-guide-to-observability-in-ai-agents-best-practices-4bd4)
+
+### X+2.10 Metrics contract
+
+At minimum, compute and store these metrics:
+
+#### Trace-level
+- total duration
+- total tokens in/out
+- total cost
+- total agents involved
+- total tools called
+- total approvals requested
+- total artifacts created
+- total errors
+
+#### Agent-level
+- calls
+- success rate
+- delegation rate
+- average latency
+- average tokens
+- average cost
+
+#### Model-level
+- calls
+- input tokens
+- output tokens
+- cost
+- latency p50/p95/p99
+- schema validation failure rate
+
+#### Tool-level
+- call count
+- success rate
+- retry rate
+- timeout rate
+- approval rate
+- risk distribution
+
+#### Context-level
+- average candidate count
+- average selected count
+- average token budget usage
+- stale memory rate
+- rejected fragment reasons
+
+#### Policy-level
+- approvals by rule
+- denials by rule
+- redaction events
+- tool blocks
+- action risk counts
+
+### X+2.11 Eval integration
+
+Observability and evaluation must be connected. Production traces should be reusable as an eval dataset source, and evaluation records should attach back to traces and observations so teams can compare good vs bad trajectories over time. Trace-driven eval workflows are now a common best practice in agent development. [youtube](https://www.youtube.com/watch?v=reISMhbZ2XE)
+
+Add capabilities to:
+- mark traces as reference examples,
+- label traces as success/failure,
+- sample traces into offline eval sets,
+- attach human review notes,
+- compare two traces side by side,
+- replay selected traces through newer prompts/models.
+
+### X+2.12 Export and interoperability
+
+The system must be able to export telemetry to external tooling. OpenTelemetry alignment is specifically recommended for interoperability and consistency across frameworks. [opentelemetry](https://opentelemetry.io/blog/2025/ai-agent-observability/)
+
+Add export configuration for:
+- OpenTelemetry traces,
+- OpenTelemetry metrics,
+- JSONL trace dumps,
+- CSV metric exports.
+
+Add table: `telemetry_exports`
+
+```ts
+id: string pk
+tenant_id: string fk
+export_type: enum(otlp_http, otlp_grpc, jsonl, csv)
+destination_config_json: jsonb
+status: enum(active, disabled, error)
+created_at: datetime
+updated_at: datetime
+```
+
+### X+2.13 Access control for observability
+
+Observability must be deep but safe.
+
+Rules:
+- owners/admins can view all traces in tenant,
+- members can view traces they initiated and traces they are granted access to,
+- viewers get read-only filtered visibility,
+- secret-bearing fields must be masked by default,
+- raw prompts and tool payloads should be permission-gated,
+- export settings are owner/admin only,
+- audit views cannot be edited or deleted.
+
+### X+2.14 Acceptance criteria
+
+This amendment is complete only if:
+- every run has a root trace,
+- every major operation creates an observation,
+- the UI can render a full execution tree,
+- the UI can show context, model, tool, policy, and artifact layers separately,
+- tokens, latency, and cost are visible per layer,
+- eval records attach to traces and observations,
+- users can filter and inspect traces by agent/model/tool/policy,
+- telemetry can be exported to external observability systems,
+- sensitive fields are masked according to access policy. [blogs.oracle](https://blogs.oracle.com/ai-and-datascience/observability-for-multi-agent-systems)
+
+### X+2.15 Implementation order
+
+Tell the coding platform to build this amendment in the following order:
+1. `traces`
+2. `observations`
+3. instrumentation hooks in run/model/tool/context/policy paths
+4. trace list page
+5. trace detail page with execution tree
+6. metrics aggregation
+7. specialized dashboards
+8. eval linkage
+9. export configuration
+10. masking and access control
+
+This order works because trace capture is the foundation; metrics, dashboards, and evals only become reliable once the system records complete, structured traces first. [langfuse](https://langfuse.com/docs/observability/overview)

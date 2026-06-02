@@ -1,0 +1,894 @@
+Yes — for a vibe-coding platform, the best spec is not a long architecture essay. It should be a **copy-pasteable, implementation-biased product spec** with: clear scope, fixed entities, concrete API routes, database tables, JSON payloads, user flows, and “build in this order” instructions. Design-first API specs and explicit schema constraints are especially useful for code generation and structured implementation, while MCP’s primitives cleanly separate tools, resources, and prompts. [dev](https://dev.to/hsmall/10-openapi-best-practices-that-elevate-your-api-game-2hpj)
+
+## Recommended format
+
+Use a single spec with these sections, in this exact order:
+1. Product goal
+2. MVP scope
+3. System architecture
+4. Data model
+5. API specification
+6. MCP adapter contract
+7. Runtime workflows
+8. UI screens
+9. Background jobs
+10. Security rules
+11. Non-goals
+12. Build order [learn.openapis](https://learn.openapis.org/best-practices.html)
+
+For vibe-coding tools, optimize for:
+- Short declarative requirements, not philosophy.
+- Explicit enums and field names.
+- CRUD endpoints with example payloads.
+- Deterministic acceptance criteria.
+- “Do this, then this” implementation sequence.
+- Minimal optionality. Too many alternatives produce messy output. [superjson](https://superjson.ai/blog/2025-08-17-json-schema-structured-output-apis-complete-guide/)
+
+## Copy-paste spec
+
+Below is a spec intentionally written for an AI coding platform to implement directly.
+
+### Product
+
+Build a multi-tenant web application called **ContextOS**.
+
+ContextOS is a context platform plus MCP integration system for AI agents operating across arbitrary third-party apps. The product stores identity, memory, context fragments, policies, runs, actions, approvals, artifacts, and MCP adapter metadata. It lets users connect apps, authorize agent actions, run agent tasks, inspect context, and review logs. MCP should be used as the app integration protocol for tools, resources, and prompts exposed by adapters. [philschmid](https://www.philschmid.de/mcp-introduction)
+
+### MVP goals
+
+Build an MVP that supports:
+- User auth
+- Multi-tenant workspaces
+- Linked app accounts
+- MCP adapter registry
+- Intent creation
+- Run execution
+- Context assembly
+- Tool execution logging
+- Approval workflow
+- Artifact storage metadata
+- Audit trail
+- Admin UI for inspection
+
+Do not build:
+- advanced billing
+- real-time collaboration
+- custom model training
+- autonomous recursive agents
+- vector search tuning UI
+- workflow builder drag-and-drop
+
+### Tech stack
+
+Use:
+- Next.js 15 with App Router
+- TypeScript
+- PostgreSQL with Prisma
+- Redis for queues/caching
+- Object storage abstraction for artifacts
+- Server-sent events for run streaming
+- Tailwind for UI
+- Zod for runtime validation
+- OpenAPI route definitions where practical
+- JSON Schema compatible payload shapes
+- MCP adapter client layer supporting Streamable HTTP first, stdio second. MCP client/server architecture expects discovery and invocation across tools, resources, and prompts. [dailydoseofds](https://www.dailydoseofds.com/model-context-protocol-crash-course-part-4/)
+
+### Core concepts
+
+Implement these domain concepts exactly:
+
+- Tenant: workspace boundary
+- User: authenticated human
+- Principal: execution identity for human, service, or agent
+- LinkedAccount: connection to external app
+- Adapter: installed MCP-capable integration
+- Capability: tool, resource, or prompt from an adapter
+- Intent: requested task
+- Run: execution instance of an intent
+- ContextFragment: atomic fact, summary, or excerpt
+- ContextPack: set of fragments chosen for one step
+- WorkingMemory: active state for a run
+- Action: a tool invocation attempt
+- ApprovalRequest: user approval for risky actions
+- Artifact: generated or retrieved output
+- PolicyBundle: resolved permissions and limits
+- EventLog: immutable runtime event stream
+- AuditRecord: compliance-oriented activity record
+
+### User roles
+
+Implement these roles:
+- `owner`
+- `admin`
+- `member`
+- `viewer`
+- `service_agent`
+
+Permissions:
+- owner: full workspace control
+- admin: manage users, adapters, policies, runs
+- member: create intents, run agents, approve own actions
+- viewer: read-only
+- service_agent: internal machine role only
+
+### App structure
+
+Create these app sections:
+- `/login`
+- `/workspace/[tenantId]/dashboard`
+- `/workspace/[tenantId]/apps`
+- `/workspace/[tenantId]/adapters`
+- `/workspace/[tenantId]/intents`
+- `/workspace/[tenantId]/runs`
+- `/workspace/[tenantId]/memory`
+- `/workspace/[tenantId]/artifacts`
+- `/workspace/[tenantId]/audit`
+- `/workspace/[tenantId]/settings`
+
+## Database schema
+
+Use these tables.
+
+### tenants
+
+```ts
+id: string pk
+name: string
+slug: string unique
+created_at: datetime
+updated_at: datetime
+```
+
+### users
+
+```ts
+id: string pk
+email: string unique
+name: string
+avatar_url: string nullable
+created_at: datetime
+updated_at: datetime
+```
+
+### memberships
+
+```ts
+id: string pk
+tenant_id: string fk -> tenants.id
+user_id: string fk -> users.id
+role: enum(owner, admin, member, viewer)
+created_at: datetime
+unique(tenant_id, user_id)
+```
+
+### principals
+
+```ts
+id: string pk
+tenant_id: string fk
+type: enum(human, service, agent, group)
+display_name: string
+email: string nullable
+user_id: string nullable fk -> users.id
+status: enum(active, disabled, pending, deleted)
+trust_level: enum(external, contractor, employee, admin, system)
+attributes_json: jsonb
+created_at: datetime
+updated_at: datetime
+```
+
+### linked_accounts
+
+```ts
+id: string pk
+tenant_id: string fk
+principal_id: string fk -> principals.id
+system_name: string
+external_user_id: string
+auth_mode: enum(oauth_delegated, service_account, api_key, session_token, none)
+credential_ref: string nullable
+scopes_json: jsonb
+status: enum(connected, expired, revoked, error)
+last_validated_at: datetime nullable
+created_at: datetime
+updated_at: datetime
+```
+
+### adapters
+
+```ts
+id: string pk
+tenant_id: string fk
+key: string
+display_name: string
+adapter_type: enum(api, data, ui_automation, event, composite)
+protocol: enum(mcp)
+transport_type: enum(streamable_http, stdio)
+endpoint_url: string nullable
+protocol_version: string
+session_mode: enum(stateless, stateful)
+status: enum(active, deprecated, disabled, testing)
+manifest_json: jsonb
+created_at: datetime
+updated_at: datetime
+unique(tenant_id, key)
+```
+
+### capabilities
+
+```ts
+id: string pk
+tenant_id: string fk
+adapter_id: string fk -> adapters.id
+kind: enum(tool, resource, prompt)
+mcp_name: string
+title: string
+description: text nullable
+risk_level: enum(L0, L1, L2, L3, L4)
+requires_approval: boolean
+idempotent: boolean
+input_schema_json: jsonb nullable
+output_schema_json: jsonb nullable
+resource_uri_pattern: string nullable
+raw_descriptor_json: jsonb
+created_at: datetime
+updated_at: datetime
+```
+
+### intents
+
+```ts
+id: string pk
+tenant_id: string fk
+principal_id: string fk -> principals.id
+source: enum(chat, api, workflow, schedule, event, manual_review)
+goal: text
+goal_type: enum(answer, analyze, draft, execute, monitor, transform, research, coordinate)
+constraints_json: jsonb
+success_criteria_json: jsonb
+allowed_systems_json: jsonb
+denied_systems_json: jsonb
+risk_tier: enum(low, medium, high, critical)
+priority: enum(background, normal, urgent, blocking)
+token_budget: int
+latency_budget_ms: int
+deadline_at: datetime nullable
+status: enum(open, running, completed, failed, cancelled)
+created_at: datetime
+updated_at: datetime
+```
+
+### runs
+
+```ts
+id: string pk
+tenant_id: string fk
+intent_id: string fk -> intents.id
+lead_agent_id: string
+status: enum(queued, running, paused, awaiting_approval, completed, failed, cancelled)
+planner_model: string
+executor_model: string
+verifier_model: string
+tokens_used: int
+tokens_max: int
+tool_calls_used: int
+tool_calls_max: int
+wall_clock_ms: int
+current_task_graph_json: jsonb nullable
+started_at: datetime
+ended_at: datetime nullable
+created_at: datetime
+updated_at: datetime
+```
+
+### working_memories
+
+```ts
+id: string pk
+tenant_id: string fk
+run_id: string fk -> runs.id
+open_questions_json: jsonb
+hypotheses_json: jsonb
+decisions_json: jsonb
+completed_steps_json: jsonb
+pending_approvals_json: jsonb
+artifact_ids_json: jsonb
+created_at: datetime
+updated_at: datetime
+unique(run_id)
+```
+
+### context_fragments
+
+```ts
+id: string pk
+tenant_id: string fk
+run_id: string nullable fk -> runs.id
+source_system: string
+source_object_uri: string
+fragment_type: enum(raw_excerpt, summary, fact, entity, table_slice, timeline_note, tool_output)
+text: text
+structured_value_json: jsonb nullable
+token_cost_estimate: int
+trust_score: float
+freshness_score: float
+relevance_score: float nullable
+novelty_score: float nullable
+conflict_score: float nullable
+sensitivity: enum(public, internal, confidential, restricted, secret)
+citations_json: jsonb
+created_at: datetime
+updated_at: datetime
+```
+
+### context_packs
+
+```ts
+id: string pk
+tenant_id: string fk
+run_id: string fk -> runs.id
+node_id: string
+principal_id: string fk -> principals.id
+intent_id: string fk -> intents.id
+policy_bundle_id: string fk -> policy_bundles.id
+fragment_ids_json: jsonb
+resource_handles_json: jsonb
+working_memory_ref: string nullable
+compaction_ref: string nullable
+max_tokens: int
+allocated_tokens: int
+reserved_tokens_for_output: int
+assembly_trace_json: jsonb
+created_at: datetime
+updated_at: datetime
+```
+
+### policy_bundles
+
+```ts
+id: string pk
+tenant_id: string fk
+principal_id: string fk -> principals.id
+intent_id: string fk -> intents.id
+allowed_adapters_json: jsonb
+allowed_tools_json: jsonb
+denied_tools_json: jsonb
+allowed_resource_patterns_json: jsonb
+redaction_rules_json: jsonb
+approval_rules_json: jsonb
+budget_rules_json: jsonb
+created_at: datetime
+updated_at: datetime
+```
+
+### actions
+
+```ts
+id: string pk
+tenant_id: string fk
+run_id: string fk -> runs.id
+node_id: string
+adapter_id: string fk -> adapters.id
+capability_id: string fk -> capabilities.id
+tool_name: string
+principal_id: string fk -> principals.id
+delegated_account_id: string nullable fk -> linked_accounts.id
+policy_bundle_id: string fk -> policy_bundles.id
+risk_level: enum(L0, L1, L2, L3, L4)
+approval_state: enum(not_required, pending, approved, denied, expired)
+idempotency_key: string nullable
+request_payload_json: jsonb
+response_payload_json: jsonb nullable
+result_status: enum(started, succeeded, failed, cancelled, timed_out)
+error_json: jsonb nullable
+artifact_refs_json: jsonb
+trace_id: string
+started_at: datetime
+ended_at: datetime nullable
+created_at: datetime
+updated_at: datetime
+```
+
+### approval_requests
+
+```ts
+id: string pk
+tenant_id: string fk
+run_id: string fk -> runs.id
+action_id: string fk -> actions.id
+principal_id: string fk -> principals.id
+requested_by_agent_id: string
+risk_level: enum(L0, L1, L2, L3, L4)
+reason: text
+preview_json: jsonb
+status: enum(pending, approved, denied, expired, cancelled)
+decision_by_user_id: string nullable fk -> users.id
+decision_note: text nullable
+expires_at: datetime
+decided_at: datetime nullable
+created_at: datetime
+updated_at: datetime
+```
+
+### artifacts
+
+```ts
+id: string pk
+tenant_id: string fk
+run_id: string nullable fk -> runs.id
+artifact_type: enum(document, table, image, audio, video, code, tool_result, report, draft_email, prompt_snapshot)
+title: string
+mime_type: string
+storage_uri: string
+size_bytes: int nullable
+hash: string nullable
+provenance_json: jsonb
+acl_json: jsonb
+status: enum(available, quarantined, deleted, expired)
+created_at: datetime
+updated_at: datetime
+```
+
+### event_logs
+
+```ts
+id: string pk
+tenant_id: string fk
+event_type: string
+trace_id: string
+run_id: string nullable fk -> runs.id
+node_id: string nullable
+actor_json: jsonb
+payload_json: jsonb
+created_at: datetime
+```
+
+### audit_records
+
+```ts
+id: string pk
+tenant_id: string fk
+event_id: string nullable fk -> event_logs.id
+record_type: enum(access, tool_call, approval, policy_decision, memory_write, redaction, artifact_access)
+principal_id: string nullable fk -> principals.id
+agent_id: string nullable
+target_ref: string
+outcome: enum(allowed, denied, succeeded, failed, expired)
+reason: text nullable
+trace_id: string
+created_at: datetime
+```
+
+## API specification
+
+Use REST APIs. All routes must be tenant-scoped except login/me.
+
+### Auth
+
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+
+### Tenants
+
+- `GET /api/tenants`
+- `POST /api/tenants`
+- `GET /api/tenants/:tenantId`
+- `PATCH /api/tenants/:tenantId`
+
+### Memberships
+
+- `GET /api/tenants/:tenantId/members`
+- `POST /api/tenants/:tenantId/members`
+- `PATCH /api/tenants/:tenantId/members/:membershipId`
+- `DELETE /api/tenants/:tenantId/members/:membershipId`
+
+### Principals
+
+- `GET /api/tenants/:tenantId/principals`
+- `POST /api/tenants/:tenantId/principals`
+- `GET /api/tenants/:tenantId/principals/:principalId`
+- `PATCH /api/tenants/:tenantId/principals/:principalId`
+
+### Linked accounts
+
+- `GET /api/tenants/:tenantId/linked-accounts`
+- `POST /api/tenants/:tenantId/linked-accounts`
+- `PATCH /api/tenants/:tenantId/linked-accounts/:accountId`
+- `POST /api/tenants/:tenantId/linked-accounts/:accountId/refresh`
+- `DELETE /api/tenants/:tenantId/linked-accounts/:accountId`
+
+### Adapters
+
+- `GET /api/tenants/:tenantId/adapters`
+- `POST /api/tenants/:tenantId/adapters`
+- `GET /api/tenants/:tenantId/adapters/:adapterId`
+- `PATCH /api/tenants/:tenantId/adapters/:adapterId`
+- `POST /api/tenants/:tenantId/adapters/:adapterId/discover`
+- `POST /api/tenants/:tenantId/adapters/:adapterId/test`
+
+### Capabilities
+
+- `GET /api/tenants/:tenantId/capabilities`
+- `GET /api/tenants/:tenantId/capabilities/:capabilityId`
+
+### Intents
+
+- `GET /api/tenants/:tenantId/intents`
+- `POST /api/tenants/:tenantId/intents`
+- `GET /api/tenants/:tenantId/intents/:intentId`
+- `PATCH /api/tenants/:tenantId/intents/:intentId`
+- `POST /api/tenants/:tenantId/intents/:intentId/start-run`
+
+### Runs
+
+- `GET /api/tenants/:tenantId/runs`
+- `GET /api/tenants/:tenantId/runs/:runId`
+- `POST /api/tenants/:tenantId/runs/:runId/pause`
+- `POST /api/tenants/:tenantId/runs/:runId/resume`
+- `POST /api/tenants/:tenantId/runs/:runId/cancel`
+- `GET /api/tenants/:tenantId/runs/:runId/stream`
+
+### Context
+
+- `GET /api/tenants/:tenantId/runs/:runId/context-fragments`
+- `POST /api/tenants/:tenantId/runs/:runId/context-fragments`
+- `GET /api/tenants/:tenantId/runs/:runId/context-packs`
+
+### Actions
+
+- `GET /api/tenants/:tenantId/runs/:runId/actions`
+- `GET /api/tenants/:tenantId/actions/:actionId`
+
+### Approvals
+
+- `GET /api/tenants/:tenantId/approvals`
+- `GET /api/tenants/:tenantId/approvals/:approvalId`
+- `POST /api/tenants/:tenantId/approvals/:approvalId/approve`
+- `POST /api/tenants/:tenantId/approvals/:approvalId/deny`
+
+### Artifacts
+
+- `GET /api/tenants/:tenantId/artifacts`
+- `GET /api/tenants/:tenantId/artifacts/:artifactId`
+
+### Audit
+
+- `GET /api/tenants/:tenantId/audit`
+- `GET /api/tenants/:tenantId/events`
+
+OpenAPI specs with stable naming, operation IDs, documented constraints, and explicit response codes are especially valuable for codegen-oriented tools. [gravitee](https://www.gravitee.io/blog/openapi-specification-structure-best-practices)
+
+## Request/response examples
+
+### Create adapter
+
+```json
+POST /api/tenants/t_123/adapters
+{
+  "key": "salesforce-primary",
+  "display_name": "Salesforce Primary",
+  "adapter_type": "api",
+  "protocol": "mcp",
+  "transport_type": "streamable_http",
+  "endpoint_url": "https://mcp.example.com/salesforce",
+  "protocol_version": "2025-06-18",
+  "session_mode": "stateful"
+}
+```
+
+Response:
+
+```json
+{
+  "id": "adp_001",
+  "key": "salesforce-primary",
+  "status": "testing"
+}
+```
+
+### Discover adapter capabilities
+
+```json
+POST /api/tenants/t_123/adapters/adp_001/discover
+{
+  "refresh": true
+}
+```
+
+Response:
+
+```json
+{
+  "adapter_id": "adp_001",
+  "capabilities_discovered": 12,
+  "tools": 5,
+  "resources": 4,
+  "prompts": 3
+}
+```
+
+### Create intent
+
+```json
+POST /api/tenants/t_123/intents
+{
+  "principal_id": "prn_001",
+  "source": "chat",
+  "goal": "Analyze renewal risk and draft outreach in connected systems",
+  "goal_type": "coordinate",
+  "constraints": [
+    "Do not send any email",
+    "Use only connected CRM and Gmail"
+  ],
+  "success_criteria": [
+    "Produce top 20 risky accounts",
+    "Create draft emails only if approved"
+  ],
+  "allowed_systems": ["salesforce", "gmail"],
+  "denied_systems": [],
+  "risk_tier": "medium",
+  "priority": "normal",
+  "token_budget": 32000,
+  "latency_budget_ms": 30000
+}
+```
+
+### Start run
+
+```json
+POST /api/tenants/t_123/intents/int_001/start-run
+{
+  "lead_agent_id": "agent_planner_v1",
+  "planner_model": "gpt-5-class",
+  "executor_model": "gpt-5-mini-class",
+  "verifier_model": "gpt-5-class"
+}
+```
+
+### Approve action
+
+```json
+POST /api/tenants/t_123/approvals/apr_001/approve
+{
+  "decision_note": "Approved to create draft only"
+}
+```
+
+## MCP adapter contract
+
+Every adapter must support:
+- capability discovery
+- tool invocation
+- resource listing/reading
+- prompt listing/getting
+- health test
+
+MCP distinguishes tools, resources, and prompts as separate primitives, so preserve those distinctions in your implementation rather than flattening them into one generic function list. [philschmid](https://www.philschmid.de/mcp-introduction)
+
+### Internal adapter interface
+
+```ts
+type AdapterHealth = {
+  ok: boolean
+  protocolVersion: string
+  transport: "streamable_http" | "stdio"
+  latencyMs: number
+  error?: string
+}
+
+type DiscoverResult = {
+  tools: MCPTool[]
+  resources: MCPResource[]
+  prompts: MCPPrompt[]
+}
+
+interface MCPAdapterClient {
+  testConnection(adapterId: string): Promise<AdapterHealth>
+  discover(adapterId: string): Promise<DiscoverResult>
+  callTool(adapterId: string, name: string, args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolCallResult>
+  listResources(adapterId: string): Promise<MCPResource[]>
+  readResource(adapterId: string, uri: string): Promise<ResourceReadResult>
+  listPrompts(adapterId: string): Promise<MCPPrompt[]>
+  getPrompt(adapterId: string, name: string, args?: Record<string, unknown>): Promise<PromptResult>
+}
+```
+
+### Tool execution context
+
+```ts
+type ToolExecutionContext = {
+  tenantId: string
+  principalId: string
+  runId: string
+  nodeId: string
+  policyBundleId: string
+  linkedAccountId?: string
+  traceId: string
+  dryRun?: boolean
+}
+```
+
+## Runtime behavior
+
+Implement the run engine as a deterministic service with these stages:
+
+1. Resolve intent
+2. Build policy bundle
+3. Discover relevant capabilities
+4. Build context fragments
+5. Assemble context pack
+6. Generate task graph
+7. Execute read steps
+8. Execute analysis steps
+9. For risky tool calls, create approval request
+10. Resume after approval
+11. Write artifacts
+12. Update working memory
+13. Emit events
+14. Mark run complete or failed
+
+### Status transitions
+
+Intent status:
+- `open -> running -> completed`
+- `open -> running -> failed`
+- `open -> cancelled`
+
+Run status:
+- `queued -> running`
+- `running -> awaiting_approval`
+- `awaiting_approval -> running`
+- `running -> paused`
+- `paused -> running`
+- `running -> completed`
+- `running -> failed`
+- `running -> cancelled`
+
+Action status:
+- `started -> succeeded`
+- `started -> failed`
+- `started -> timed_out`
+- `started -> cancelled`
+
+Approval status:
+- `pending -> approved`
+- `pending -> denied`
+- `pending -> expired`
+- `pending -> cancelled`
+
+## UI requirements
+
+### Dashboard
+
+Show:
+- total adapters
+- total capabilities
+- active runs
+- pending approvals
+- recent artifacts
+- recent audit events
+
+### Apps page
+
+Show linked accounts by system. Allow connect, refresh, revoke.
+
+### Adapters page
+
+Show adapter cards with:
+- name
+- transport
+- protocol version
+- status
+- health check button
+- discover capabilities button
+- capability counts
+
+### Intents page
+
+Show list and create form.
+
+### Run detail page
+
+Show:
+- intent summary
+- current status
+- task graph JSON viewer
+- context fragments table
+- context packs
+- actions table
+- approval panel
+- event stream
+- artifacts
+
+### Memory page
+
+Show:
+- working memory per run
+- context fragments
+- search by text
+- filters by sensitivity and fragment type
+
+### Audit page
+
+Show event and audit logs with filters.
+
+## Background jobs
+
+Implement these queue jobs:
+- adapter capability discovery
+- adapter health checks
+- run executor
+- approval expiration checker
+- artifact metadata enrichment
+- stale run timeout handler
+- compaction job after N actions
+- event-to-audit projection
+
+## Security rules
+
+Implement these hard rules:
+- all data is tenant-scoped
+- every API route validates tenant membership
+- only owners/admins can manage adapters and policies
+- only allowed principals can execute runs
+- tool invocation requires policy bundle
+- L3/L4 actions require approval by default
+- never store raw secrets in database rows
+- credentials are referenced by `credential_ref`
+- log all tool calls and approvals
+- redact restricted fields before storing context fragments
+
+## Acceptance criteria
+
+The generated product is acceptable only if:
+- a user can create a tenant and invite members
+- a user can connect a linked account
+- an admin can add an MCP adapter
+- the system can discover tools/resources/prompts from that adapter
+- a member can create an intent
+- starting an intent creates a run
+- a run emits events and stores context fragments
+- risky actions generate approval requests
+- approved actions resume execution
+- run details show actions, context, artifacts, and logs
+- all data is isolated by tenant
+
+## Implementation order
+
+Tell the coding platform to build in this order:
+1. Auth and tenant membership
+2. Prisma schema and migrations
+3. CRUD APIs for tenants, principals, linked accounts, adapters, intents, runs
+4. Basic dashboard UI
+5. MCP adapter client abstraction
+6. Adapter discovery and capability storage
+7. Run engine skeleton with fake execution
+8. Real context fragment storage
+9. Action logging
+10. Approval workflow
+11. Artifact and audit views
+12. Streaming run detail page
+13. Policy enforcement and role gating
+14. Background jobs and health checks
+
+## Prompt to give the vibe-coding platform
+
+Use this exact framing:
+
+> Build a production-style MVP web app called ContextOS using Next.js, TypeScript, Prisma, Postgres, Tailwind, and Redis. Use the database schema, routes, workflows, roles, and UI requirements exactly as specified. Generate clean, modular code. Use server actions or route handlers consistently. Create seed data. Add a polished admin UI. Stub external MCP calls behind an adapter service interface first, then implement one demo adapter. Keep everything tenant-scoped. Prefer explicit types, Zod validation, and predictable status enums. Do not invent extra product features.
+
+## Optional improvement
+
+The one thing I would add before pasting this into the tool is a final instruction saying:
+
+> First generate the Prisma schema, then route handlers, then page components, then seed script, then demo data, then a README with setup instructions.
+
+That reduces ambiguity and usually improves generated project structure for codegen systems. [dev](https://dev.to/hsmall/10-openapi-best-practices-that-elevate-your-api-game-2hpj)
+
+If you want, I can turn this into an even more vibe-coder-ready package with:
+1. Prisma schema
+2. OpenAPI YAML
+3. Seed data
+4. Exact UI wireframes
+5. A single master prompt for Lovable/Replit/Tempo/Cursor-style builders

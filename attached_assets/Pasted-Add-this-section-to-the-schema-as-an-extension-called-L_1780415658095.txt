@@ -1,0 +1,412 @@
+Add this section to the schema as an extension called **LLM Integration and Multi-Agent Architecture**. It should explicitly assume that the platform is built to sit behind or alongside your own LLM runtime, and that the system will evolve from single-agent orchestration to multiple cooperating agents with shared context, delegated work, and governed inter-agent communication. MCP is a strong fit for tool access and can also support agent-to-agent capability discovery and context sharing, while broader multi-agent interoperability may eventually benefit from complementary protocols as the system expands. [ibm](https://www.ibm.com/think/topics/ai-agent-orchestration)
+
+## X. LLM Integration and Multi-Agent Architecture
+
+### X.1 Purpose
+
+This system must be architected as an **LLM-native execution layer** that can plug into a custom model stack instead of assuming a hosted assistant product. The platform is responsible for context assembly, policy enforcement, tool/resource/prompt access, run orchestration, memory management, and multi-agent coordination, while the underlying LLM layer is treated as a swappable reasoning engine selected per task, per node, or per agent. [cloudappi](https://cloudappi.net/en/ai-agent-api-design-guide/)
+
+The design must support:
+- one custom primary LLM today,
+- multiple model backends later,
+- one lead agent initially,
+- multiple specialist agents later,
+- shared context with strict policy boundaries,
+- inter-agent delegation,
+- traceable coordination across agents and tools. [arxiv](https://arxiv.org/abs/2504.21030)
+
+### X.2 Architectural principle
+
+The platform must separate:
+- **Model layer**: actual LLM provider or self-hosted model runtime.
+- **Agent layer**: role-specific reasoning units using the model layer.
+- **Orchestration layer**: run graph, delegation, approvals, retries, and scheduling.
+- **Context layer**: memory, retrieval, context packs, provenance, compaction.
+- **Capability layer**: MCP tools, resources, prompts, adapter registry.
+- **Control layer**: policy, auditing, trust scoring, evaluation, and limits. [arxiv](https://arxiv.org/html/2601.13671v1)
+
+No agent should call external apps directly. All external actions must go through the capability layer, and all context passed to any agent must go through the context layer. This preserves replayability, auditability, and model independence. [solace](https://solace.com/blog/context-engineering-solace-agent-mesh/)
+
+### X.3 LLM provider abstraction
+
+Implement a provider abstraction so the platform can use your own LLM and later support additional backends without changing orchestration semantics.
+
+#### X.3.1 Required interface
+
+```ts
+interface LLMProvider {
+  generate(input: GenerateRequest): Promise<GenerateResponse>
+  stream(input: GenerateRequest): AsyncIterable<GenerateStreamEvent>
+  embed?(input: EmbedRequest): Promise<EmbedResponse>
+  moderate?(input: ModerateRequest): Promise<ModerateResponse>
+  healthCheck(): Promise<LLMHealth>
+}
+```
+
+#### X.3.2 GenerateRequest
+
+```ts
+type GenerateRequest = {
+  model: string
+  agentId: string
+  tenantId: string
+  runId: string
+  nodeId: string
+  traceId: string
+  systemInstruction: string
+  messages: Array<{
+    role: "system" | "user" | "assistant" | "tool"
+    content: string
+    name?: string
+  }>
+  responseFormat?: {
+    type: "json_schema" | "text"
+    jsonSchema?: Record<string, unknown>
+  }
+  toolChoice?: "none" | "auto" | "required"
+  availableTools?: Array<{
+    name: string
+    description: string
+    inputSchema: Record<string, unknown>
+  }>
+  temperature?: number
+  maxOutputTokens?: number
+  metadata?: Record<string, unknown>
+}
+```
+
+#### X.3.3 GenerateResponse
+
+```ts
+type GenerateResponse = {
+  outputText: string
+  structuredOutput?: Record<string, unknown>
+  toolCalls?: Array<{
+    name: string
+    arguments: Record<string, unknown>
+  }>
+  usage: {
+    inputTokens: number
+    outputTokens: number
+    totalTokens: number
+  }
+  finishReason: "stop" | "length" | "tool_calls" | "error"
+  latencyMs: number
+  rawProviderResponse?: unknown
+}
+```
+
+#### X.3.4 Requirements
+
+- The provider interface must not assume any specific vendor SDK.
+- Structured JSON outputs must be supported because the orchestration layer depends on typed planner, verifier, and summarizer outputs. Schema-constrained outputs are increasingly recognized as the right pattern for reliable LLM application development. [aws.amazon](https://aws.amazon.com/blogs/machine-learning/structured-outputs-on-amazon-bedrock-schema-compliant-ai-responses/)
+- Each call must carry tenant, run, node, and trace metadata for observability and replay. Distributed tracing and correlation IDs are considered core best practice for agentic API systems. [cloudappi](https://cloudappi.net/en/ai-agent-api-design-guide/)
+- Tool calls proposed by the model must never execute directly; they must be revalidated by the orchestration and policy layers before execution. [cloudappi](https://cloudappi.net/en/ai-agent-api-design-guide/)
+
+### X.4 Agent abstraction
+
+An agent is not just a prompt. An agent is a configured execution role with:
+- a purpose,
+- an allowed capability set,
+- a model policy,
+- a context policy,
+- an output contract,
+- escalation and delegation rules. Multi-agent orchestration depends on clear role separation and controlled coordination rather than vague free-form collaboration. [cobusgreyling.substack](https://cobusgreyling.substack.com/p/six-core-design-principles-for-multi)
+
+#### X.4.1 Agent schema
+
+Add a new persistent object: `agents`.
+
+```ts
+id: string pk
+tenant_id: string fk
+key: string unique per tenant
+display_name: string
+role_type: enum(lead, specialist, verifier, executor, summarizer, router, memory_manager)
+description: text
+status: enum(active, disabled, testing)
+default_model: string
+system_prompt: text
+allowed_capability_ids_json: jsonb
+allowed_adapter_ids_json: jsonb
+input_contract_json: jsonb
+output_contract_json: jsonb
+delegation_policy_json: jsonb
+context_policy_json: jsonb
+model_policy_json: jsonb
+created_at: datetime
+updated_at: datetime
+```
+
+#### X.4.2 Agent config fields
+
+- `role_type`: Defines the orchestration role.
+- `allowed_capability_ids_json`: Exact tools/resources/prompts the agent may use.
+- `context_policy_json`: Rules for max context size, allowed sensitivities, allowed memory scopes, and whether raw fragments or only summaries may be used.
+- `delegation_policy_json`: Which agent roles or specific agents this agent may call.
+- `input_contract_json`: JSON Schema for what the orchestrator passes into this agent.
+- `output_contract_json`: JSON Schema for what the agent must return.
+- `model_policy_json`: Contains preferred model, fallback model, max tokens, temperature, timeout, and cost ceiling. Modular, explicit agent boundaries are a recurring design principle in multi-agent orchestration guidance. [arxiv](https://arxiv.org/html/2601.13671v1)
+
+### X.5 Agent roles
+
+The platform must support these first-class agent roles:
+
+- **Lead agent**: Owns the user goal, overall plan, and final synthesis.
+- **Specialist agent**: Handles one domain, app family, or skill.
+- **Verifier agent**: Checks evidence, policy, and correctness before critical next steps.
+- **Executor agent**: Produces structured action requests only; it does not bypass policy.
+- **Summarizer agent**: Compacts context and creates durable notes.
+- **Router agent**: Chooses which specialist or model to invoke.
+- **Memory manager agent**: Proposes memory writes, merges, or supersessions.
+
+The lead agent should remain the main user-facing coordinator, while specialist agents should be invoked only when specialization materially improves performance or isolation. Several sources recommend starting with a simpler orchestration model and scaling into multi-agent only where specialization is clearly useful. [vellum](https://www.vellum.ai/blog/multi-agent-systems-building-with-context-engineering)
+
+### X.6 Inter-agent communication model
+
+Inter-agent communication must be explicit, typed, and logged. Do not let agents “chat” in an uncontrolled way. Instead, treat agent-to-agent interactions as structured delegation events with bounded inputs and outputs. Governed orchestration is consistently emphasized as essential for scalable multi-agent systems. [gurusup](https://gurusup.com/blog/multi-agent-orchestration-guide)
+
+#### X.6.1 Add new object: agent_messages
+
+```ts
+id: string pk
+tenant_id: string fk
+run_id: string fk
+from_agent_id: string fk -> agents.id
+to_agent_id: string fk -> agents.id
+message_type: enum(delegate_task, request_context, provide_context, request_review, provide_review, status_update, error)
+subject: string
+payload_json: jsonb
+response_to_message_id: string nullable fk -> agent_messages.id
+status: enum(created, delivered, completed, failed, cancelled)
+trace_id: string
+created_at: datetime
+updated_at: datetime
+```
+
+#### X.6.2 Delegation rules
+
+Every inter-agent delegation must include:
+- source agent,
+- target agent,
+- reason for delegation,
+- explicit task description,
+- allowed tools/resources/prompts for the subtask,
+- context pack reference or explicitly embedded bounded context,
+- output schema expected from the target agent,
+- timeout and retry rules. [gurusup](https://gurusup.com/blog/multi-agent-orchestration-guide)
+
+#### X.6.3 Delegation request schema
+
+```json
+{
+  "delegation_id": "dlg_001",
+  "from_agent_id": "agent_lead",
+  "to_agent_id": "agent_crm_specialist",
+  "run_id": "run_001",
+  "task": "Rank renewal risk for top 50 opportunities",
+  "reason": "CRM-specific analysis required",
+  "context_pack_id": "ctx_001",
+  "allowed_capability_ids": ["cap_sf_search", "cap_sf_read_opp"],
+  "expected_output_schema": {
+    "type": "object",
+    "properties": {
+      "ranked_accounts": {
+        "type": "array"
+      },
+      "method_summary": {
+        "type": "string"
+      }
+    },
+    "required": ["ranked_accounts", "method_summary"]
+  },
+  "timeout_ms": 15000
+}
+```
+
+### X.7 Agent execution records
+
+Add a new table for per-agent execution state inside a run.
+
+#### agent_runs
+
+```ts
+id: string pk
+tenant_id: string fk
+run_id: string fk
+agent_id: string fk -> agents.id
+parent_agent_run_id: string nullable fk -> agent_runs.id
+trigger_type: enum(root, delegated, verification, summarization, retry)
+status: enum(queued, running, paused, completed, failed, cancelled)
+input_context_pack_id: string nullable fk -> context_packs.id
+input_payload_json: jsonb
+output_payload_json: jsonb nullable
+started_at: datetime
+ended_at: datetime nullable
+trace_id: string
+created_at: datetime
+updated_at: datetime
+```
+
+This allows one top-level run to contain multiple agent-specific sub-runs, making coordination inspectable and replayable. Shared knowledge bases and orchestration state are important, but the actual work should still be broken into traceable units. [ibm](https://www.ibm.com/think/topics/ai-agent-orchestration)
+
+### X.8 Shared context rules for multiple agents
+
+Multiple agents must not automatically share all memory. Shared context must be mediated by policy and packaging rules.
+
+#### X.8.1 Context sharing modes
+
+Add `sharing_mode` to context policies:
+- `isolated`: agent only sees its assigned pack.
+- `shared_summary`: agent sees other agents’ compacted summaries only.
+- `shared_readonly`: agent may read selected shared fragments.
+- `shared_full`: agent may read all allowed run context.
+- `brokered`: context must be requested through lead/router/memory manager.
+
+Default should be `brokered` or `shared_summary`, not `shared_full`, because multi-agent systems fail when every agent gets all raw data. Event-driven and metadata-first approaches are increasingly recommended to avoid overloading the LLM and to keep data local where possible. [atlan](https://atlan.com/know/multi-agent-system-orchestration/)
+
+#### X.8.2 SharedContextGrant
+
+Add a new object:
+
+```ts
+id: string pk
+tenant_id: string fk
+run_id: string fk
+grantor_agent_id: string fk -> agents.id
+grantee_agent_id: string fk -> agents.id
+sharing_mode: enum(isolated, shared_summary, shared_readonly, shared_full, brokered)
+allowed_fragment_ids_json: jsonb
+allowed_artifact_ids_json: jsonb
+expires_at: datetime nullable
+created_at: datetime
+updated_at: datetime
+```
+
+### X.9 Orchestration modes
+
+Support two orchestration modes from the beginning:
+
+- **Static graph mode**: predefined sequence of lead -> specialist -> verifier -> finalize.
+- **Dynamic delegation mode**: lead agent can choose to delegate at runtime under policy constraints.
+
+Add field to `runs`:
+
+```ts
+orchestration_mode: enum(static_graph, dynamic_delegation)
+```
+
+This matches the common distinction between explicit agent workflows and dynamic runtime decisions in multi-agent systems. [cobusgreyling.substack](https://cobusgreyling.substack.com/p/six-core-design-principles-for-multi)
+
+### X.10 Routing and model selection
+
+The platform must support per-agent model selection and fallback routing.
+
+Add table: `model_endpoints`
+
+```ts
+id: string pk
+tenant_id: string fk
+provider_key: string
+model_key: string
+base_url: string
+auth_ref: string nullable
+supports_tools: boolean
+supports_json_schema: boolean
+supports_streaming: boolean
+max_context_tokens: int
+status: enum(active, degraded, disabled)
+created_at: datetime
+updated_at: datetime
+```
+
+Add table: `agent_model_policies`
+
+```ts
+id: string pk
+tenant_id: string fk
+agent_id: string fk -> agents.id
+primary_model_endpoint_id: string fk -> model_endpoints.id
+fallback_model_endpoint_ids_json: jsonb
+temperature: float
+max_input_tokens: int
+max_output_tokens: int
+timeout_ms: int
+max_cost_usd: float nullable
+created_at: datetime
+updated_at: datetime
+```
+
+This ensures your own LLM can be the default provider, but the system can still route specialists or fallback workloads elsewhere if needed. Multi-model support is a common requirement in modern agent frameworks and orchestration stacks. [getstream](https://getstream.io/blog/multiagent-ai-frameworks/)
+
+### X.11 Inter-agent capability discovery
+
+If you later expose agents as services to each other, each agent should be optionally exposable as a capability provider, ideally via MCP-compatible interfaces for task input, context resources, and result retrieval. MCP can support agent-to-agent collaboration through capability discovery, resources, and notifications, though a broader interoperability stack may later introduce complementary protocols for richer agent messaging or open ecosystems. [arxiv](https://arxiv.org/abs/2505.02279)
+
+Add optional flag to `agents`:
+- `expose_as_capability_provider: boolean`
+
+If true, the system may publish:
+- an agent manifest,
+- a callable task endpoint,
+- readable result resources,
+- optional subscription events.
+
+### X.12 Observability requirements for multi-agent runs
+
+Each agent execution must emit:
+- `agent.run.started`
+- `agent.context.requested`
+- `agent.context.provided`
+- `agent.delegation.sent`
+- `agent.delegation.completed`
+- `agent.output.validated`
+- `agent.output.rejected`
+- `agent.run.completed`
+- `agent.run.failed`
+
+Add `agent_id` and `agent_run_id` to:
+- `event_logs`
+- `audit_records`
+- `context_fragments`
+- `actions`
+
+This is necessary because once multiple agents are involved, debugging depends on seeing the chain of responsibility, not just the final run. Distributed observability and correlation IDs are strongly recommended for AI-first architectures. [cloudappi](https://cloudappi.net/en/ai-agent-api-design-guide/)
+
+### X.13 Safety constraints for multi-agent systems
+
+The platform must enforce these rules:
+- Only the orchestrator may approve delegation outside an agent’s declared policy.
+- Only the executor path may invoke external mutating tools.
+- Verifier agents may block progression but may not mutate external systems.
+- Specialist agents must operate under narrower capability scopes than the lead agent.
+- Memory writes from agents should be proposed, then validated before durable commit.
+- Agents must not directly share secrets or raw credentials.
+- Cross-agent context sharing must always respect tenant, ACL, sensitivity, and redaction rules. Shared knowledge bases are useful, but uncontrolled propagation is a known coordination and security risk in multi-agent setups. [arxiv](https://arxiv.org/html/2601.13671v1)
+
+### X.14 Acceptance criteria for this extension
+
+This extension is complete only if:
+- the system can register multiple agents in one tenant,
+- one run can spawn multiple `agent_runs`,
+- one lead agent can delegate a typed task to one specialist agent,
+- specialist outputs are validated against an output schema,
+- inter-agent messages are stored and traceable,
+- context can be shared in bounded modes rather than globally,
+- each agent can use a different model policy,
+- your own LLM can be used as the primary model backend,
+- risky external actions still require policy and approval even in delegated workflows,
+- the run detail UI can show agent hierarchy, delegation chain, and per-agent actions. [ibm](https://www.ibm.com/think/topics/ai-agent-orchestration)
+
+### X.15 Implementation note for the coding platform
+
+When generating the app, instruct it to build the system as:
+1. single lead agent first,
+2. then add `agents`,
+3. then add `agent_runs`,
+4. then add `agent_messages`,
+5. then add model endpoint abstraction,
+6. then add specialist delegation,
+7. then add verifier and summarizer agents.
+
+That sequence aligns with the common guidance to start simpler and layer on multi-agent orchestration only after the base control plane and context system are stable. [vellum](https://www.vellum.ai/blog/multi-agent-systems-building-with-context-engineering)

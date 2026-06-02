@@ -1,0 +1,404 @@
+Add this amendment as a new section called **MCP Server Synthesis and Arbitrary Integration Generation**. The purpose of this section is to let the system itself design, generate, register, test, deploy, and govern new MCP servers for arbitrary third-party services, using service descriptions such as OpenAPI, GraphQL introspection, SDK metadata, HTML/docs scraping, or manual connector specs. MCP servers expose tools, resources, and prompts as the three core primitives, and current tooling already supports generating MCP servers from OpenAPI specs, which makes “server synthesis” a realistic design target rather than a purely theoretical one. [modelcontextprotocol](https://modelcontextprotocol.io/docs/learn/server-concepts)
+
+## X+1. MCP Server Synthesis and Arbitrary Integration Generation
+
+### X+1.1 Purpose
+
+The platform must support **arbitrary connector generation** so that it can create new MCP servers for previously unsupported services without requiring a human engineer to hand-code every integration. The generated MCP server should become a first-class managed asset in the system, capable of exposing tools, resources, and prompts for a target service while inheriting platform policy, audit, approval, and observability controls. [arxiv](https://arxiv.org/html/2503.23278v2)
+
+This capability must support:
+- generation from OpenAPI specifications,
+- generation from GraphQL schema introspection,
+- generation from service-specific configuration manifests,
+- generation from documentation plus human-confirmed field mappings,
+- partial generation with human approval before activation,
+- iterative refinement after testing and usage telemetry. OpenAPI-driven MCP generation is already an active pattern in the ecosystem, and MCP server capabilities can be updated dynamically as integrations evolve. [github](https://github.com/cyanheads/model-context-protocol-resources/blob/main/guides/mcp-server-development-guide.md)
+
+### X+1.2 Architectural principle
+
+The system must treat **MCP server generation as an internal agentic workflow** rather than a one-off script. This means connector generation should itself be orchestrated as a run with planning, schema extraction, capability synthesis, test generation, validation, security review, deployment, and registration. AI-first integration systems benefit from clean API descriptions, strong documentation, and generated typed abstractions rather than ad hoc wrappers. [curity](https://curity.io/blog/is-your-api-ready-for-the-ai-agents/)
+
+The generated server lifecycle must include:
+1. service discovery,
+2. source spec ingestion,
+3. spec normalization,
+4. capability synthesis,
+5. safety filtering,
+6. server code generation,
+7. test generation,
+8. sandbox execution,
+9. approval,
+10. deployment,
+11. registration into adapter registry,
+12. ongoing monitoring and regeneration.
+
+### X+1.3 New domain objects
+
+Add the following persistent objects.
+
+#### integration_blueprints
+
+```ts
+id: string pk
+tenant_id: string fk
+name: string
+description: text nullable
+source_type: enum(openapi, graphql, sdk, docs, manual, hybrid)
+source_uri: string nullable
+source_artifact_id: string nullable fk -> artifacts.id
+status: enum(draft, analyzing, synthesized, testing, approved, deployed, failed, archived)
+target_service_name: string
+target_base_url: string nullable
+auth_strategy: enum(oauth2, api_key, bearer_token, basic_auth, session_cookie, custom, unknown)
+auth_config_json: jsonb
+normalization_output_json: jsonb nullable
+synthesis_notes_json: jsonb nullable
+created_by_principal_id: string fk -> principals.id
+created_at: datetime
+updated_at: datetime
+```
+
+#### generated_mcp_servers
+
+```ts
+id: string pk
+tenant_id: string fk
+integration_blueprint_id: string fk -> integration_blueprints.id
+name: string
+description: text nullable
+runtime_type: enum(nodejs, python, container, hosted_gateway)
+transport_type: enum(streamable_http, stdio)
+endpoint_url: string nullable
+repository_uri: string nullable
+artifact_id: string nullable fk -> artifacts.id
+status: enum(draft, built, testing, active, degraded, disabled, archived, failed)
+protocol_version: string
+sdk_framework: enum(official_typescript, official_python, fastmcp, custom, gateway_hosted)
+manifest_json: jsonb
+build_log_artifact_id: string nullable fk -> artifacts.id
+test_report_artifact_id: string nullable fk -> artifacts.id
+created_at: datetime
+updated_at: datetime
+```
+
+#### synthesized_capabilities
+
+```ts
+id: string pk
+tenant_id: string fk
+generated_mcp_server_id: string fk -> generated_mcp_servers.id
+kind: enum(tool, resource, prompt)
+name: string
+title: string
+description: text nullable
+source_operation_ref: string nullable
+input_schema_json: jsonb nullable
+output_schema_json: jsonb nullable
+resource_uri_pattern: string nullable
+annotations_json: jsonb
+risk_level: enum(L0, L1, L2, L3, L4)
+enabled: boolean
+created_at: datetime
+updated_at: datetime
+```
+
+#### synthesis_runs
+
+```ts
+id: string pk
+tenant_id: string fk
+integration_blueprint_id: string fk -> integration_blueprints.id
+run_id: string nullable fk -> runs.id
+status: enum(queued, running, awaiting_approval, completed, failed, cancelled)
+phase: enum(ingest, normalize, synthesize, generate_code, generate_tests, sandbox_test, security_review, deploy, register)
+result_json: jsonb nullable
+error_json: jsonb nullable
+started_at: datetime
+ended_at: datetime nullable
+created_at: datetime
+updated_at: datetime
+```
+
+#### integration_tests
+
+```ts
+id: string pk
+tenant_id: string fk
+generated_mcp_server_id: string fk -> generated_mcp_servers.id
+name: string
+test_type: enum(schema_validation, auth_flow, read_tool, write_tool, prompt_validation, resource_read, rate_limit, security, regression)
+input_json: jsonb
+expected_json: jsonb nullable
+status: enum(pending, passed, failed, skipped)
+result_json: jsonb nullable
+created_at: datetime
+updated_at: datetime
+```
+
+#### deployment_targets
+
+```ts
+id: string pk
+tenant_id: string fk
+name: string
+target_type: enum(local_runtime, container_registry, kubernetes, serverless, gateway_hosted)
+config_json: jsonb
+status: enum(active, disabled)
+created_at: datetime
+updated_at: datetime
+```
+
+### X+1.4 Generation sources
+
+The system must be able to ingest integration definitions from these source types:
+
+- **OpenAPI**: preferred source for REST APIs because operations, parameters, auth, and schemas are already explicit. OpenAPI-to-MCP generation is a proven approach in the ecosystem. [speakeasy](https://www.speakeasy.com/mcp/tool-design/generate-mcp-tools-from-openapi)
+- **GraphQL**: derive tools from mutations, resources from queries, and prompts from common workflows.
+- **SDK metadata**: parse official SDK methods and type info when no reliable API spec exists.
+- **Docs/manual**: extract endpoints, parameters, and examples from prose docs, but require stronger human review.
+- **Hybrid**: combine API spec, docs, sample requests, and operator hints.
+
+Add field to `integration_blueprints`:
+- `generation_confidence_score: float`
+- `human_review_required: boolean`
+
+### X+1.5 Synthesis workflow
+
+The MCP generation workflow must be a governed pipeline.
+
+#### Phase 1: Ingest
+- fetch source spec or artifact,
+- validate format,
+- detect auth style,
+- extract operations/resources/entities.
+
+#### Phase 2: Normalize
+- canonicalize endpoint names,
+- infer resource nouns and tool verbs,
+- collapse duplicate operations,
+- map response types into JSON Schema,
+- classify operations as read/write/destructive,
+- create a normalized service graph.
+
+#### Phase 3: Capability synthesis
+- generate MCP tool definitions from action-like operations,
+- generate MCP resource definitions from retrievable entities and collections,
+- generate MCP prompts for common workflows and guided usage. MCP tools, resources, and prompts are distinct primitives and should remain distinct in generated servers. [dailydoseofds](https://www.dailydoseofds.com/model-context-protocol-crash-course-part-4/)
+
+#### Phase 4: Code generation
+- emit MCP server code in the selected runtime/framework,
+- emit auth middleware,
+- emit service client wrappers,
+- emit schema validators,
+- emit error translation logic,
+- emit rate-limit and retry handlers.
+
+#### Phase 5: Test generation
+- generate smoke tests for every tool,
+- generate schema compliance tests,
+- generate auth failure tests,
+- generate security abuse tests,
+- generate prompt and resource listing tests.
+
+#### Phase 6: Sandbox validation
+- run generated server in isolated environment,
+- execute tests with synthetic credentials or mocks,
+- record logs and fixable failures.
+
+#### Phase 7: Approval and deployment
+- require review for risky connectors,
+- deploy approved server,
+- register it as an adapter in the normal adapter registry.
+
+### X+1.6 Generated server contract
+
+Every generated MCP server must satisfy this internal contract:
+
+```ts
+type GeneratedMCPServerSpec = {
+  name: string
+  description: string
+  transport: "streamable_http" | "stdio"
+  protocolVersion: string
+  auth: {
+    strategy: "oauth2" | "api_key" | "bearer_token" | "basic_auth" | "session_cookie" | "custom"
+    requiresUserDelegation: boolean
+    scopes?: string[]
+  }
+  tools: Array<{
+    name: string
+    description: string
+    inputSchema: Record<string, unknown>
+    outputSchema?: Record<string, unknown>
+    riskLevel: "L0" | "L1" | "L2" | "L3" | "L4"
+    idempotent: boolean
+  }>
+  resources: Array<{
+    uriPattern: string
+    name: string
+    description?: string
+    mimeType?: string
+  }>
+  prompts: Array<{
+    name: string
+    description?: string
+    arguments?: Array<{
+      name: string
+      required?: boolean
+      description?: string
+    }>
+  }>
+}
+```
+
+The generator must emit tools with unique names, typed schemas, and clear validation rules, because MCP tools are schema-defined operations intended for model-driven execution. [modelcontextprotocol](https://modelcontextprotocol.io/docs/learn/server-concepts)
+
+### X+1.7 OpenAPI transformation rules
+
+For OpenAPI-based generation, apply these rules:
+
+- `GET /resource` -> list resource tool or collection resource.
+- `GET /resource/{id}` -> single resource read.
+- `POST /resource` -> create tool.
+- `PATCH /resource/{id}` or `PUT /resource/{id}` -> update tool.
+- `DELETE /resource/{id}` -> destructive tool, default risk `L4`.
+- operationId should become the preferred MCP tool name if clean; otherwise synthesize a verb-noun name.
+- request body schema becomes tool `inputSchema`.
+- response schema becomes tool `outputSchema`.
+- queryable list endpoints may also become resource URIs plus optional list tools.
+- securitySchemes inform auth strategy.
+
+This rule set matches current practice in automated OpenAPI-to-MCP generators and keeps generation deterministic. [xata](https://xata.io/blog/built-xata-mcp-server)
+
+### X+1.8 Safety and security requirements
+
+Generated MCP servers are high-risk because they can expose arbitrary external systems. Security controls must therefore be mandatory.
+
+#### X+1.8.1 Hard requirements
+
+- Never allow raw shell command generation as the default integration mechanism.
+- Prefer direct HTTP or SDK calls over shelling out to CLI tools.
+- Enforce input length limits and schema validation.
+- Sanitize headers, paths, query params, and body values before execution.
+- Generate allowlists for hosts and endpoint patterns.
+- Require explicit approval before enabling destructive tools.
+- Separate test credentials from production credentials.
+- Apply least-privilege auth scopes.
+- Record all generated code artifacts and synthesis decisions.
+- Run every generated server in a sandbox before activation. Secure MCP server guidance strongly warns against command injection and arbitrary command execution patterns. [snyk](https://snyk.io/articles/building-secure-mcp-servers/)
+
+#### X+1.8.2 Risk classification defaults
+
+Generated capabilities should default to:
+- `L0`: pure read/query/list
+- `L1`: draft/create non-external artifacts
+- `L2`: reversible internal update
+- `L3`: external side effects, communications, ticket creation, financial implications
+- `L4`: destructive or irreversible operations, deletes, production config changes
+
+#### X+1.8.3 Human review triggers
+
+Set `human_review_required = true` if:
+- source type is `docs` or `manual`,
+- auth strategy is `custom`,
+- any destructive endpoint is detected,
+- generated tool names are ambiguous,
+- low-confidence schema inference occurred,
+- prompt injection-like content is found in source docs,
+- dynamic code execution would be needed.
+
+### X+1.9 Generation agent roles
+
+This feature should use multiple internal agents once your multi-agent system exists.
+
+Recommended synthesis agents:
+- **Spec ingestion agent**: parses and classifies source material.
+- **Schema normalization agent**: converts source structures into canonical forms.
+- **Capability synthesis agent**: creates tool/resource/prompt descriptors.
+- **Security review agent**: checks auth, destructive actions, injection risks.
+- **Codegen agent**: emits MCP server implementation.
+- **Test generation agent**: produces validation suite.
+- **Deployment agent**: packages and deploys approved server.
+
+Each agent must return structured outputs validated against JSON Schema, not free-form prose, because code generation workflows are much more reliable when constrained to typed outputs. [aws.amazon](https://aws.amazon.com/blogs/machine-learning/structured-outputs-on-amazon-bedrock-schema-compliant-ai-responses/)
+
+### X+1.10 New APIs
+
+Add these routes:
+
+- `GET /api/tenants/:tenantId/integration-blueprints`
+- `POST /api/tenants/:tenantId/integration-blueprints`
+- `GET /api/tenants/:tenantId/integration-blueprints/:blueprintId`
+- `POST /api/tenants/:tenantId/integration-blueprints/:blueprintId/analyze`
+- `POST /api/tenants/:tenantId/integration-blueprints/:blueprintId/synthesize`
+- `POST /api/tenants/:tenantId/integration-blueprints/:blueprintId/generate-server`
+- `POST /api/tenants/:tenantId/generated-mcp-servers/:serverId/test`
+- `POST /api/tenants/:tenantId/generated-mcp-servers/:serverId/deploy`
+- `POST /api/tenants/:tenantId/generated-mcp-servers/:serverId/register`
+- `GET /api/tenants/:tenantId/generated-mcp-servers`
+- `GET /api/tenants/:tenantId/generated-mcp-servers/:serverId`
+- `GET /api/tenants/:tenantId/generated-mcp-servers/:serverId/tests`
+
+### X+1.11 Registration behavior
+
+Once deployed and validated, every generated MCP server must be automatically registrable as a normal adapter.
+
+Registration process:
+1. create `generated_mcp_servers` record,
+2. deploy server,
+3. call discovery against generated server,
+4. populate `capabilities`,
+5. create/update `adapters` entry with `protocol = mcp`,
+6. mark server status as `active`,
+7. emit audit and event logs.
+
+This ensures generated integrations become indistinguishable from human-authored adapters at runtime.
+
+### X+1.12 Regeneration and evolution
+
+Generated MCP servers must support iterative regeneration.
+
+Add fields:
+- `parent_generated_mcp_server_id: string nullable`
+- `regeneration_reason: enum(source_changed, test_failed, usage_feedback, security_patch, schema_upgrade, manual_edit)`
+- `supersedes_server_id: string nullable`
+
+Regeneration triggers:
+- source OpenAPI changed,
+- auth requirements changed,
+- failing tests,
+- runtime error telemetry,
+- capability ambiguity detected,
+- human edits requested.
+
+MCP server capabilities can change over time, and the spec ecosystem supports dynamic updates, so regeneration must be a first-class workflow rather than a special-case migration. [github](https://github.com/cyanheads/model-context-protocol-resources/blob/main/guides/mcp-server-development-guide.md)
+
+### X+1.13 Acceptance criteria
+
+This amendment is complete only if:
+- a user can upload or link an OpenAPI spec,
+- the system can analyze it into a normalized integration blueprint,
+- the system can synthesize tools, resources, and prompts,
+- the system can generate MCP server code artifacts,
+- the generated server can be run in a sandbox,
+- tests are automatically generated and executed,
+- approved servers can be deployed and registered as adapters,
+- generated capabilities appear in the same capability catalog as other adapters,
+- risky generated tools remain subject to normal policy and approval controls,
+- regeneration is supported when the source spec changes. [speakeasy](https://www.speakeasy.com/mcp/tool-design/generate-mcp-tools-from-openapi)
+
+### X+1.14 Implementation order
+
+Tell the coding platform to build this amendment in the following order:
+1. `integration_blueprints`
+2. source ingestion for OpenAPI only
+3. normalized operation extraction
+4. synthesized tool/resource/prompt descriptors
+5. generated code artifact creation
+6. sandbox test harness
+7. `generated_mcp_servers`
+8. deploy/register flow
+9. regeneration workflow
+10. support for GraphQL/docs/manual sources
+
+This order is best because OpenAPI is the most structured and automatable input source for arbitrary API integration, and existing MCP generation ecosystems already validate that path. [github](https://github.com/cnoe-io/openapi-mcp-codegen)
