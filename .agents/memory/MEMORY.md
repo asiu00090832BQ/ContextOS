@@ -1,0 +1,1 @@
+- [ContextOS conventions](contextos.md) — stack, enum-drift trap, route mounting, build/restart quirks, seed script location.

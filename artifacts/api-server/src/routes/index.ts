@@ -1,8 +1,29 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import { tenantContext } from "../middlewares/tenant";
+import contextRouter from "./context";
+import linkedAccountsRouter from "./linkedAccounts";
+import adaptersRouter from "./adapters";
+import intentsRouter from "./intents";
+import runsRouter from "./runs";
+import agentsRouter from "./agents";
+import integrationsRouter from "./integrations";
+import observabilityRouter from "./observability";
 
 const router: IRouter = Router();
 
+// Health stays unauthenticated and outside tenant scope.
 router.use(healthRouter);
+
+// All domain routers are tenant-scoped (single auto-bootstrapped owner + tenant).
+router.use(tenantContext);
+router.use(contextRouter);
+router.use(linkedAccountsRouter);
+router.use(adaptersRouter);
+router.use(intentsRouter);
+router.use(runsRouter);
+router.use(agentsRouter);
+router.use(integrationsRouter);
+router.use(observabilityRouter);
 
 export default router;

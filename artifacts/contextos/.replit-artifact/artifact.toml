@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "ContextOS"
+version = "1.0.0"
+id = "artifacts/contextos"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21736
+
+[services.development]
+run = "pnpm --filter @workspace/contextos run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/contextos", "run", "build" ]
+publicDir = "artifacts/contextos/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21736"
+BASE_PATH = "/"

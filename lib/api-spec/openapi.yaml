@@ -3,20 +3,36 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: ContextOS API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: context
+  - name: dashboard
+  - name: linked-accounts
+  - name: adapters
+  - name: capabilities
+  - name: intents
+  - name: runs
+  - name: actions
+  - name: approvals
+  - name: artifacts
+  - name: memory
+  - name: audit
+  - name: agents
+  - name: model-endpoints
+  - name: integrations
+  - name: observability
+  - name: settings
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,7 +40,1120 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /me:
+    get:
+      operationId: getMe
+      tags: [context]
+      summary: Current owner + tenant context
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeContext"
+
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [dashboard]
+      summary: Dashboard summary
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /linked-accounts:
+    get:
+      operationId: listLinkedAccounts
+      tags: [linked-accounts]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LinkedAccount"
+    post:
+      operationId: createLinkedAccount
+      tags: [linked-accounts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkedAccountInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedAccount"
+  /linked-accounts/{id}:
+    get:
+      operationId: getLinkedAccount
+      tags: [linked-accounts]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedAccount"
+    delete:
+      operationId: deleteLinkedAccount
+      tags: [linked-accounts]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+  /linked-accounts/{id}/refresh:
+    post:
+      operationId: refreshLinkedAccount
+      tags: [linked-accounts]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedAccount"
+  /linked-accounts/{id}/revoke:
+    post:
+      operationId: revokeLinkedAccount
+      tags: [linked-accounts]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedAccount"
+
+  /adapters:
+    get:
+      operationId: listAdapters
+      tags: [adapters]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Adapter"
+    post:
+      operationId: createAdapter
+      tags: [adapters]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdapterInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Adapter"
+  /adapters/{id}:
+    get:
+      operationId: getAdapter
+      tags: [adapters]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdapterDetail"
+    patch:
+      operationId: updateAdapter
+      tags: [adapters]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdapterUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Adapter"
+    delete:
+      operationId: deleteAdapter
+      tags: [adapters]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+  /adapters/{id}/discover:
+    post:
+      operationId: discoverAdapter
+      tags: [adapters]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdapterDetail"
+  /adapters/{id}/test:
+    post:
+      operationId: testAdapter
+      tags: [adapters]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthTestResult"
+
+  /capabilities:
+    get:
+      operationId: listCapabilities
+      tags: [capabilities]
+      parameters:
+        - name: adapterId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: riskTier
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Capability"
+
+  /intents:
+    get:
+      operationId: listIntents
+      tags: [intents]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Intent"
+    post:
+      operationId: createIntent
+      tags: [intents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Intent"
+  /intents/{id}:
+    get:
+      operationId: getIntent
+      tags: [intents]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Intent"
+    patch:
+      operationId: updateIntent
+      tags: [intents]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntentUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Intent"
+    delete:
+      operationId: deleteIntent
+      tags: [intents]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+  /intents/{id}/start-run:
+    post:
+      operationId: startRun
+      tags: [intents]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartRunInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+
+  /runs:
+    get:
+      operationId: listRuns
+      tags: [runs]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Run"
+  /runs/{id}:
+    get:
+      operationId: getRun
+      tags: [runs]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunDetail"
+  /runs/{id}/pause:
+    post:
+      operationId: pauseRun
+      tags: [runs]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+  /runs/{id}/resume:
+    post:
+      operationId: resumeRun
+      tags: [runs]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+  /runs/{id}/cancel:
+    post:
+      operationId: cancelRun
+      tags: [runs]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+  /runs/{id}/events:
+    get:
+      operationId: listRunEvents
+      tags: [runs]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EventLog"
+
+  /actions/{id}:
+    get:
+      operationId: getAction
+      tags: [actions]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Action"
+
+  /approvals:
+    get:
+      operationId: listApprovals
+      tags: [approvals]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApprovalRequest"
+  /approvals/{id}/approve:
+    post:
+      operationId: approveApproval
+      tags: [approvals]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalDecisionInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalRequest"
+  /approvals/{id}/deny:
+    post:
+      operationId: denyApproval
+      tags: [approvals]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalDecisionInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalRequest"
+
+  /artifacts:
+    get:
+      operationId: listArtifacts
+      tags: [artifacts]
+      parameters:
+        - name: runId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Artifact"
+  /artifacts/{id}:
+    get:
+      operationId: getArtifact
+      tags: [artifacts]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Artifact"
+
+  /memory:
+    get:
+      operationId: listMemory
+      tags: [memory]
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sensitivity
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkingMemory"
+
+  /audit:
+    get:
+      operationId: listAudit
+      tags: [audit]
+      parameters:
+        - name: resourceType
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: riskTier
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditRecord"
+
+  /agents:
+    get:
+      operationId: listAgents
+      tags: [agents]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Agent"
+    post:
+      operationId: createAgent
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+  /agents/{id}:
+    get:
+      operationId: getAgent
+      tags: [agents]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+    patch:
+      operationId: updateAgent
+      tags: [agents]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+    delete:
+      operationId: deleteAgent
+      tags: [agents]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+  /agents/{id}/model-policy:
+    put:
+      operationId: setAgentModelPolicy
+      tags: [agents]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentModelPolicyInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentModelPolicy"
+
+  /model-endpoints:
+    get:
+      operationId: listModelEndpoints
+      tags: [model-endpoints]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelEndpoint"
+    post:
+      operationId: createModelEndpoint
+      tags: [model-endpoints]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelEndpointInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelEndpoint"
+  /model-endpoints/{id}:
+    get:
+      operationId: getModelEndpoint
+      tags: [model-endpoints]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelEndpoint"
+    patch:
+      operationId: updateModelEndpoint
+      tags: [model-endpoints]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelEndpointUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelEndpoint"
+    delete:
+      operationId: deleteModelEndpoint
+      tags: [model-endpoints]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+  /model-endpoints/{id}/test:
+    post:
+      operationId: testModelEndpoint
+      tags: [model-endpoints]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelTestResult"
+
+  /integration-blueprints:
+    get:
+      operationId: listBlueprints
+      tags: [integrations]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IntegrationBlueprint"
+    post:
+      operationId: createBlueprint
+      tags: [integrations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BlueprintInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationBlueprint"
+  /integration-blueprints/{id}:
+    get:
+      operationId: getBlueprint
+      tags: [integrations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationBlueprint"
+  /integration-blueprints/{id}/analyze:
+    post:
+      operationId: analyzeBlueprint
+      tags: [integrations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationBlueprint"
+  /integration-blueprints/{id}/synthesize:
+    post:
+      operationId: synthesizeServer
+      tags: [integrations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedMcpServer"
+
+  /generated-mcp-servers:
+    get:
+      operationId: listGeneratedServers
+      tags: [integrations]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GeneratedMcpServer"
+  /generated-mcp-servers/{id}:
+    get:
+      operationId: getGeneratedServer
+      tags: [integrations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedServerDetail"
+  /generated-mcp-servers/{id}/test:
+    post:
+      operationId: testGeneratedServer
+      tags: [integrations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedServerDetail"
+  /generated-mcp-servers/{id}/deploy:
+    post:
+      operationId: deployGeneratedServer
+      tags: [integrations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedServerDetail"
+  /generated-mcp-servers/{id}/register:
+    post:
+      operationId: registerGeneratedServer
+      tags: [integrations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedServerDetail"
+  /generated-mcp-servers/{id}/regenerate:
+    post:
+      operationId: regenerateGeneratedServer
+      tags: [integrations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegenerateInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedMcpServer"
+
+  /traces:
+    get:
+      operationId: listTraces
+      tags: [observability]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: riskTier
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: rootType
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Trace"
+  /traces/{id}:
+    get:
+      operationId: getTrace
+      tags: [observability]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TraceDetail"
+
+  /observability/metrics:
+    get:
+      operationId: getObservabilityMetrics
+      tags: [observability]
+      parameters:
+        - name: level
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsResponse"
+
+  /evaluation-records:
+    get:
+      operationId: listEvaluationRecords
+      tags: [observability]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvaluationRecord"
+    post:
+      operationId: createEvaluationRecord
+      tags: [observability]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluationRecordInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvaluationRecord"
+  /evaluation-records/{id}/label:
+    post:
+      operationId: labelEvaluationRecord
+      tags: [observability]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluationLabelInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvaluationRecord"
+
+  /ui-views:
+    get:
+      operationId: listUiViews
+      tags: [observability]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UiView"
+    post:
+      operationId: createUiView
+      tags: [observability]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UiViewInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiView"
+  /ui-views/{id}:
+    delete:
+      operationId: deleteUiView
+      tags: [observability]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+
+  /telemetry-exports:
+    get:
+      operationId: listTelemetryExports
+      tags: [settings]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TelemetryExport"
+    post:
+      operationId: createTelemetryExport
+      tags: [settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TelemetryExportInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetryExport"
+  /telemetry-exports/{id}:
+    patch:
+      operationId: updateTelemetryExport
+      tags: [settings]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TelemetryExportUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetryExport"
+
+  /deployment-targets:
+    get:
+      operationId: listDeploymentTargets
+      tags: [settings]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DeploymentTarget"
+
 components:
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
   schemas:
     HealthStatus:
       type: object
@@ -34,3 +1163,808 @@ components:
       required:
         - status
 
+    JsonObject:
+      type: object
+      additionalProperties: true
+
+    User:
+      type: object
+      required: [id, email, name, isOwner]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string }
+        avatarUrl: { type: ["string", "null"] }
+        isOwner: { type: boolean }
+
+    Tenant:
+      type: object
+      required: [id, name, slug, isDefault]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: ["string", "null"] }
+        isDefault: { type: boolean }
+
+    MeContext:
+      type: object
+      required: [user, tenant, tenants]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        tenant: { $ref: "#/components/schemas/Tenant" }
+        tenants:
+          type: array
+          items: { $ref: "#/components/schemas/Tenant" }
+
+    DashboardSummary:
+      type: object
+      required:
+        [
+          adapterCount,
+          capabilityCount,
+          activeRunCount,
+          pendingApprovalCount,
+          agentCount,
+          generatedServerCount,
+          traceCount,
+        ]
+      properties:
+        adapterCount: { type: integer }
+        capabilityCount: { type: integer }
+        activeRunCount: { type: integer }
+        pendingApprovalCount: { type: integer }
+        agentCount: { type: integer }
+        modelEndpointCount: { type: integer }
+        generatedServerCount: { type: integer }
+        traceCount: { type: integer }
+        intentCount: { type: integer }
+        recentArtifacts:
+          type: array
+          items: { $ref: "#/components/schemas/Artifact" }
+        recentAudit:
+          type: array
+          items: { $ref: "#/components/schemas/AuditRecord" }
+        recentRuns:
+          type: array
+          items: { $ref: "#/components/schemas/Run" }
+
+    LinkedAccount:
+      type: object
+      required: [id, systemName, displayName, authMode, status, createdAt]
+      properties:
+        id: { type: string }
+        systemName: { type: string }
+        displayName: { type: string }
+        authMode: { type: string }
+        status: { type: string }
+        credentialRef: { type: ["string", "null"] }
+        scopes: { type: ["array", "null"], items: { type: string } }
+        accountIdentifier: { type: ["string", "null"] }
+        lastRefreshedAt: { type: ["string", "null"], format: date-time }
+        expiresAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+    LinkedAccountInput:
+      type: object
+      required: [systemName, displayName, authMode]
+      properties:
+        systemName: { type: string, minLength: 1 }
+        displayName: { type: string, minLength: 1 }
+        authMode: { type: string }
+        credentialRef: { type: string }
+        accountIdentifier: { type: string }
+        scopes: { type: array, items: { type: string } }
+
+    Adapter:
+      type: object
+      required:
+        [id, name, transport, protocolVersion, status, isGenerated, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: ["string", "null"] }
+        transport: { type: string }
+        protocolVersion: { type: string }
+        endpointUrl: { type: ["string", "null"] }
+        sessionMode: { type: string }
+        status: { type: string }
+        linkedAccountId: { type: ["string", "null"] }
+        isGenerated: { type: boolean }
+        lastDiscoveredAt: { type: ["string", "null"], format: date-time }
+        lastHealthAt: { type: ["string", "null"], format: date-time }
+        capabilityCount: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+    AdapterDetail:
+      allOf:
+        - $ref: "#/components/schemas/Adapter"
+        - type: object
+          properties:
+            capabilities:
+              type: array
+              items: { $ref: "#/components/schemas/Capability" }
+            lastHealthResult: { $ref: "#/components/schemas/JsonObject" }
+    AdapterInput:
+      type: object
+      required: [name, transport]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string }
+        transport: { type: string }
+        protocolVersion: { type: string }
+        endpointUrl: { type: string }
+        sessionMode: { type: string }
+        linkedAccountId: { type: string }
+    AdapterUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string }
+        endpointUrl: { type: string }
+        sessionMode: { type: string }
+        status: { type: string }
+
+    Capability:
+      type: object
+      required: [id, adapterId, type, name, riskTier, actionKind, createdAt]
+      properties:
+        id: { type: string }
+        adapterId: { type: string }
+        type: { type: string }
+        name: { type: string }
+        description: { type: ["string", "null"] }
+        riskTier: { type: string }
+        actionKind: { type: string }
+        humanReviewRequired: { type: boolean }
+        inputSchema: { $ref: "#/components/schemas/JsonObject" }
+        outputSchema: { $ref: "#/components/schemas/JsonObject" }
+        createdAt: { type: string, format: date-time }
+
+    HealthTestResult:
+      type: object
+      required: [ok, latencyMs, message]
+      properties:
+        ok: { type: boolean }
+        latencyMs: { type: integer }
+        message: { type: string }
+        details: { $ref: "#/components/schemas/JsonObject" }
+
+    Intent:
+      type: object
+      required: [id, title, goal, status, riskTier, createdAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        goal: { type: string }
+        constraints: { type: ["string", "null"] }
+        successCriteria: { type: ["string", "null"] }
+        allowedSystems: { type: ["array", "null"], items: { type: string } }
+        deniedSystems: { type: ["array", "null"], items: { type: string } }
+        budgetTokens: { type: ["integer", "null"] }
+        budgetUsd: { type: ["integer", "null"] }
+        maxSteps: { type: ["integer", "null"] }
+        riskTier: { type: string }
+        status: { type: string }
+        runCount: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+    IntentInput:
+      type: object
+      required: [title, goal]
+      properties:
+        title: { type: string, minLength: 1 }
+        goal: { type: string, minLength: 1 }
+        constraints: { type: string }
+        successCriteria: { type: string }
+        allowedSystems: { type: array, items: { type: string } }
+        deniedSystems: { type: array, items: { type: string } }
+        budgetTokens: { type: integer }
+        budgetUsd: { type: integer }
+        maxSteps: { type: integer }
+        riskTier: { type: string }
+    IntentUpdate:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        goal: { type: string, minLength: 1 }
+        constraints: { type: string }
+        successCriteria: { type: string }
+        riskTier: { type: string }
+        status: { type: string }
+    StartRunInput:
+      type: object
+      properties:
+        orchestrationMode: { type: string }
+        leadAgentId: { type: string }
+
+    Run:
+      type: object
+      required: [id, intentId, status, orchestrationMode, createdAt]
+      properties:
+        id: { type: string }
+        intentId: { type: string }
+        intentTitle: { type: ["string", "null"] }
+        status: { type: string }
+        orchestrationMode: { type: string }
+        leadAgentId: { type: ["string", "null"] }
+        summary: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        tokensUsed: { type: integer }
+        costUsdMicros: { type: integer }
+        traceId: { type: ["string", "null"] }
+        startedAt: { type: ["string", "null"], format: date-time }
+        completedAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+    RunDetail:
+      allOf:
+        - $ref: "#/components/schemas/Run"
+        - type: object
+          properties:
+            intent: { $ref: "#/components/schemas/Intent" }
+            taskGraph: { $ref: "#/components/schemas/JsonObject" }
+            actions:
+              type: array
+              items: { $ref: "#/components/schemas/Action" }
+            approvals:
+              type: array
+              items: { $ref: "#/components/schemas/ApprovalRequest" }
+            contextFragments:
+              type: array
+              items: { $ref: "#/components/schemas/ContextFragment" }
+            contextPacks:
+              type: array
+              items: { $ref: "#/components/schemas/ContextPack" }
+            artifacts:
+              type: array
+              items: { $ref: "#/components/schemas/Artifact" }
+            events:
+              type: array
+              items: { $ref: "#/components/schemas/EventLog" }
+            agentRuns:
+              type: array
+              items: { $ref: "#/components/schemas/AgentRun" }
+            agentMessages:
+              type: array
+              items: { $ref: "#/components/schemas/AgentMessage" }
+
+    Action:
+      type: object
+      required: [id, runId, name, kind, riskTier, status, createdAt]
+      properties:
+        id: { type: string }
+        runId: { type: string }
+        capabilityId: { type: ["string", "null"] }
+        nodeId: { type: ["string", "null"] }
+        name: { type: string }
+        kind: { type: string }
+        riskTier: { type: string }
+        status: { type: string }
+        input: { $ref: "#/components/schemas/JsonObject" }
+        output: { $ref: "#/components/schemas/JsonObject" }
+        error: { type: ["string", "null"] }
+        policyDecision: { $ref: "#/components/schemas/JsonObject" }
+        agentId: { type: ["string", "null"] }
+        agentRunId: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: ["string", "null"], format: date-time }
+
+    ApprovalRequest:
+      type: object
+      required: [id, runId, actionId, riskTier, status, createdAt]
+      properties:
+        id: { type: string }
+        runId: { type: string }
+        actionId: { type: string }
+        actionName: { type: ["string", "null"] }
+        riskTier: { type: string }
+        status: { type: string }
+        reason: { type: ["string", "null"] }
+        decisionNote: { type: ["string", "null"] }
+        decidedAt: { type: ["string", "null"], format: date-time }
+        expiresAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+    ApprovalDecisionInput:
+      type: object
+      properties:
+        note: { type: string }
+
+    Artifact:
+      type: object
+      required: [id, name, type, contentType, createdAt]
+      properties:
+        id: { type: string }
+        runId: { type: ["string", "null"] }
+        name: { type: string }
+        type: { type: string }
+        contentType: { type: string }
+        content: { type: ["string", "null"] }
+        sizeBytes: { type: integer }
+        sensitivity: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    WorkingMemory:
+      type: object
+      required: [id, type, key, value, sensitivity, createdAt]
+      properties:
+        id: { type: string }
+        runId: { type: ["string", "null"] }
+        type: { type: string }
+        key: { type: string }
+        value: { type: string }
+        sensitivity: { type: string }
+        tags: { type: ["array", "null"], items: { type: string } }
+        createdAt: { type: string, format: date-time }
+
+    EventLog:
+      type: object
+      required: [id, type, level, message, createdAt]
+      properties:
+        id: { type: string }
+        runId: { type: ["string", "null"] }
+        type: { type: string }
+        level: { type: string }
+        message: { type: string }
+        data: { $ref: "#/components/schemas/JsonObject" }
+        agentId: { type: ["string", "null"] }
+        agentRunId: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+
+    AuditRecord:
+      type: object
+      required: [id, actorType, action, resourceType, summary, createdAt]
+      properties:
+        id: { type: string }
+        runId: { type: ["string", "null"] }
+        actorType: { type: string }
+        actorId: { type: ["string", "null"] }
+        action: { type: string }
+        resourceType: { type: string }
+        resourceId: { type: ["string", "null"] }
+        summary: { type: string }
+        riskTier: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+
+    ContextFragment:
+      type: object
+      required: [id, type, source, content, tokens, selected, createdAt]
+      properties:
+        id: { type: string }
+        runId: { type: ["string", "null"] }
+        type: { type: string }
+        source: { type: string }
+        content: { type: string }
+        tokens: { type: integer }
+        relevanceScore: { type: integer }
+        selected: { type: boolean }
+        rejectionReason: { type: ["string", "null"] }
+        sensitivity: { type: string }
+        redacted: { type: boolean }
+        agentId: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+
+    ContextPack:
+      type: object
+      required: [id, name, totalTokens, strategy, createdAt]
+      properties:
+        id: { type: string }
+        runId: { type: ["string", "null"] }
+        name: { type: string }
+        fragmentIds: { type: ["array", "null"], items: { type: string } }
+        totalTokens: { type: integer }
+        strategy: { type: string }
+        summary: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+
+    Agent:
+      type: object
+      required: [id, name, role, contextPolicy, isActive, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        role: { type: string }
+        description: { type: ["string", "null"] }
+        systemPrompt: { type: ["string", "null"] }
+        capabilityScope: { type: ["array", "null"], items: { type: string } }
+        contextPolicy: { type: string }
+        exposeAsCapabilityProvider: { type: boolean }
+        isActive: { type: boolean }
+        modelPolicy: { $ref: "#/components/schemas/AgentModelPolicy" }
+        createdAt: { type: string, format: date-time }
+    AgentInput:
+      type: object
+      required: [name, role]
+      properties:
+        name: { type: string, minLength: 1 }
+        role: { type: string }
+        description: { type: string }
+        systemPrompt: { type: string }
+        capabilityScope: { type: array, items: { type: string } }
+        contextPolicy: { type: string }
+        exposeAsCapabilityProvider: { type: boolean }
+    AgentUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string }
+        systemPrompt: { type: string }
+        capabilityScope: { type: array, items: { type: string } }
+        contextPolicy: { type: string }
+        isActive: { type: boolean }
+        exposeAsCapabilityProvider: { type: boolean }
+
+    AgentModelPolicy:
+      type: object
+      required: [id, agentId]
+      properties:
+        id: { type: string }
+        agentId: { type: string }
+        primaryEndpointId: { type: ["string", "null"] }
+        fallbackEndpointId: { type: ["string", "null"] }
+        temperature: { type: integer }
+        maxTokens: { type: integer }
+    AgentModelPolicyInput:
+      type: object
+      properties:
+        primaryEndpointId: { type: string }
+        fallbackEndpointId: { type: string }
+        temperature: { type: integer }
+        maxTokens: { type: integer }
+
+    AgentRun:
+      type: object
+      required: [id, runId, agentId, role, status, createdAt]
+      properties:
+        id: { type: string }
+        runId: { type: string }
+        agentId: { type: string }
+        agentName: { type: ["string", "null"] }
+        parentAgentRunId: { type: ["string", "null"] }
+        role: { type: string }
+        status: { type: string }
+        task: { type: ["string", "null"] }
+        output: { $ref: "#/components/schemas/JsonObject" }
+        outputValid: { type: ["boolean", "null"] }
+        usedFallback: { type: boolean }
+        tokensUsed: { type: integer }
+        latencyMs: { type: integer }
+        costUsdMicros: { type: integer }
+        createdAt: { type: string, format: date-time }
+
+    AgentMessage:
+      type: object
+      required: [id, runId, messageType, content, createdAt]
+      properties:
+        id: { type: string }
+        runId: { type: string }
+        fromAgentId: { type: ["string", "null"] }
+        toAgentId: { type: ["string", "null"] }
+        fromAgentRunId: { type: ["string", "null"] }
+        toAgentRunId: { type: ["string", "null"] }
+        messageType: { type: string }
+        content: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    ModelEndpoint:
+      type: object
+      required: [id, name, providerType, modelName, status, isDefault, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        providerType: { type: string }
+        baseUrl: { type: ["string", "null"] }
+        host: { type: ["string", "null"] }
+        port: { type: ["integer", "null"] }
+        modelName: { type: string }
+        apiKeyRef: { type: ["string", "null"] }
+        apiKeyMasked: { type: ["string", "null"] }
+        organization: { type: ["string", "null"] }
+        deployment: { type: ["string", "null"] }
+        requestTimeoutMs: { type: integer }
+        maxRetries: { type: integer }
+        isDefault: { type: boolean }
+        status: { type: string }
+        lastTestedAt: { type: ["string", "null"], format: date-time }
+        lastTestResult: { $ref: "#/components/schemas/JsonObject" }
+        createdAt: { type: string, format: date-time }
+    ModelEndpointInput:
+      type: object
+      required: [name, providerType, modelName]
+      properties:
+        name: { type: string, minLength: 1 }
+        providerType: { type: string }
+        baseUrl: { type: string }
+        host: { type: string }
+        port: { type: integer }
+        modelName: { type: string, minLength: 1 }
+        apiKey: { type: string }
+        organization: { type: string }
+        deployment: { type: string }
+        requestTimeoutMs: { type: integer }
+        maxRetries: { type: integer }
+        isDefault: { type: boolean }
+    ModelEndpointUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        baseUrl: { type: string }
+        host: { type: string }
+        port: { type: integer }
+        modelName: { type: string, minLength: 1 }
+        apiKey: { type: string }
+        organization: { type: string }
+        deployment: { type: string }
+        requestTimeoutMs: { type: integer }
+        maxRetries: { type: integer }
+        isDefault: { type: boolean }
+        status: { type: string }
+    ModelTestResult:
+      type: object
+      required: [ok, latencyMs, message]
+      properties:
+        ok: { type: boolean }
+        latencyMs: { type: integer }
+        message: { type: string }
+        model: { type: ["string", "null"] }
+        promptTokens: { type: ["integer", "null"] }
+        completionTokens: { type: ["integer", "null"] }
+        totalTokens: { type: ["integer", "null"] }
+        usedStub: { type: boolean }
+
+    IntegrationBlueprint:
+      type: object
+      required: [id, name, serviceName, sourceType, analyzed, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        serviceName: { type: string }
+        sourceType: { type: string }
+        sourceUrl: { type: ["string", "null"] }
+        operationCount: { type: integer }
+        generationConfidenceScore: { type: integer }
+        humanReviewRequired: { type: boolean }
+        analyzed: { type: boolean }
+        normalized: { $ref: "#/components/schemas/JsonObject" }
+        createdAt: { type: string, format: date-time }
+    BlueprintInput:
+      type: object
+      required: [name, serviceName]
+      properties:
+        name: { type: string, minLength: 1 }
+        serviceName: { type: string, minLength: 1 }
+        sourceType: { type: string }
+        sourceUrl: { type: string }
+        sourceSpec: { type: string }
+
+    GeneratedMcpServer:
+      type: object
+      required: [id, blueprintId, name, version, status, createdAt]
+      properties:
+        id: { type: string }
+        blueprintId: { type: string }
+        name: { type: string }
+        version: { type: string }
+        status: { type: string }
+        capabilityCount: { type: integer }
+        testsPassed: { type: integer }
+        testsFailed: { type: integer }
+        humanReviewRequired: { type: boolean }
+        approved: { type: boolean }
+        deploymentStatus: { type: string }
+        registeredAdapterId: { type: ["string", "null"] }
+        regenerationReason: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+    GeneratedServerDetail:
+      allOf:
+        - $ref: "#/components/schemas/GeneratedMcpServer"
+        - type: object
+          properties:
+            serverCode: { type: ["string", "null"] }
+            securityReview: { $ref: "#/components/schemas/JsonObject" }
+            capabilities:
+              type: array
+              items: { $ref: "#/components/schemas/SynthesizedCapability" }
+            tests:
+              type: array
+              items: { $ref: "#/components/schemas/IntegrationTest" }
+    RegenerateInput:
+      type: object
+      properties:
+        reason: { type: string }
+
+    SynthesizedCapability:
+      type: object
+      required: [id, type, name, actionKind, riskTier, createdAt]
+      properties:
+        id: { type: string }
+        type: { type: string }
+        name: { type: string }
+        description: { type: ["string", "null"] }
+        sourceOperation: { type: ["string", "null"] }
+        httpMethod: { type: ["string", "null"] }
+        actionKind: { type: string }
+        riskTier: { type: string }
+        humanReviewRequired: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    IntegrationTest:
+      type: object
+      required: [id, name, status, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        status: { type: string }
+        assertion: { type: ["string", "null"] }
+        durationMs: { type: integer }
+        output: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+
+    DeploymentTarget:
+      type: object
+      required: [id, name, type, isDefault, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type: { type: string }
+        region: { type: ["string", "null"] }
+        isDefault: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    Trace:
+      type: object
+      required: [id, name, rootType, status, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        rootType: { type: string }
+        runId: { type: ["string", "null"] }
+        status: { type: string }
+        riskTier: { type: ["string", "null"] }
+        initiatedBy: { type: ["string", "null"] }
+        totalTokens: { type: integer }
+        totalCostUsdMicros: { type: integer }
+        durationMs: { type: integer }
+        observationCount: { type: integer }
+        startedAt: { type: ["string", "null"], format: date-time }
+        endedAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+    TraceDetail:
+      allOf:
+        - $ref: "#/components/schemas/Trace"
+        - type: object
+          properties:
+            observations:
+              type: array
+              items: { $ref: "#/components/schemas/Observation" }
+
+    Observation:
+      type: object
+      required: [id, traceId, type, name, status, layer, createdAt]
+      properties:
+        id: { type: string }
+        traceId: { type: string }
+        parentObservationId: { type: ["string", "null"] }
+        type: { type: string }
+        name: { type: string }
+        status: { type: string }
+        layer: { type: string }
+        agentId: { type: ["string", "null"] }
+        agentRunId: { type: ["string", "null"] }
+        modelEndpointId: { type: ["string", "null"] }
+        capabilityId: { type: ["string", "null"] }
+        input: { $ref: "#/components/schemas/JsonObject" }
+        output: { $ref: "#/components/schemas/JsonObject" }
+        error: { $ref: "#/components/schemas/JsonObject" }
+        sensitiveMasked: { type: boolean }
+        metrics: { $ref: "#/components/schemas/ObservationMetric" }
+        startedAt: { type: ["string", "null"], format: date-time }
+        endedAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+
+    ObservationMetric:
+      type: object
+      properties:
+        latencyMs: { type: integer }
+        promptTokens: { type: integer }
+        completionTokens: { type: integer }
+        totalTokens: { type: integer }
+        costUsdMicros: { type: integer }
+        timeToFirstTokenMs: { type: ["integer", "null"] }
+        finishReason: { type: ["string", "null"] }
+
+    MetricRow:
+      type: object
+      required: [label, count]
+      properties:
+        label: { type: string }
+        count: { type: integer }
+        tokens: { type: ["integer", "null"] }
+        costUsdMicros: { type: ["integer", "null"] }
+        avgLatencyMs: { type: ["integer", "null"] }
+        errorRate: { type: ["number", "null"] }
+        successRate: { type: ["number", "null"] }
+    MetricsResponse:
+      type: object
+      required: [level, rows]
+      properties:
+        level: { type: string }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/MetricRow" }
+        totals: { $ref: "#/components/schemas/JsonObject" }
+
+    EvaluationRecord:
+      type: object
+      required: [id, name, label, isReferenceExample, evaluatorType, createdAt]
+      properties:
+        id: { type: string }
+        traceId: { type: ["string", "null"] }
+        observationId: { type: ["string", "null"] }
+        name: { type: string }
+        label: { type: string }
+        score: { type: ["integer", "null"] }
+        isReferenceExample: { type: boolean }
+        reviewNote: { type: ["string", "null"] }
+        comparedTraceId: { type: ["string", "null"] }
+        evaluatorType: { type: string }
+        createdAt: { type: string, format: date-time }
+    EvaluationRecordInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        traceId: { type: string }
+        observationId: { type: string }
+        label: { type: string }
+        score: { type: integer }
+        reviewNote: { type: string }
+        isReferenceExample: { type: boolean }
+    EvaluationLabelInput:
+      type: object
+      properties:
+        label: { type: string }
+        score: { type: integer }
+        reviewNote: { type: string }
+        isReferenceExample: { type: boolean }
+
+    UiView:
+      type: object
+      required: [id, name, scope, isPinned, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        scope: { type: string }
+        filters: { $ref: "#/components/schemas/JsonObject" }
+        isPinned: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    UiViewInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        scope: { type: string }
+        filters: { $ref: "#/components/schemas/JsonObject" }
+        isPinned: { type: boolean }
+
+    TelemetryExport:
+      type: object
+      required: [id, name, format, enabled, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        format: { type: string }
+        endpoint: { type: ["string", "null"] }
+        enabled: { type: boolean }
+        lastExportedAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+    TelemetryExportInput:
+      type: object
+      required: [name, format]
+      properties:
+        name: { type: string, minLength: 1 }
+        format: { type: string }
+        endpoint: { type: string }
+        enabled: { type: boolean }
+    TelemetryExportUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        endpoint: { type: string }
+        enabled: { type: boolean }
