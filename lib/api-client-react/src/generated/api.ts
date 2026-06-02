@@ -4019,6 +4019,70 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getTestGeneratedServerMutationOptions(options));
     }
 
+export const getApproveGeneratedServerUrl = (id: string,) => {
+
+
+
+
+  return `/api/generated-mcp-servers/${id}/approve`
+}
+
+export const approveGeneratedServer = async (id: string, options?: RequestInit): Promise<GeneratedServerDetail> => {
+
+  return customFetch<GeneratedServerDetail>(getApproveGeneratedServerUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getApproveGeneratedServerMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveGeneratedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveGeneratedServer>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['approveGeneratedServer'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveGeneratedServer>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  approveGeneratedServer(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveGeneratedServerMutationResult = NonNullable<Awaited<ReturnType<typeof approveGeneratedServer>>>
+
+    export type ApproveGeneratedServerMutationError = ErrorType<unknown>
+
+    export const useApproveGeneratedServer = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveGeneratedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveGeneratedServer>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getApproveGeneratedServerMutationOptions(options));
+    }
+
 export const getDeployGeneratedServerUrl = (id: string,) => {
 
 

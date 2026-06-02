@@ -1,8 +1,8 @@
 import { useRoute } from "wouter";
-import { useGetGeneratedServer, getGetGeneratedServerQueryKey, useTestGeneratedServer, useDeployGeneratedServer, useRegisterGeneratedServer, useRegenerateGeneratedServer } from "@workspace/api-client-react";
+import { useGetGeneratedServer, getGetGeneratedServerQueryKey, useTestGeneratedServer, useApproveGeneratedServer, useDeployGeneratedServer, useRegisterGeneratedServer, useRegenerateGeneratedServer } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ServerCog, Activity, CloudUpload, Cable, RefreshCw, Zap, CheckCircle2, XCircle, ShieldAlert } from "lucide-react";
+import { ServerCog, Activity, CloudUpload, Cable, RefreshCw, Zap, CheckCircle2, XCircle, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 
@@ -14,13 +14,15 @@ export function GeneratedServerDetail() {
   const { data: server, isLoading } = useGetGeneratedServer(id, { query: { enabled: !!id, queryKey: getGetGeneratedServerQueryKey(id) } });
   
   const testMutation = useTestGeneratedServer();
+  const approveMutation = useApproveGeneratedServer();
   const deployMutation = useDeployGeneratedServer();
   const registerMutation = useRegisterGeneratedServer();
   const regenerateMutation = useRegenerateGeneratedServer();
 
-  const handleAction = async (action: 'test' | 'deploy' | 'register' | 'regenerate') => {
+  const handleAction = async (action: 'test' | 'approve' | 'deploy' | 'register' | 'regenerate') => {
     try {
       if (action === 'test') await testMutation.mutateAsync({ id });
+      if (action === 'approve') await approveMutation.mutateAsync({ id });
       if (action === 'deploy') await deployMutation.mutateAsync({ id });
       if (action === 'register') await registerMutation.mutateAsync({ id });
       if (action === 'regenerate') await regenerateMutation.mutateAsync({ id, data: { reason: "Manual regeneration" } });
@@ -54,7 +56,12 @@ export function GeneratedServerDetail() {
           <button onClick={() => handleAction('test')} disabled={testMutation.isPending} className="flex items-center gap-2 px-3 py-1.5 bg-secondary text-secondary-foreground rounded text-sm hover:bg-secondary/80">
             <Activity className="w-4 h-4" /> Test
           </button>
-          <button onClick={() => handleAction('deploy')} disabled={deployMutation.isPending || server.status !== 'ready'} className="flex items-center gap-2 px-3 py-1.5 bg-secondary text-secondary-foreground rounded text-sm hover:bg-secondary/80 disabled:opacity-50">
+          {server.humanReviewRequired && !server.approved && (
+            <button onClick={() => handleAction('approve')} disabled={approveMutation.isPending} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/20 text-amber-500 rounded text-sm hover:bg-amber-500/30 disabled:opacity-50">
+              <ShieldCheck className="w-4 h-4" /> Approve
+            </button>
+          )}
+          <button onClick={() => handleAction('deploy')} disabled={deployMutation.isPending || (server.humanReviewRequired && !server.approved)} className="flex items-center gap-2 px-3 py-1.5 bg-secondary text-secondary-foreground rounded text-sm hover:bg-secondary/80 disabled:opacity-50" title={server.humanReviewRequired && !server.approved ? "Requires human approval before deployment" : undefined}>
             <CloudUpload className="w-4 h-4" /> Deploy
           </button>
           <button onClick={() => handleAction('register')} disabled={registerMutation.isPending || server.deploymentStatus !== 'deployed'} className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded text-sm hover:bg-primary/90 disabled:opacity-50">

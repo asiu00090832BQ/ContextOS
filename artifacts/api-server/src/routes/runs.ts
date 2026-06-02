@@ -187,12 +187,28 @@ router.post("/runs/:id/resume", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const row = await setRunStatus(req, params.data.id, "running");
+  const [row] = await db
+    .select()
+    .from(runsTable)
+    .where(and(eq(runsTable.id, params.data.id), eq(runsTable.tenantId, req.tenantId)));
   if (!row) {
     res.status(404).json({ error: "Run not found" });
     return;
   }
-  res.json(ResumeRunResponse.parse(serializeRun(row)));
+  // A run paused at waiting_approval continues through the run engine, which
+  // checks that no approvals remain pending before finalizing. Other paused
+  // states simply transition back to running.
+  if (row.status === "waiting_approval") {
+    void resumeRun(req.tenantId, row.id);
+    res.json(ResumeRunResponse.parse(serializeRun(row)));
+    return;
+  }
+  const updated = await setRunStatus(req, params.data.id, "running");
+  if (!updated) {
+    res.status(404).json({ error: "Run not found" });
+    return;
+  }
+  res.json(ResumeRunResponse.parse(serializeRun(updated)));
 });
 
 router.post("/runs/:id/cancel", async (req, res): Promise<void> => {

@@ -15,8 +15,11 @@ import {
   auditRecordsTable,
   observationsTable,
   capabilitiesTable,
+  modelEndpointsTable,
+  agentModelPoliciesTable,
   type Run,
   type Intent,
+  type ModelEndpoint,
 } from "@workspace/db";
 import { runEvents } from "./events";
 import {
@@ -24,8 +27,57 @@ import {
   recordObservation,
   finalizeTrace,
 } from "./observability";
-import { stubComplete } from "./llm";
+import { complete, stubComplete, type LlmResult } from "./llm";
+import { resolveSecret } from "./secretStore";
 import { logger } from "./logger";
+
+/**
+ * Resolve the configured model for an agent: its model policy plus the primary
+ * and fallback endpoints. Used so runs invoke the real configured providers.
+ */
+async function resolveAgentModel(
+  tenantId: string,
+  agentId: string,
+): Promise<{
+  primary: ModelEndpoint | null;
+  fallback: ModelEndpoint | null;
+  temperature: number | undefined;
+  maxTokens: number | undefined;
+}> {
+  const [policy] = await db
+    .select()
+    .from(agentModelPoliciesTable)
+    .where(
+      and(
+        eq(agentModelPoliciesTable.tenantId, tenantId),
+        eq(agentModelPoliciesTable.agentId, agentId),
+      ),
+    );
+  if (!policy) {
+    return { primary: null, fallback: null, temperature: undefined, maxTokens: undefined };
+  }
+  let primary: ModelEndpoint | null = null;
+  let fallback: ModelEndpoint | null = null;
+  if (policy.primaryEndpointId) {
+    [primary] = await db
+      .select()
+      .from(modelEndpointsTable)
+      .where(eq(modelEndpointsTable.id, policy.primaryEndpointId));
+  }
+  if (policy.fallbackEndpointId) {
+    [fallback] = await db
+      .select()
+      .from(modelEndpointsTable)
+      .where(eq(modelEndpointsTable.id, policy.fallbackEndpointId));
+  }
+  return {
+    primary: primary ?? null,
+    fallback: fallback ?? null,
+    // Policy temperature is stored as an integer (×100); the driver wants 0..1.
+    temperature: policy.temperature / 100,
+    maxTokens: policy.maxTokens,
+  };
+}
 
 async function logEvent(
   tenantId: string,
@@ -504,15 +556,45 @@ async function runAgent(args: RunAgentArgs): Promise<{
   tokensUsed: number;
   costUsdMicros: number;
 }> {
-  const result = stubComplete(
-    {
-      messages: [
-        { role: "system", content: args.systemPrompt ?? "You are a helpful agent." },
-        { role: "user", content: args.task },
-      ],
-    },
-    args.agentName,
+  const llmReq = {
+    messages: [
+      { role: "system" as const, content: args.systemPrompt ?? "You are a helpful agent." },
+      { role: "user" as const, content: args.task },
+    ],
+    temperature: undefined as number | undefined,
+    maxTokens: undefined as number | undefined,
+  };
+
+  // Resolve the agent's configured model policy and invoke the real provider,
+  // falling back from primary -> fallback endpoint, and only resorting to the
+  // deterministic stub when no endpoint/key is configured or every call fails.
+  const { primary, fallback, temperature, maxTokens } = await resolveAgentModel(
+    args.tenantId,
+    args.agentId,
   );
+  llmReq.temperature = temperature;
+  llmReq.maxTokens = maxTokens;
+
+  let result: LlmResult;
+  if (primary) {
+    result = await complete(primary, resolveSecret(primary.apiKeyRef), llmReq);
+    if (result.usedStub && fallback) {
+      const fb = await complete(fallback, resolveSecret(fallback.apiKeyRef), llmReq);
+      if (!fb.usedStub) {
+        await logEvent(
+          args.tenantId,
+          args.runId,
+          "model.fallback",
+          `${args.agentName}: primary endpoint "${primary.name}" failed; used fallback "${fallback.name}"`,
+          "warn",
+          { agentId: args.agentId },
+        );
+        result = fb;
+      }
+    }
+  } else {
+    result = stubComplete(llmReq, args.agentName);
+  }
 
   const [agentRun] = await db
     .insert(agentRunsTable)

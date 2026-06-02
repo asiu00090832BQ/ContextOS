@@ -1346,6 +1346,52 @@ export const TestGeneratedServerResponse = zod.object({
 }))
 
 
+export const ApproveGeneratedServerParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const ApproveGeneratedServerResponse = zod.object({
+  "id": zod.string(),
+  "blueprintId": zod.string(),
+  "name": zod.string(),
+  "version": zod.string(),
+  "status": zod.string(),
+  "capabilityCount": zod.number().optional(),
+  "testsPassed": zod.number().optional(),
+  "testsFailed": zod.number().optional(),
+  "humanReviewRequired": zod.boolean().optional(),
+  "approved": zod.boolean().optional(),
+  "deploymentStatus": zod.string().optional(),
+  "registeredAdapterId": zod.string().nullish(),
+  "regenerationReason": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}).and(zod.object({
+  "serverCode": zod.string().nullish(),
+  "securityReview": zod.record(zod.string(), zod.unknown()).optional(),
+  "capabilities": zod.array(zod.object({
+  "id": zod.string(),
+  "type": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "sourceOperation": zod.string().nullish(),
+  "httpMethod": zod.string().nullish(),
+  "actionKind": zod.string(),
+  "riskTier": zod.string(),
+  "humanReviewRequired": zod.boolean().optional(),
+  "createdAt": zod.coerce.date()
+})).optional(),
+  "tests": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "status": zod.string(),
+  "assertion": zod.string().nullish(),
+  "durationMs": zod.number().optional(),
+  "output": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})).optional()
+}))
+
+
 export const DeployGeneratedServerParams = zod.object({
   "id": zod.coerce.string()
 })

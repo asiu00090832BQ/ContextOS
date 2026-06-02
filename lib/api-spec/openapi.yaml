@@ -888,6 +888,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GeneratedServerDetail"
+  /generated-mcp-servers/{id}/approve:
+    post:
+      operationId: approveGeneratedServer
+      tags: [integrations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedServerDetail"
   /generated-mcp-servers/{id}/deploy:
     post:
       operationId: deployGeneratedServer

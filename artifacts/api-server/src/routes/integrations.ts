@@ -22,6 +22,8 @@ import {
   GetGeneratedServerResponse,
   TestGeneratedServerParams,
   TestGeneratedServerResponse,
+  ApproveGeneratedServerParams,
+  ApproveGeneratedServerResponse,
   DeployGeneratedServerParams,
   DeployGeneratedServerResponse,
   RegisterGeneratedServerParams,
@@ -220,8 +222,8 @@ router.post("/generated-servers/:id/test", async (req, res): Promise<void> => {
   res.json(TestGeneratedServerResponse.parse(await loadServerDetail(updated)));
 });
 
-router.post("/generated-servers/:id/deploy", async (req, res): Promise<void> => {
-  const params = DeployGeneratedServerParams.safeParse(req.params);
+router.post("/generated-servers/:id/approve", async (req, res): Promise<void> => {
+  const params = ApproveGeneratedServerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
@@ -233,7 +235,35 @@ router.post("/generated-servers/:id/deploy", async (req, res): Promise<void> => 
   }
   const [updated] = await db
     .update(generatedMcpServersTable)
-    .set({ status: "deployed", deploymentStatus: "deployed", approved: true })
+    .set({ approved: true, status: "approved" })
+    .where(eq(generatedMcpServersTable.id, row.id))
+    .returning();
+  res.json(ApproveGeneratedServerResponse.parse(await loadServerDetail(updated)));
+});
+
+router.post("/generated-servers/:id/deploy", async (req, res): Promise<void> => {
+  const params = DeployGeneratedServerParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const row = await loadServer(req, params.data.id);
+  if (!row) {
+    res.status(404).json({ error: "Generated server not found" });
+    return;
+  }
+  // Governance gate: a server flagged for human review must be explicitly
+  // approved (via /approve) before it can be deployed. Never auto-approve here.
+  if (row.humanReviewRequired && !row.approved) {
+    res.status(409).json({
+      error:
+        "This generated server requires human review and must be approved before it can be deployed.",
+    });
+    return;
+  }
+  const [updated] = await db
+    .update(generatedMcpServersTable)
+    .set({ status: "deployed", deploymentStatus: "deployed" })
     .where(eq(generatedMcpServersTable.id, row.id))
     .returning();
   res.json(DeployGeneratedServerResponse.parse(await loadServerDetail(updated)));
@@ -248,6 +278,15 @@ router.post("/generated-servers/:id/register", async (req, res): Promise<void> =
   const row = await loadServer(req, params.data.id);
   if (!row) {
     res.status(404).json({ error: "Generated server not found" });
+    return;
+  }
+  // Governance gate: a server flagged for human review must be explicitly
+  // approved (via /approve) before it can be registered as a live adapter.
+  if (row.humanReviewRequired && !row.approved) {
+    res.status(409).json({
+      error:
+        "This generated server requires human review and must be approved before it can be registered.",
+    });
     return;
   }
   let adapterId = row.registeredAdapterId;
