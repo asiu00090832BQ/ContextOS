@@ -368,9 +368,9 @@ async function seed(): Promise<void> {
     normalizedJson: {
       service: "stripe",
       operations: [
-        { id: "listCustomers", method: "GET", path: "/v1/customers" },
-        { id: "createCustomer", method: "POST", path: "/v1/customers" },
-        { id: "createRefund", method: "POST", path: "/v1/refunds" },
+        { operationId: "listCustomers", method: "GET", path: "/v1/customers", summary: "List customers", mutating: false },
+        { operationId: "createCustomer", method: "POST", path: "/v1/customers", summary: "Create a customer", mutating: true },
+        { operationId: "createRefund", method: "POST", path: "/v1/refunds", summary: "Create a refund", mutating: true },
       ],
     },
     operationCount: 3,

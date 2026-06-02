@@ -8,6 +8,7 @@ import {
   integrationTestsTable,
   deploymentTargetsTable,
   adaptersTable,
+  capabilitiesTable,
 } from "@workspace/db";
 import {
   ListBlueprintsResponse,
@@ -303,6 +304,37 @@ router.post("/generated-mcp-servers/:id/register", async (req, res): Promise<voi
       })
       .returning();
     adapterId = adapter.id;
+  }
+  // Publish the synthesized capabilities into the shared capability catalog so
+  // the registered server behaves as a first-class adapter — its tools show up
+  // under /capabilities alongside every other adapter's. Idempotent: only
+  // capabilities not already present on the adapter (by name) are inserted, so
+  // re-registering does not create duplicates.
+  const synthCaps = await db
+    .select()
+    .from(synthesizedCapabilitiesTable)
+    .where(eq(synthesizedCapabilitiesTable.generatedServerId, row.id));
+  const existingCaps = await db
+    .select({ name: capabilitiesTable.name })
+    .from(capabilitiesTable)
+    .where(eq(capabilitiesTable.adapterId, adapterId));
+  const existingNames = new Set(existingCaps.map((c) => c.name));
+  const capsToPublish = synthCaps.filter((c) => !existingNames.has(c.name));
+  if (capsToPublish.length > 0) {
+    await db.insert(capabilitiesTable).values(
+      capsToPublish.map((c) => ({
+        tenantId: req.tenantId,
+        adapterId,
+        type: c.type,
+        name: c.name,
+        description: c.description,
+        riskTier: c.riskTier,
+        actionKind: c.actionKind,
+        inputSchemaJson: c.inputSchemaJson,
+        outputSchemaJson: c.outputSchemaJson,
+        humanReviewRequired: c.humanReviewRequired,
+      })),
+    );
   }
   const [updated] = await db
     .update(generatedMcpServersTable)

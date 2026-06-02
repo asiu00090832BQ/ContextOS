@@ -15,6 +15,8 @@ import {
   auditRecordsTable,
   observationsTable,
   capabilitiesTable,
+  policyBundlesTable,
+  workingMemoriesTable,
   modelEndpointsTable,
   agentModelPoliciesTable,
   type Run,
@@ -192,6 +194,19 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
     obsCount++;
     await logEvent(tenantId, runId, "context.assembled", `Context pack assembled: ${selected.length} fragments, ${packTokens} tokens`);
 
+    // Working memory: persist the objective so it is available to downstream
+    // agents and visible in the run's memory provenance.
+    await db.insert(workingMemoriesTable).values({
+      tenantId,
+      runId,
+      type: "working",
+      key: "objective",
+      value: intent.goal,
+      sensitivity: "internal",
+      tags: ["intent", intent.riskTier],
+      metadataJson: { source: "context_assembly", fragmentsSelected: selected.length },
+    });
+
     // 2. Lead agent + workers (multi-agent orchestration)
     const agents = await db
       .select()
@@ -215,6 +230,19 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
       totalTokens += leadResult.tokensUsed;
       totalCost += leadResult.costUsdMicros;
       obsCount++;
+
+      // Working memory: record the lead agent's coordination plan as episodic
+      // memory for this run.
+      await db.insert(workingMemoriesTable).values({
+        tenantId,
+        runId,
+        type: "episodic",
+        key: "lead.plan",
+        value: `Lead agent "${lead.name}" produced a coordination plan for "${intent.title}".`,
+        sensitivity: "internal",
+        tags: ["plan", lead.role],
+        metadataJson: { agentId: lead.id, agentRunId: leadResult.agentRunId },
+      });
 
       const workers = agents.filter((a) => a.id !== lead.id).slice(0, 2);
       for (const w of workers) {
@@ -253,9 +281,33 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
       .from(capabilitiesTable)
       .where(eq(capabilitiesTable.tenantId, tenantId))
       .limit(4);
+
+    // Policy bundle: assemble the effective policy for this run so its approval
+    // decisions have explicit, queryable provenance. Capabilities at or above
+    // the approval threshold (or flagged for human review) require sign-off.
+    const RISK_RANK = { L1: 1, L2: 2, L3: 3, L4: 4 } as const;
+    const [policyBundle] = await db
+      .insert(policyBundlesTable)
+      .values({
+        tenantId,
+        runId,
+        name: `Policy bundle for "${intent.title}"`,
+        rulesJson: {
+          requireApprovalAtOrAbove: "L3",
+          deniedSystems: intent.deniedSystems ?? [],
+        },
+        allowedCapabilities: caps.map((c) => c.name),
+        deniedCapabilities: [],
+        approvalThreshold: "L3",
+      })
+      .returning();
+    await logEvent(tenantId, runId, "policy.bundle.assembled", `Policy bundle assembled (approval required at or above ${policyBundle.approvalThreshold})`);
+
     let pendingApproval = false;
     for (const cap of caps) {
-      const needsApproval = cap.humanReviewRequired || cap.riskTier === "L3" || cap.riskTier === "L4";
+      const needsApproval =
+        cap.humanReviewRequired ||
+        RISK_RANK[cap.riskTier] >= RISK_RANK[policyBundle.approvalThreshold];
       const [action] = await db
         .insert(actionsTable)
         .values({

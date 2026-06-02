@@ -16,11 +16,12 @@ type TestSeed = Omit<
 export interface NormalizedSpec {
   service: string;
   operations: {
-    operationId: string;
+    operationId?: string;
+    id?: string;
     method: string;
     path: string;
-    summary: string;
-    mutating: boolean;
+    summary?: string;
+    mutating?: boolean;
   }[];
 }
 
@@ -98,10 +99,15 @@ export function synthesizeServer(normalized: NormalizedSpec): {
 } {
   const capabilities: SynthCapSeed[] = normalized.operations.map((op) => {
     const risk = riskForMethod(op.method);
+    const name =
+      op.operationId ??
+      op.id ??
+      `${op.method.toLowerCase()}_${op.path.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`;
+    const summary = op.summary ?? `${op.method} ${op.path}`;
     return {
       type: "tool",
-      name: op.operationId,
-      description: op.summary,
+      name,
+      description: summary,
       sourceOperation: `${op.method} ${op.path}`,
       httpMethod: op.method,
       actionKind: actionKindForMethod(op.method),

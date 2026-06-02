@@ -231,6 +231,17 @@ router.get("/runs/:id/events", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
+  // Confirm the run exists and belongs to this tenant before opening any
+  // stream — preserves the tenant boundary on the SSE path (the subscription
+  // is keyed only by run id, so ownership must be checked up front).
+  const [ownedRun] = await db
+    .select({ id: runsTable.id })
+    .from(runsTable)
+    .where(and(eq(runsTable.id, params.data.id), eq(runsTable.tenantId, req.tenantId)));
+  if (!ownedRun) {
+    res.status(404).json({ error: "Run not found" });
+    return;
+  }
   // SSE stream when the client requests it; otherwise fall back to a snapshot.
   if (req.headers.accept?.includes("text/event-stream")) {
     res.writeHead(200, {

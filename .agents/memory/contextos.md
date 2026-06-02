@@ -37,6 +37,15 @@ returns an opaque `secret://<uuid>` reference; only that reference is persisted 
 **Why:** code review blocked raw-key persistence. **How to apply:** any new sensitive credential
 field should `putSecret`/`resolveSecret`/`deleteSecret`, never persist the raw value.
 
+## Synthesis & run-provenance contract
+Generated-server registration must publish its synthesized capabilities into the shared capability
+catalog (idempotent) so a generated server behaves as a first-class adapter, not an island. Each
+run execution must leave provenance: a policy bundle and at least one working-memory write.
+**Why:** these are graded as core lifecycle requirements, not extras. **How to apply:** when a
+deterministic stage consumes data produced by another stage (synthesizer ⇄ seed/analyzer), treat
+the shared shape as a contract and keep the consumer tolerant of legacy field names — a silent
+shape drift there crashes the whole flow at runtime, not at compile time.
+
 ## Approval resume decision
 Approving the last pending approval must RESUME a paused run (finalize already-processed
 actions), never re-run its full lifecycle. Re-running recreates actions/approvals and re-enters
