@@ -819,6 +819,125 @@ export interface TelemetryExportUpdate {
   enabled?: boolean;
 }
 
+export interface TenantInput {
+  /** @minLength 1 */
+  name: string;
+  /** @minLength 1 */
+  slug: string;
+  description?: string;
+}
+
+export interface TenantUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @minLength 1 */
+  slug?: string;
+  /** @nullable */
+  description?: string | null;
+}
+
+export interface Principal {
+  id: string;
+  type: string;
+  displayName: string;
+  /** @nullable */
+  userId?: string | null;
+  metadata?: JsonObject | null;
+  createdAt: string;
+}
+
+export type PrincipalInputType = typeof PrincipalInputType[keyof typeof PrincipalInputType];
+
+
+export const PrincipalInputType = {
+  user: 'user',
+  agent: 'agent',
+  service: 'service',
+} as const;
+
+export interface PrincipalInput {
+  type: PrincipalInputType;
+  /** @minLength 1 */
+  displayName: string;
+  userId?: string;
+  metadata?: JsonObject;
+}
+
+export type PrincipalUpdateType = typeof PrincipalUpdateType[keyof typeof PrincipalUpdateType];
+
+
+export const PrincipalUpdateType = {
+  user: 'user',
+  agent: 'agent',
+  service: 'service',
+} as const;
+
+export interface PrincipalUpdate {
+  type?: PrincipalUpdateType;
+  /** @minLength 1 */
+  displayName?: string;
+  /** @nullable */
+  userId?: string | null;
+  metadata?: JsonObject;
+}
+
+export interface ContextFragmentInput {
+  type: string;
+  /** @minLength 1 */
+  source: string;
+  /** @minLength 1 */
+  content: string;
+  runId?: string;
+  tokens?: number;
+  relevanceScore?: number;
+  selected?: boolean;
+  sensitivity?: string;
+}
+
+export interface ContextFragmentUpdate {
+  type?: string;
+  /** @minLength 1 */
+  source?: string;
+  /** @minLength 1 */
+  content?: string;
+  tokens?: number;
+  relevanceScore?: number;
+  selected?: boolean;
+  sensitivity?: string;
+  /** @nullable */
+  rejectionReason?: string | null;
+}
+
+export interface ContextPackInput {
+  /** @minLength 1 */
+  name: string;
+  runId?: string;
+  fragmentIds?: string[];
+  totalTokens?: number;
+  strategy?: string;
+  summary?: string;
+}
+
+export interface ContextPackUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @nullable */
+  fragmentIds?: string[] | null;
+  totalTokens?: number;
+  strategy?: string;
+  /** @nullable */
+  summary?: string | null;
+}
+
+export interface Settings {
+  tenantId: string;
+  settings: JsonObject;
+}
+
+export interface SettingsUpdate {
+  settings: JsonObject;
+}
+
 export type ListCapabilitiesParams = {
 adapterId?: string;
 type?: string;
@@ -860,5 +979,13 @@ rootType?: string;
 
 export type GetObservabilityMetricsParams = {
 level?: string;
+};
+
+export type ListContextFragmentsParams = {
+runId?: string;
+};
+
+export type ListContextPacksParams = {
+runId?: string;
 };
 

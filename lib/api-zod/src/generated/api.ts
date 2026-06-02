@@ -1730,3 +1730,324 @@ export const ListDeploymentTargetsResponseItem = zod.object({
 export const ListDeploymentTargetsResponse = zod.array(ListDeploymentTargetsResponseItem)
 
 
+export const ListTenantsResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "description": zod.string().nullish(),
+  "isDefault": zod.boolean()
+})
+export const ListTenantsResponse = zod.array(ListTenantsResponseItem)
+
+
+
+
+
+
+export const CreateTenantBody = zod.object({
+  "name": zod.string().min(1),
+  "slug": zod.string().min(1),
+  "description": zod.string().optional()
+})
+
+
+export const GetTenantParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetTenantResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "description": zod.string().nullish(),
+  "isDefault": zod.boolean()
+})
+
+
+export const UpdateTenantParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+
+export const UpdateTenantBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "slug": zod.string().min(1).optional(),
+  "description": zod.string().nullish()
+})
+
+export const UpdateTenantResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "description": zod.string().nullish(),
+  "isDefault": zod.boolean()
+})
+
+
+export const DeleteTenantParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+export const ListPrincipalsResponseItem = zod.object({
+  "id": zod.string(),
+  "type": zod.string(),
+  "displayName": zod.string(),
+  "userId": zod.string().nullish(),
+  "metadata": zod.union([zod.record(zod.string(), zod.unknown()),zod.null()]).optional(),
+  "createdAt": zod.coerce.date()
+})
+export const ListPrincipalsResponse = zod.array(ListPrincipalsResponseItem)
+
+
+
+
+
+export const CreatePrincipalBody = zod.object({
+  "type": zod.enum(['user', 'agent', 'service']),
+  "displayName": zod.string().min(1),
+  "userId": zod.string().optional(),
+  "metadata": zod.record(zod.string(), zod.unknown()).optional()
+})
+
+
+export const GetPrincipalParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetPrincipalResponse = zod.object({
+  "id": zod.string(),
+  "type": zod.string(),
+  "displayName": zod.string(),
+  "userId": zod.string().nullish(),
+  "metadata": zod.union([zod.record(zod.string(), zod.unknown()),zod.null()]).optional(),
+  "createdAt": zod.coerce.date()
+})
+
+
+export const UpdatePrincipalParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+export const UpdatePrincipalBody = zod.object({
+  "type": zod.enum(['user', 'agent', 'service']).optional(),
+  "displayName": zod.string().min(1).optional(),
+  "userId": zod.string().nullish(),
+  "metadata": zod.record(zod.string(), zod.unknown()).optional()
+})
+
+export const UpdatePrincipalResponse = zod.object({
+  "id": zod.string(),
+  "type": zod.string(),
+  "displayName": zod.string(),
+  "userId": zod.string().nullish(),
+  "metadata": zod.union([zod.record(zod.string(), zod.unknown()),zod.null()]).optional(),
+  "createdAt": zod.coerce.date()
+})
+
+
+export const DeletePrincipalParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+export const ListContextFragmentsQueryParams = zod.object({
+  "runId": zod.coerce.string().optional()
+})
+
+export const ListContextFragmentsResponseItem = zod.object({
+  "id": zod.string(),
+  "runId": zod.string().nullish(),
+  "type": zod.string(),
+  "source": zod.string(),
+  "content": zod.string(),
+  "tokens": zod.number(),
+  "relevanceScore": zod.number().optional(),
+  "selected": zod.boolean(),
+  "rejectionReason": zod.string().nullish(),
+  "sensitivity": zod.string().optional(),
+  "redacted": zod.boolean().optional(),
+  "agentId": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListContextFragmentsResponse = zod.array(ListContextFragmentsResponseItem)
+
+
+
+
+
+
+export const CreateContextFragmentBody = zod.object({
+  "type": zod.string(),
+  "source": zod.string().min(1),
+  "content": zod.string().min(1),
+  "runId": zod.string().optional(),
+  "tokens": zod.number().optional(),
+  "relevanceScore": zod.number().optional(),
+  "selected": zod.boolean().optional(),
+  "sensitivity": zod.string().optional()
+})
+
+
+export const GetContextFragmentParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetContextFragmentResponse = zod.object({
+  "id": zod.string(),
+  "runId": zod.string().nullish(),
+  "type": zod.string(),
+  "source": zod.string(),
+  "content": zod.string(),
+  "tokens": zod.number(),
+  "relevanceScore": zod.number().optional(),
+  "selected": zod.boolean(),
+  "rejectionReason": zod.string().nullish(),
+  "sensitivity": zod.string().optional(),
+  "redacted": zod.boolean().optional(),
+  "agentId": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+export const UpdateContextFragmentParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+
+export const UpdateContextFragmentBody = zod.object({
+  "type": zod.string().optional(),
+  "source": zod.string().min(1).optional(),
+  "content": zod.string().min(1).optional(),
+  "tokens": zod.number().optional(),
+  "relevanceScore": zod.number().optional(),
+  "selected": zod.boolean().optional(),
+  "sensitivity": zod.string().optional(),
+  "rejectionReason": zod.string().nullish()
+})
+
+export const UpdateContextFragmentResponse = zod.object({
+  "id": zod.string(),
+  "runId": zod.string().nullish(),
+  "type": zod.string(),
+  "source": zod.string(),
+  "content": zod.string(),
+  "tokens": zod.number(),
+  "relevanceScore": zod.number().optional(),
+  "selected": zod.boolean(),
+  "rejectionReason": zod.string().nullish(),
+  "sensitivity": zod.string().optional(),
+  "redacted": zod.boolean().optional(),
+  "agentId": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+export const DeleteContextFragmentParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+export const ListContextPacksQueryParams = zod.object({
+  "runId": zod.coerce.string().optional()
+})
+
+export const ListContextPacksResponseItem = zod.object({
+  "id": zod.string(),
+  "runId": zod.string().nullish(),
+  "name": zod.string(),
+  "fragmentIds": zod.array(zod.string()).nullish(),
+  "totalTokens": zod.number(),
+  "strategy": zod.string(),
+  "summary": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListContextPacksResponse = zod.array(ListContextPacksResponseItem)
+
+
+
+
+
+export const CreateContextPackBody = zod.object({
+  "name": zod.string().min(1),
+  "runId": zod.string().optional(),
+  "fragmentIds": zod.array(zod.string()).optional(),
+  "totalTokens": zod.number().optional(),
+  "strategy": zod.string().optional(),
+  "summary": zod.string().optional()
+})
+
+
+export const GetContextPackParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetContextPackResponse = zod.object({
+  "id": zod.string(),
+  "runId": zod.string().nullish(),
+  "name": zod.string(),
+  "fragmentIds": zod.array(zod.string()).nullish(),
+  "totalTokens": zod.number(),
+  "strategy": zod.string(),
+  "summary": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+export const UpdateContextPackParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+export const UpdateContextPackBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "fragmentIds": zod.array(zod.string()).nullish(),
+  "totalTokens": zod.number().optional(),
+  "strategy": zod.string().optional(),
+  "summary": zod.string().nullish()
+})
+
+export const UpdateContextPackResponse = zod.object({
+  "id": zod.string(),
+  "runId": zod.string().nullish(),
+  "name": zod.string(),
+  "fragmentIds": zod.array(zod.string()).nullish(),
+  "totalTokens": zod.number(),
+  "strategy": zod.string(),
+  "summary": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+export const DeleteContextPackParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+export const GetSettingsResponse = zod.object({
+  "tenantId": zod.string(),
+  "settings": zod.record(zod.string(), zod.unknown())
+})
+
+
+export const UpdateSettingsBody = zod.object({
+  "settings": zod.record(zod.string(), zod.unknown())
+})
+
+export const UpdateSettingsResponse = zod.object({
+  "tenantId": zod.string(),
+  "settings": zod.record(zod.string(), zod.unknown())
+})
+
+

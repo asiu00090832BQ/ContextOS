@@ -51,3 +51,14 @@ Approving the last pending approval must RESUME a paused run (finalize already-p
 actions), never re-run its full lifecycle. Re-running recreates actions/approvals and re-enters
 `waiting_approval`. Use `resumeRun` (guarded on `status === "waiting_approval"` and zero pending
 approvals), not `executeRun`, from the approve handler.
+
+## Contract completeness — every domain table needs a full route group
+Every domain table must expose a full route group in `openapi.yaml` AND a mounted Express router,
+not just the ones the UI consumes. Required groups beyond the obvious ones: tenants, principals,
+context-fragments, context-packs, and a settings group (settings have no table — they live in
+`tenantsTable.settingsJson`, exposed via GET/PUT `/settings`). **Why:** the reviewer treats "cover
+every route group" as hard acceptance criteria, and also requires real CRUD (list/get/create/
+update/delete) — GET+DELETE alone is rejected as incomplete. **How to apply:** tenants are
+top-level (not tenant-scoped); everything else filters by `req.tenantId`. After editing paths run
+`pnpm --filter @workspace/api-spec run codegen`; orval dedupes identical response schemas, so a
+create op often reuses `Get<Op>Response` (no `Create<Op>Response` is emitted).

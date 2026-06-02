@@ -1,4 +1,6 @@
 import type {
+  Tenant,
+  Principal,
   Adapter,
   Capability,
   Intent,
@@ -176,6 +178,27 @@ export function serializeArtifact(a: Artifact): Record<string, unknown> {
     sizeBytes: a.sizeBytes,
     sensitivity: a.sensitivity,
     createdAt: a.createdAt,
+  };
+}
+
+export function serializeTenant(t: Tenant): Record<string, unknown> {
+  return {
+    id: t.id,
+    name: t.name,
+    slug: t.slug,
+    description: t.description,
+    isDefault: t.isDefault,
+  };
+}
+
+export function serializePrincipal(p: Principal): Record<string, unknown> {
+  return {
+    id: p.id,
+    type: p.type,
+    displayName: p.displayName,
+    userId: p.userId,
+    metadata: p.metadataJson ?? null,
+    createdAt: p.createdAt,
   };
 }
 

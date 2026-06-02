@@ -9,6 +9,8 @@ servers:
     description: Base API path
 tags:
   - name: health
+  - name: tenants
+  - name: principals
   - name: context
   - name: dashboard
   - name: linked-accounts
@@ -1159,6 +1161,320 @@ paths:
                 items:
                   $ref: "#/components/schemas/DeploymentTarget"
 
+  /tenants:
+    get:
+      operationId: listTenants
+      tags: [tenants]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Tenant"
+    post:
+      operationId: createTenant
+      tags: [tenants]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+  /tenants/{id}:
+    get:
+      operationId: getTenant
+      tags: [tenants]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+    patch:
+      operationId: updateTenant
+      tags: [tenants]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+    delete:
+      operationId: deleteTenant
+      tags: [tenants]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+
+  /principals:
+    get:
+      operationId: listPrincipals
+      tags: [principals]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Principal"
+    post:
+      operationId: createPrincipal
+      tags: [principals]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrincipalInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Principal"
+  /principals/{id}:
+    get:
+      operationId: getPrincipal
+      tags: [principals]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Principal"
+    patch:
+      operationId: updatePrincipal
+      tags: [principals]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrincipalUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Principal"
+    delete:
+      operationId: deletePrincipal
+      tags: [principals]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+
+  /context-fragments:
+    get:
+      operationId: listContextFragments
+      tags: [context]
+      parameters:
+        - name: runId
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContextFragment"
+    post:
+      operationId: createContextFragment
+      tags: [context]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContextFragmentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContextFragment"
+  /context-fragments/{id}:
+    get:
+      operationId: getContextFragment
+      tags: [context]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContextFragment"
+    patch:
+      operationId: updateContextFragment
+      tags: [context]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContextFragmentUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContextFragment"
+    delete:
+      operationId: deleteContextFragment
+      tags: [context]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+
+  /context-packs:
+    get:
+      operationId: listContextPacks
+      tags: [context]
+      parameters:
+        - name: runId
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContextPack"
+    post:
+      operationId: createContextPack
+      tags: [context]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContextPackInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContextPack"
+  /context-packs/{id}:
+    get:
+      operationId: getContextPack
+      tags: [context]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContextPack"
+    patch:
+      operationId: updateContextPack
+      tags: [context]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContextPackUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContextPack"
+    delete:
+      operationId: deleteContextPack
+      tags: [context]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    put:
+      operationId: updateSettings
+      tags: [settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
 components:
   parameters:
     IdPath:
@@ -1981,3 +2297,103 @@ components:
         name: { type: string, minLength: 1 }
         endpoint: { type: string }
         enabled: { type: boolean }
+
+    TenantInput:
+      type: object
+      required: [name, slug]
+      properties:
+        name: { type: string, minLength: 1 }
+        slug: { type: string, minLength: 1 }
+        description: { type: string }
+    TenantUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        slug: { type: string, minLength: 1 }
+        description: { type: ["string", "null"] }
+
+    Principal:
+      type: object
+      required: [id, type, displayName, createdAt]
+      properties:
+        id: { type: string }
+        type: { type: string }
+        displayName: { type: string }
+        userId: { type: ["string", "null"] }
+        metadata:
+          oneOf:
+            - $ref: "#/components/schemas/JsonObject"
+            - type: "null"
+        createdAt: { type: string, format: date-time }
+    PrincipalInput:
+      type: object
+      required: [type, displayName]
+      properties:
+        type: { type: string, enum: [user, agent, service] }
+        displayName: { type: string, minLength: 1 }
+        userId: { type: string }
+        metadata: { $ref: "#/components/schemas/JsonObject" }
+    PrincipalUpdate:
+      type: object
+      properties:
+        type: { type: string, enum: [user, agent, service] }
+        displayName: { type: string, minLength: 1 }
+        userId: { type: ["string", "null"] }
+        metadata: { $ref: "#/components/schemas/JsonObject" }
+
+    ContextFragmentInput:
+      type: object
+      required: [type, source, content]
+      properties:
+        type: { type: string }
+        source: { type: string, minLength: 1 }
+        content: { type: string, minLength: 1 }
+        runId: { type: string }
+        tokens: { type: integer }
+        relevanceScore: { type: integer }
+        selected: { type: boolean }
+        sensitivity: { type: string }
+
+    ContextFragmentUpdate:
+      type: object
+      properties:
+        type: { type: string }
+        source: { type: string, minLength: 1 }
+        content: { type: string, minLength: 1 }
+        tokens: { type: integer }
+        relevanceScore: { type: integer }
+        selected: { type: boolean }
+        sensitivity: { type: string }
+        rejectionReason: { type: ["string", "null"] }
+
+    ContextPackInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        runId: { type: string }
+        fragmentIds: { type: array, items: { type: string } }
+        totalTokens: { type: integer }
+        strategy: { type: string }
+        summary: { type: string }
+
+    ContextPackUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        fragmentIds: { type: ["array", "null"], items: { type: string } }
+        totalTokens: { type: integer }
+        strategy: { type: string }
+        summary: { type: ["string", "null"] }
+
+    Settings:
+      type: object
+      required: [tenantId, settings]
+      properties:
+        tenantId: { type: string }
+        settings: { $ref: "#/components/schemas/JsonObject" }
+    SettingsUpdate:
+      type: object
+      required: [settings]
+      properties:
+        settings: { $ref: "#/components/schemas/JsonObject" }
