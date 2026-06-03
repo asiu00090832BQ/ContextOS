@@ -87,6 +87,15 @@ export function ModelEndpoints() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (formData.providerType === "openai_compatible" && !formData.baseUrl.trim()) {
+      toast({
+        title: "Base URL required",
+        description:
+          "OpenAI-compatible (local / self-hosted) endpoints need a Base URL.",
+        variant: "destructive",
+      });
+      return;
+    }
     try {
       await createMutation.mutateAsync({
         data: {
@@ -268,6 +277,7 @@ export function ModelEndpoints() {
                   </span>
                 </label>
                 <input
+                  required={isOpenAiCompatible}
                   value={formData.baseUrl}
                   onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
                   className="w-full p-2 rounded-md border bg-background"

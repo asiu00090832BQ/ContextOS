@@ -36,7 +36,7 @@ import {
   serializeModelPolicy,
   serializeModelEndpoint,
 } from "../lib/serialize";
-import { testEndpoint, listModels } from "../lib/llm";
+import { testEndpoint, listModels, describeProviderError } from "../lib/llm";
 import { putSecret, deleteSecret, resolveSecret, isSecretRef } from "../lib/secretStore";
 
 type AgentRole =
@@ -224,6 +224,18 @@ router.post("/model-endpoints", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  // Local / self-hosted (OpenAI-compatible) endpoints have no built-in default
+  // destination, so a Base URL is mandatory; the API key stays optional.
+  if (
+    parsed.data.providerType === "openai_compatible" &&
+    !parsed.data.baseUrl?.trim()
+  ) {
+    res.status(400).json({
+      error:
+        "A Base URL is required for OpenAI-compatible (local / self-hosted) endpoints.",
+    });
+    return;
+  }
   const apiKeyRef = parsed.data.apiKey ? putSecret(parsed.data.apiKey) : null;
   let row;
   try {
@@ -393,9 +405,7 @@ router.post("/model-endpoints/list-models", async (req, res): Promise<void> => {
     const models = await listModels({ providerType, baseUrl, host, port, apiKey });
     res.json(ListProviderModelsResponse.parse({ models }));
   } catch (err) {
-    res.status(502).json({
-      error: err instanceof Error ? err.message : "Failed to list provider models.",
-    });
+    res.status(502).json({ error: describeProviderError(err) });
   }
 });
 

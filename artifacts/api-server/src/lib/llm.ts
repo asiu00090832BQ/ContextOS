@@ -94,8 +94,30 @@ interface ProviderCallArgs {
 // local OpenAI-compatible servers such as Ollama or vLLM behind host/port).
 const KEYLESS_PROVIDER_TYPES = new Set(["openai_compatible"]);
 
-function providerRequiresKey(providerType: string): boolean {
-  return !KEYLESS_PROVIDER_TYPES.has(providerType);
+/**
+ * Whether an endpoint/descriptor has an explicitly configured destination
+ * (Base URL or host). Such a target is assumed to be a local / self-hosted
+ * server the user controls and is therefore reachable without an API key.
+ */
+function hasExplicitTarget(e: {
+  baseUrl?: string | null;
+  host?: string | null;
+}): boolean {
+  return Boolean(e.baseUrl?.trim() || e.host?.trim());
+}
+
+/**
+ * An API key is required only for hosted providers that fall back to their
+ * built-in default endpoint. Keyless provider types and any endpoint with an
+ * explicit Base URL / host are reachable without a key.
+ */
+function requiresApiKey(
+  providerType: string,
+  target: { baseUrl?: string | null; host?: string | null },
+): boolean {
+  if (KEYLESS_PROVIDER_TYPES.has(providerType)) return false;
+  if (hasExplicitTarget(target)) return false;
+  return true;
 }
 
 /**
@@ -220,6 +242,57 @@ async function callGoogle({
   );
 }
 
+/** Dispatch a single completion request to the correct provider. Throws on failure. */
+async function callProvider(args: ProviderCallArgs): Promise<string> {
+  switch (args.endpoint.providerType) {
+    case "anthropic":
+      return callAnthropic(args);
+    case "google":
+      return callGoogle(args);
+    default:
+      return callOpenAiCompatible(args);
+  }
+}
+
+/**
+ * Produce a human-readable reason for a failed provider call. Node's `fetch`
+ * wraps low-level network/TLS errors in a generic "fetch failed" whose real
+ * cause lives on `err.cause` — surface that so users can tell a timeout from a
+ * refused connection, a bad TLS cert, or an unreachable (e.g. private LAN) host.
+ */
+export function describeProviderError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+
+  const cause = (err as { cause?: unknown }).cause;
+  const causeMsg =
+    cause instanceof Error
+      ? cause.message
+      : typeof cause === "string"
+        ? cause
+        : "";
+  const code =
+    cause && typeof cause === "object" && "code" in cause
+      ? String((cause as { code: unknown }).code)
+      : "";
+  // Single haystack of everything we know about the failure so detection works
+  // regardless of whether the signal came from the error, its cause, or a code.
+  const hay = `${err.name} ${err.message} ${code} ${causeMsg}`;
+
+  if (/timeout|timed ?out|ETIMEDOUT/i.test(hay)) {
+    return "Connection timed out. The server did not respond in time — this is what happens when the Base URL points to a private / LAN address (e.g. 192.168.x.x, 10.x.x.x, localhost) that this cloud-hosted server cannot reach. Expose your model with a public tunnel (ngrok, Cloudflare Tunnel, or Tailscale Funnel) and use that public HTTPS URL instead.";
+  }
+  if (/ECONNREFUSED/i.test(hay)) {
+    return "Connection refused. Nothing accepted the connection at that host/port from the cloud — if it's a private / LAN address it isn't reachable from here. Expose your model with a public tunnel and use that URL.";
+  }
+  if (/ENOTFOUND|EAI_AGAIN/i.test(hay)) {
+    return "Host not found (DNS). The domain in the Base URL could not be resolved from the cloud. Check the URL, or use a public tunnel URL.";
+  }
+  if (/certificate|self.?signed|SSL|TLS|DEPTH_ZERO|ERR_TLS/i.test(hay)) {
+    return "TLS certificate error. The server's HTTPS certificate is self-signed or untrusted by the cloud. Use a tunnel that provides a valid certificate (ngrok / Cloudflare Tunnel) instead of a raw self-signed HTTPS endpoint.";
+  }
+  return causeMsg ? `${err.message} (${causeMsg})` : err.message;
+}
+
 /**
  * Run a completion against a real provider, falling back to the deterministic
  * stub when there is no endpoint, no API key, or the provider call fails.
@@ -229,24 +302,13 @@ export async function complete(
   apiKey: string | null,
   req: LlmRequest,
 ): Promise<LlmResult> {
-  if (!endpoint || (providerRequiresKey(endpoint.providerType) && !apiKey)) {
+  if (!endpoint || (requiresApiKey(endpoint.providerType, endpoint) && !apiKey)) {
     return stubComplete(req, endpoint?.name ?? "stub");
   }
 
   const start = Date.now();
   try {
-    let content: string;
-    switch (endpoint.providerType) {
-      case "anthropic":
-        content = await callAnthropic({ endpoint, apiKey, req });
-        break;
-      case "google":
-        content = await callGoogle({ endpoint, apiKey, req });
-        break;
-      default:
-        content = await callOpenAiCompatible({ endpoint, apiKey, req });
-        break;
-    }
+    const content = await callProvider({ endpoint, apiKey, req });
     const latencyMs = Date.now() - start;
     const promptTokens = req.messages.reduce(
       (s, m) => s + estimateTokens(m.content),
@@ -305,7 +367,7 @@ function resolveBaseFromInput(
  */
 export async function listModels(input: ListModelsInput): Promise<string[]> {
   const timeout = AbortSignal.timeout(15000);
-  if (providerRequiresKey(input.providerType) && !input.apiKey) {
+  if (requiresApiKey(input.providerType, input) && !input.apiKey) {
     throw new Error("An API key is required to list this provider's models.");
   }
 
@@ -361,7 +423,7 @@ export async function testEndpoint(
   endpoint: ModelEndpoint,
   apiKey: string | null,
 ): Promise<{ ok: boolean; mode: string; latencyMs: number; detail: string }> {
-  if (providerRequiresKey(endpoint.providerType) && !apiKey) {
+  if (requiresApiKey(endpoint.providerType, endpoint) && !apiKey) {
     return {
       ok: false,
       mode: "not_testable",
@@ -371,16 +433,24 @@ export async function testEndpoint(
     };
   }
   const start = Date.now();
-  const result = await complete(endpoint, apiKey, {
-    messages: [{ role: "user", content: "ping" }],
-    maxTokens: 8,
-  });
-  return {
-    ok: !result.usedStub,
-    mode: result.usedStub ? "stub_fallback" : "live",
-    latencyMs: Date.now() - start,
-    detail: result.usedStub
-      ? "Provider unreachable; fell back to stub."
-      : "Live provider responded successfully.",
-  };
+  try {
+    await callProvider({
+      endpoint,
+      apiKey,
+      req: { messages: [{ role: "user", content: "ping" }], maxTokens: 8 },
+    });
+    return {
+      ok: true,
+      mode: "live",
+      latencyMs: Date.now() - start,
+      detail: "Live provider responded successfully.",
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      mode: "error",
+      latencyMs: Date.now() - start,
+      detail: describeProviderError(err),
+    };
+  }
 }

@@ -94,6 +94,21 @@ send plain objects via `res.status(201).json({...})` — don't import/parse a re
 adapter discovery, treat a JSON-RPC `error` field in a 200 MCP reply as a handshake failure (throw),
 else a dead server is silently recorded as "live with empty tools".
 
+## Keyless local LLM endpoints & cloud-can't-reach-LAN
+Model endpoints are keyless when they have an explicit Base URL **or** host
+(`requiresApiKey(providerType,target)` in `llm.ts`), not just for provider type
+`openai_compatible`; hosted providers with no Base URL still need a key. Base URL
+is mandatory for `openai_compatible` (enforced 400 on create + required field in
+the form). **Hard reality:** the api-server runs in Replit's cloud and CANNOT
+reach private/LAN addresses (192.168.x.x, 10.x.x.x, localhost) on the user's
+network — a user pointing an endpoint at their home model just times out. The fix
+is user-side: expose via a public tunnel (ngrok/Cloudflare/Tailscale). **Quirk:**
+undici surfaces this as a `TypeError: fetch failed` with `cause` =
+`ConnectTimeoutError` (code `UND_ERR_CONNECT_TIMEOUT`), NOT an AbortSignal
+`TimeoutError` — so error detection must scan `err.name+message+code+cause.message`
+together (see `describeProviderError`). `testEndpoint` calls the provider directly
+and reports that real reason instead of masking it as a stub fallback.
+
 ## Tooling quirk — rg/bash output mangles identifiers
 In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dialog`→`ln`,
 `split(`→`splln`, `limit(`→`limln`). The `read` tool returns correct content. **How to apply:**
