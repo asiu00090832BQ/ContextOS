@@ -741,6 +741,7 @@ export interface ObservationMetric {
   timeToFirstTokenMs?: number | null;
   /** @nullable */
   finishReason?: string | null;
+  usedStub?: boolean;
 }
 
 export interface Observation {

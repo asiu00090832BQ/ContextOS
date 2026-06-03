@@ -71,6 +71,7 @@ interface RecordObservationArgs {
     costUsdMicros?: number;
     timeToFirstTokenMs?: number;
     finishReason?: string;
+    usedStub?: boolean;
   };
 }
 
@@ -112,6 +113,7 @@ export async function recordObservation(
       costUsdMicros: args.metrics.costUsdMicros ?? 0,
       timeToFirstTokenMs: args.metrics.timeToFirstTokenMs ?? null,
       finishReason: args.metrics.finishReason ?? null,
+      usedStub: args.metrics.usedStub ?? false,
     });
   }
 

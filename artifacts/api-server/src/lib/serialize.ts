@@ -522,6 +522,7 @@ export function serializeObservation(
           costUsdMicros: metric.costUsdMicros,
           timeToFirstTokenMs: metric.timeToFirstTokenMs,
           finishReason: metric.finishReason,
+          usedStub: metric.usedStub,
         }
       : undefined,
     startedAt: o.startedAt ?? null,

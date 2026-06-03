@@ -53,6 +53,20 @@ export function TraceDetail() {
           </div>
           
           <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
+             {(obs.type === 'model_call' || obs.type === 'agent_run') && obs.metrics?.usedStub !== undefined && (
+               <span
+                 className={`px-2 py-0.5 rounded uppercase tracking-wide text-[10px] font-medium ${
+                   obs.metrics.usedStub
+                     ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30'
+                     : 'bg-green-500/10 text-green-500 border border-green-500/30'
+                 }`}
+                 title={obs.metrics.usedStub
+                   ? 'Output was produced by the deterministic simulated stub (no live model endpoint was reached).'
+                   : 'Output came from a real configured model endpoint.'}
+               >
+                 {obs.metrics.usedStub ? 'Stub' : 'Live'}
+               </span>
+             )}
              {obs.metrics?.latencyMs !== undefined && (
                <div className="flex items-center gap-1"><Clock className="w-3 h-3"/> {obs.metrics.latencyMs}ms</div>
              )}

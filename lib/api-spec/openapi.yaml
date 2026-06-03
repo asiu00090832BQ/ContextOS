@@ -2334,6 +2334,7 @@ components:
         costUsdMicros: { type: integer }
         timeToFirstTokenMs: { type: ["integer", "null"] }
         finishReason: { type: ["string", "null"] }
+        usedStub: { type: boolean }
 
     MetricRow:
       type: object

@@ -100,6 +100,7 @@ export const observationMetricsTable = pgTable(
     costUsdMicros: integer("cost_usd_micros").notNull().default(0),
     timeToFirstTokenMs: integer("time_to_first_token_ms"),
     finishReason: text("finish_reason"),
+    usedStub: boolean("used_stub").notNull().default(false),
     extraJson: jsonb("extra_json").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

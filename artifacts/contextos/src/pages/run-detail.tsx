@@ -128,7 +128,23 @@ export function RunDetail() {
               <div key={ar.id} className="bg-card border border-border/50 p-3 rounded-lg text-sm">
                 <div className="flex justify-between items-center mb-1">
                   <span className="font-medium">{ar.agentName}</span>
-                  <span className="text-xs font-mono bg-muted px-2 rounded uppercase">{ar.status}</span>
+                  <div className="flex items-center gap-2">
+                    {ar.usedFallback !== undefined && (
+                      <span
+                        className={`text-[10px] font-mono px-2 rounded uppercase tracking-wide ${
+                          ar.usedFallback
+                            ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30'
+                            : 'bg-green-500/10 text-green-500 border border-green-500/30'
+                        }`}
+                        title={ar.usedFallback
+                          ? 'This agent ran against the deterministic simulated stub (no live model endpoint was reached).'
+                          : 'This agent ran against a real configured model endpoint.'}
+                      >
+                        {ar.usedFallback ? 'Stub' : 'Live'}
+                      </span>
+                    )}
+                    <span className="text-xs font-mono bg-muted px-2 rounded uppercase">{ar.status}</span>
+                  </div>
                 </div>
                 <div className="text-xs text-muted-foreground uppercase font-mono mb-2">{ar.role}</div>
                 <div className="text-xs text-muted-foreground truncate">{ar.task}</div>

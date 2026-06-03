@@ -818,7 +818,7 @@ async function runAgent(args: RunAgentArgs): Promise<{
     input: { task: args.task },
     output: { content: result.content.slice(0, 200) },
     durationMs: result.latencyMs,
-    metrics: { latencyMs: result.latencyMs, totalTokens: result.totalTokens, costUsdMicros: result.costUsdMicros },
+    metrics: { latencyMs: result.latencyMs, totalTokens: result.totalTokens, costUsdMicros: result.costUsdMicros, usedStub: result.usedStub },
   });
 
   await recordObservation({
@@ -841,6 +841,7 @@ async function runAgent(args: RunAgentArgs): Promise<{
       costUsdMicros: result.costUsdMicros,
       timeToFirstTokenMs: result.timeToFirstTokenMs,
       finishReason: result.finishReason,
+      usedStub: result.usedStub,
     },
   });
 

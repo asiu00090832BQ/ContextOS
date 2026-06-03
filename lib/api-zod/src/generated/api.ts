@@ -1616,7 +1616,8 @@ export const GetTraceResponse = zod.object({
   "totalTokens": zod.number().optional(),
   "costUsdMicros": zod.number().optional(),
   "timeToFirstTokenMs": zod.number().nullish(),
-  "finishReason": zod.string().nullish()
+  "finishReason": zod.string().nullish(),
+  "usedStub": zod.boolean().optional()
 }).optional(),
   "startedAt": zod.coerce.date().nullish(),
   "endedAt": zod.coerce.date().nullish(),
