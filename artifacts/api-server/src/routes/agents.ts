@@ -301,6 +301,21 @@ router.patch("/model-endpoints/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Model endpoint not found" });
     return;
   }
+  // providerType is immutable on update, so the effective type is the stored one.
+  // Mirror the create rule: an OpenAI-compatible (local / self-hosted) endpoint
+  // must keep a Base URL, so a user can't edit a working endpoint into an
+  // unusable one by clearing it.
+  if (existing.providerType === "openai_compatible") {
+    const effectiveBaseUrl =
+      parsed.data.baseUrl !== undefined ? parsed.data.baseUrl : existing.baseUrl;
+    if (!effectiveBaseUrl?.trim()) {
+      res.status(400).json({
+        error:
+          "A Base URL is required for OpenAI-compatible (local / self-hosted) endpoints.",
+      });
+      return;
+    }
+  }
   // Resolve the secret mutation, but defer destructive operations until the DB
   // update has committed so a failed write can never leave a dangling reference
   // (cleared/rotated secret missing) or an orphaned secret.
