@@ -9,7 +9,7 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ServerCog, Plus, Trash2, Activity, RefreshCw } from "lucide-react";
+import { ServerCog, Plus, Trash2, Activity, RefreshCw, Globe } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -53,6 +53,7 @@ export function ModelEndpoints() {
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [browserCheckingId, setBrowserCheckingId] = useState<string | null>(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [models, setModels] = useState<string[]>([]);
 
@@ -141,6 +142,93 @@ export function ModelEndpoints() {
       });
     } finally {
       setTestingId(null);
+    }
+  };
+
+  // Test reachability directly from the user's browser. This is the only way to
+  // reach a model on the user's own machine/LAN (localhost, 192.168.x.x, etc.),
+  // which the cloud-hosted API server can never reach. It confirms the model is
+  // alive locally — NOT that ContextOS runs can use it (runs call from the cloud
+  // and still need a public/tunnel URL).
+  const handleBrowserCheck = async (endpoint: {
+    id: string;
+    baseUrl?: string | null;
+  }) => {
+    const raw = endpoint.baseUrl?.trim();
+    if (!raw) {
+      toast({
+        title: "No Base URL",
+        description: "Add a Base URL to this endpoint first.",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Normalise: drop any query/hash, strip trailing slash, then build the
+    // /models probe URL — reusing an existing /models or /vN segment if present
+    // so atypical pastes don't produce a malformed URL.
+    let base = raw.split(/[?#]/)[0].replace(/\/+$/, "");
+    let url: string;
+    if (/\/models$/.test(base)) {
+      url = base;
+    } else {
+      if (!/\/v\d+$/.test(base)) base = `${base}/v1`;
+      url = `${base}/models`;
+    }
+    const pageIsHttps = window.location.protocol === "https:";
+    const targetIsHttp = /^http:\/\//i.test(url);
+    const host = (() => {
+      try {
+        return new URL(url).hostname;
+      } catch {
+        return "";
+      }
+    })();
+    // URL.hostname returns "::1" for IPv6 loopback (no brackets).
+    const isLocalhost =
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host === "[::1]";
+
+    setBrowserCheckingId(endpoint.id);
+    const start = performance.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      const ms = Math.round(performance.now() - start);
+      if (!res.ok) {
+        toast({
+          title: "Reachable, but errored",
+          description: `Your model server answered with HTTP ${res.status} at ${url}.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: `Alive — responded in ${ms}ms`,
+          description: `Your browser reached ${url}. Note: for ContextOS runs to use it, the cloud server must reach it too (use a public tunnel URL).`,
+        });
+      }
+    } catch (err: any) {
+      clearTimeout(timer);
+      let description: string;
+      if (err?.name === "AbortError") {
+        description =
+          "Timed out from your browser. Make sure LM Studio's server is running and listening on this address/port.";
+      } else if (pageIsHttps && targetIsHttp && !isLocalhost) {
+        description =
+          "Your browser blocked this as 'mixed content': ContextOS is on HTTPS but this URL is plain HTTP on a non-localhost address. Either open LM Studio on the SAME machine and use http://localhost:<port>/v1, or expose it through an HTTPS tunnel (ngrok / Cloudflare Tunnel) and use that URL.";
+      } else if (/^https:\/\//i.test(url)) {
+        description =
+          "Couldn't connect. If LM Studio is serving plain HTTP, change the Base URL to start with http:// instead of https://. Otherwise it may be a TLS or CORS issue — enable CORS in LM Studio's server settings.";
+      } else {
+        description =
+          "Couldn't connect. Check that LM Studio is running, the host/port are correct, and CORS is enabled in its server settings.";
+      }
+      toast({ title: "Not reachable from your browser", description, variant: "destructive" });
+    } finally {
+      setBrowserCheckingId(null);
     }
   };
 
@@ -281,8 +369,19 @@ export function ModelEndpoints() {
                   value={formData.baseUrl}
                   onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
                   className="w-full p-2 rounded-md border bg-background"
-                  placeholder="e.g. http://localhost:11434/v1"
+                  placeholder="e.g. http://localhost:1234/v1"
                 />
+                {isOpenAiCompatible && (
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    LM Studio / Ollama serve plain <code>http://</code> (not https)
+                    and live at <code>…/v1</code>. A private address like{" "}
+                    <code>localhost</code> or <code>192.168.x.x</code> only works for
+                    runs if ContextOS's cloud server can reach it — for that, expose
+                    it with a public tunnel (ngrok / Cloudflare Tunnel) and paste the
+                    tunnel's HTTPS URL here. Use "Check from browser" to confirm it's
+                    alive on your machine.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">
@@ -365,11 +464,23 @@ export function ModelEndpoints() {
                 <button
                   onClick={() => handleTest(endpoint.id)}
                   disabled={testingId === endpoint.id}
+                  title="Test from the cloud server — this is what ContextOS runs actually use."
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-60"
                 >
                   <Activity className="w-3.5 h-3.5" />
-                  {testingId === endpoint.id ? "Testing..." : "Test"}
+                  {testingId === endpoint.id ? "Testing..." : "Test (server)"}
                 </button>
+                {endpoint.providerType === "openai_compatible" && (
+                  <button
+                    onClick={() => handleBrowserCheck(endpoint)}
+                    disabled={browserCheckingId === endpoint.id}
+                    title="Check reachability from your browser — works for a model on your own machine/LAN."
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-60"
+                  >
+                    <Globe className="w-3.5 h-3.5" />
+                    {browserCheckingId === endpoint.id ? "Checking..." : "Check from browser"}
+                  </button>
+                )}
                 <button
                   onClick={() => handleDelete(endpoint.id)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors"

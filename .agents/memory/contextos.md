@@ -109,6 +109,19 @@ undici surfaces this as a `TypeError: fetch failed` with `cause` =
 together (see `describeProviderError`). `testEndpoint` calls the provider directly
 and reports that real reason instead of masking it as a stub fallback.
 
+## Local/self-hosted LLM endpoints are cloud-unreachable
+The API server runs in Replit's cloud, so it can NEVER reach a user's private LLM (LM Studio /
+Ollama on localhost, 127.x, 192.168.x, 10.x, 172.16-31.x). A "Test" that calls the provider from
+the server will always time out for those — that is networking reality, not a bug; the only fixes
+are running the model on a public host or exposing it via a tunnel (ngrok/Cloudflare/Tailscale).
+**Why:** a user kept hitting "unreachable; fell back to stub" for a LAN IP. **How to apply:** for
+local reachability give the user a BROWSER-side probe (fetch `{baseUrl}/v1/models` from their
+machine) — but be explicit it only proves the model is alive locally, NOT that runs will work,
+since runs execute the LLM call from the cloud. Browser probe caveats: HTTPS page → HTTP target is
+blocked as mixed content EXCEPT for localhost/127.0.0.1/::1; LM Studio serves plain http (not
+https) at `/v1`; CORS must be enabled. Keep `requiresApiKey` keyless for openai_compatible / any
+explicit baseUrl+host so local servers don't demand a key.
+
 ## Tooling quirk — rg/bash output mangles identifiers
 In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dialog`→`ln`,
 `split(`→`splln`, `limit(`→`limln`). The `read` tool returns correct content. **How to apply:**
