@@ -10,6 +10,9 @@ import adaptersRouter from "./adapters";
 import intentsRouter from "./intents";
 import runsRouter from "./runs";
 import agentsRouter from "./agents";
+import apiKeysRouter from "./apiKeys";
+import commandsRouter from "./commands";
+import mcpRouter from "./mcp";
 import integrationsRouter from "./integrations";
 import observabilityRouter from "./observability";
 
@@ -29,6 +32,9 @@ router.use(adaptersRouter);
 router.use(intentsRouter);
 router.use(runsRouter);
 router.use(agentsRouter);
+router.use(apiKeysRouter);
+router.use(commandsRouter);
+router.use(mcpRouter);
 router.use(integrationsRouter);
 router.use(observabilityRouter);
 

@@ -20,6 +20,8 @@ import { Audit } from "@/pages/audit";
 import { Agents } from "@/pages/agents";
 import { AgentDetail } from "@/pages/agent-detail";
 import { ModelEndpoints } from "@/pages/model-endpoints";
+import { ApiKeys } from "@/pages/api-keys";
+import { RemoteAccess } from "@/pages/remote-access";
 import { Integrations } from "@/pages/integrations";
 import { BlueprintDetail } from "@/pages/blueprint-detail";
 import { GeneratedServerDetail } from "@/pages/generated-server-detail";
@@ -56,6 +58,8 @@ function Router() {
         <Route path="/agents" component={Agents} />
         <Route path="/agents/:id" component={AgentDetail} />
         <Route path="/model-endpoints" component={ModelEndpoints} />
+        <Route path="/api-keys" component={ApiKeys} />
+        <Route path="/remote-access" component={RemoteAccess} />
         <Route path="/integrations" component={Integrations} />
         <Route path="/integrations/blueprints/:id" component={BlueprintDetail} />
         <Route path="/integrations/servers/:id" component={GeneratedServerDetail} />

@@ -28,13 +28,15 @@ import {
   DeleteModelEndpointParams,
   TestModelEndpointParams,
   TestModelEndpointResponse,
+  ListProviderModelsBody,
+  ListProviderModelsResponse,
 } from "@workspace/api-zod";
 import {
   serializeAgent,
   serializeModelPolicy,
   serializeModelEndpoint,
 } from "../lib/serialize";
-import { testEndpoint } from "../lib/llm";
+import { testEndpoint, listModels } from "../lib/llm";
 import { putSecret, deleteSecret, resolveSecret, isSecretRef } from "../lib/secretStore";
 
 type AgentRole =
@@ -353,6 +355,48 @@ router.delete("/model-endpoints/:id", async (req, res): Promise<void> => {
   }
   deleteSecret(row.apiKeyRef);
   res.sendStatus(204);
+});
+
+router.post("/model-endpoints/list-models", async (req, res): Promise<void> => {
+  const parsed = ListProviderModelsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  let providerType = parsed.data.providerType;
+  let baseUrl = parsed.data.baseUrl ?? null;
+  let host = parsed.data.host ?? null;
+  let port = parsed.data.port ?? null;
+  let apiKey = parsed.data.apiKey ?? null;
+  // When an existing endpoint is referenced, fill any unset fields (including
+  // its stored secret) from that endpoint so the UI can refresh models without
+  // re-entering the key.
+  if (parsed.data.endpointId) {
+    const [ep] = await db
+      .select()
+      .from(modelEndpointsTable)
+      .where(
+        and(
+          eq(modelEndpointsTable.id, parsed.data.endpointId),
+          eq(modelEndpointsTable.tenantId, req.tenantId),
+        ),
+      );
+    if (ep) {
+      providerType = ep.providerType;
+      baseUrl = baseUrl ?? ep.baseUrl;
+      host = host ?? ep.host;
+      port = port ?? ep.port;
+      apiKey = apiKey ?? resolveSecret(ep.apiKeyRef);
+    }
+  }
+  try {
+    const models = await listModels({ providerType, baseUrl, host, port, apiKey });
+    res.json(ListProviderModelsResponse.parse({ models }));
+  } catch (err) {
+    res.status(502).json({
+      error: err instanceof Error ? err.message : "Failed to list provider models.",
+    });
+  }
 });
 
 router.post("/model-endpoints/:id/test", async (req, res): Promise<void> => {

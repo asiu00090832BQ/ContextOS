@@ -25,6 +25,8 @@ tags:
   - name: audit
   - name: agents
   - name: model-endpoints
+  - name: api-keys
+  - name: commands
   - name: integrations
   - name: observability
   - name: settings
@@ -781,6 +783,80 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ModelTestResult"
+  /model-endpoints/list-models:
+    post:
+      operationId: listProviderModels
+      tags: [model-endpoints]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListModelsInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListModelsResult"
+
+  /api-keys:
+    get:
+      operationId: listApiKeys
+      tags: [api-keys]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiKey"
+    post:
+      operationId: createApiKey
+      tags: [api-keys]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiKeyInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyCreated"
+  /api-keys/{id}:
+    delete:
+      operationId: revokeApiKey
+      tags: [api-keys]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Revoked
+
+  /commands/run:
+    post:
+      operationId: runCommand
+      tags: [commands]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunCommandInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunCommandResult"
 
   /integration-blueprints:
     get:
@@ -2036,6 +2112,67 @@ components:
         completionTokens: { type: ["integer", "null"] }
         totalTokens: { type: ["integer", "null"] }
         usedStub: { type: boolean }
+    ListModelsInput:
+      type: object
+      required: [providerType]
+      properties:
+        providerType: { type: string }
+        baseUrl: { type: string }
+        host: { type: string }
+        port: { type: integer }
+        apiKey: { type: string }
+        endpointId: { type: string }
+    ListModelsResult:
+      type: object
+      required: [models]
+      properties:
+        models: { type: array, items: { type: string } }
+    ApiKey:
+      type: object
+      required: [id, name, keyPrefix, lastFour, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        keyPrefix: { type: string }
+        lastFour: { type: string }
+        lastUsedAt: { type: ["string", "null"], format: date-time }
+        expiresAt: { type: ["string", "null"], format: date-time }
+        revokedAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+    ApiKeyInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        expiresInDays: { type: integer }
+    ApiKeyCreated:
+      type: object
+      required: [id, name, token, keyPrefix, lastFour, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        token: { type: string }
+        keyPrefix: { type: string }
+        lastFour: { type: string }
+        createdAt: { type: string, format: date-time }
+    RunCommandInput:
+      type: object
+      required: [goal]
+      properties:
+        title: { type: string }
+        goal: { type: string, minLength: 1 }
+        constraints: { type: string }
+        successCriteria: { type: string }
+        riskTier: { type: string }
+        orchestrationMode: { type: string }
+        leadAgentId: { type: string }
+    RunCommandResult:
+      type: object
+      required: [intentId, runId, status]
+      properties:
+        intentId: { type: string }
+        runId: { type: string }
+        status: { type: string }
 
     IntegrationBlueprint:
       type: object

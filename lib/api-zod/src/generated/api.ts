@@ -1163,6 +1163,61 @@ export const TestModelEndpointResponse = zod.object({
 })
 
 
+export const ListProviderModelsBody = zod.object({
+  "providerType": zod.string(),
+  "baseUrl": zod.string().optional(),
+  "host": zod.string().optional(),
+  "port": zod.number().optional(),
+  "apiKey": zod.string().optional(),
+  "endpointId": zod.string().optional()
+})
+
+export const ListProviderModelsResponse = zod.object({
+  "models": zod.array(zod.string())
+})
+
+
+export const ListApiKeysResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "keyPrefix": zod.string(),
+  "lastFour": zod.string(),
+  "lastUsedAt": zod.coerce.date().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "revokedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListApiKeysResponse = zod.array(ListApiKeysResponseItem)
+
+
+
+
+
+export const CreateApiKeyBody = zod.object({
+  "name": zod.string().min(1),
+  "expiresInDays": zod.number().optional()
+})
+
+
+export const RevokeApiKeyParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+
+export const RunCommandBody = zod.object({
+  "title": zod.string().optional(),
+  "goal": zod.string().min(1),
+  "constraints": zod.string().optional(),
+  "successCriteria": zod.string().optional(),
+  "riskTier": zod.string().optional(),
+  "orchestrationMode": zod.string().optional(),
+  "leadAgentId": zod.string().optional()
+})
+
+
 export const ListBlueprintsResponseItem = zod.object({
   "id": zod.string(),
   "name": zod.string(),

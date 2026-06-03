@@ -5,10 +5,11 @@ import {
   useCreateModelEndpoint,
   useDeleteModelEndpoint,
   useTestModelEndpoint,
+  useListProviderModels,
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ServerCog, Plus, Trash2, Activity } from "lucide-react";
+import { ServerCog, Plus, Trash2, Activity, RefreshCw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -48,10 +49,38 @@ export function ModelEndpoints() {
   const createMutation = useCreateModelEndpoint();
   const deleteMutation = useDeleteModelEndpoint();
   const testMutation = useTestModelEndpoint();
+  const listModelsMutation = useListProviderModels();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
+  const [models, setModels] = useState<string[]>([]);
+
+  const handleFetchModels = async () => {
+    try {
+      const result = await listModelsMutation.mutateAsync({
+        data: {
+          providerType: formData.providerType,
+          baseUrl: formData.baseUrl.trim() || undefined,
+          host: formData.host.trim() || undefined,
+          port: formData.port.trim() ? Number(formData.port) : undefined,
+          apiKey: formData.apiKey.trim() || undefined,
+        },
+      });
+      setModels(result.models);
+      toast({
+        title: result.models.length
+          ? `Found ${result.models.length} models`
+          : "No models returned",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Couldn't fetch models",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: getListModelEndpointsQueryKey() });
@@ -156,9 +185,10 @@ export function ModelEndpoints() {
                 <label className="text-sm font-medium">Provider</label>
                 <select
                   value={formData.providerType}
-                  onChange={(e) =>
-                    setFormData({ ...formData, providerType: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setFormData({ ...formData, providerType: e.target.value });
+                    setModels([]);
+                  }}
                   className="w-full p-2 rounded-md border bg-background"
                 >
                   {PROVIDERS.map((p) => (
@@ -169,16 +199,66 @@ export function ModelEndpoints() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Model Name</label>
-                <input
-                  required
-                  value={formData.modelName}
-                  onChange={(e) =>
-                    setFormData({ ...formData, modelName: e.target.value })
-                  }
-                  className="w-full p-2 rounded-md border bg-background"
-                  placeholder="e.g. gpt-4o, claude-3-5-sonnet, llama3.1"
-                />
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">Model Name</label>
+                  <button
+                    type="button"
+                    onClick={handleFetchModels}
+                    disabled={listModelsMutation.isPending}
+                    className="flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                  >
+                    <RefreshCw
+                      className={`w-3 h-3 ${
+                        listModelsMutation.isPending ? "animate-spin" : ""
+                      }`}
+                    />
+                    {listModelsMutation.isPending
+                      ? "Fetching..."
+                      : "Fetch models"}
+                  </button>
+                </div>
+                {models.length > 0 ? (
+                  <>
+                    <select
+                      required
+                      value={formData.modelName}
+                      onChange={(e) =>
+                        setFormData({ ...formData, modelName: e.target.value })
+                      }
+                      className="w-full p-2 rounded-md border bg-background"
+                    >
+                      <option value="" disabled>
+                        Select a model…
+                      </option>
+                      {models.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setModels([])}
+                      className="text-xs text-muted-foreground hover:underline"
+                    >
+                      Enter manually instead
+                    </button>
+                  </>
+                ) : (
+                  <input
+                    required
+                    value={formData.modelName}
+                    onChange={(e) =>
+                      setFormData({ ...formData, modelName: e.target.value })
+                    }
+                    className="w-full p-2 rounded-md border bg-background"
+                    placeholder="e.g. gpt-4o, claude-3-5-sonnet, llama3.1"
+                  />
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Enter the provider details and key, then "Fetch models" to load
+                  the live list.
+                </p>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">

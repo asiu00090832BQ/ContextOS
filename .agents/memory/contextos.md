@@ -82,6 +82,18 @@ Isolation provenance lives in `agent_runs.input_json.contextVisibility`
 not declare `inputJson`, so Zod strips it from `/runs/{id}` responses. **How to apply:** verify
 isolation by querying the DB directly (`psql $DATABASE_URL`), not via the API.
 
+## Remote-surface auth boundary (API keys)
+`middlewares/tenant.ts` resolves tenant from a `Authorization: Bearer <key>` (invalid→401) and
+falls back to the owner *session* when no key is present — that fallback is ONLY for the local web
+UI. Remotely-exposed surfaces (`/commands/*`, `/mcp`) must additionally guard with `requireApiKey`
+(rejects `req.authVia !== "api_key"`), or anonymous callers execute runs/tools as owner.
+**Why:** code review caught broken access control — owner fallback made remote execution callable
+with no key. **How to apply:** any new remote-control route must mount `requireApiKey`, not rely on
+tenantContext alone. Orval emits NO `Create<Op>Response`/`Run<Op>Response` validators for 201s, so
+send plain objects via `res.status(201).json({...})` — don't import/parse a response schema. For
+adapter discovery, treat a JSON-RPC `error` field in a 200 MCP reply as a handshake failure (throw),
+else a dead server is silently recorded as "live with empty tools".
+
 ## Tooling quirk — rg/bash output mangles identifiers
 In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dialog`→`ln`,
 `split(`→`splln`, `limit(`→`limln`). The `read` tool returns correct content. **How to apply:**

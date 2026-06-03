@@ -556,6 +556,65 @@ export interface ModelTestResult {
   usedStub?: boolean;
 }
 
+export interface ListModelsInput {
+  providerType: string;
+  baseUrl?: string;
+  host?: string;
+  port?: number;
+  apiKey?: string;
+  endpointId?: string;
+}
+
+export interface ListModelsResult {
+  models: string[];
+}
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  lastFour: string;
+  /** @nullable */
+  lastUsedAt?: string | null;
+  /** @nullable */
+  expiresAt?: string | null;
+  /** @nullable */
+  revokedAt?: string | null;
+  createdAt: string;
+}
+
+export interface ApiKeyInput {
+  /** @minLength 1 */
+  name: string;
+  expiresInDays?: number;
+}
+
+export interface ApiKeyCreated {
+  id: string;
+  name: string;
+  token: string;
+  keyPrefix: string;
+  lastFour: string;
+  createdAt: string;
+}
+
+export interface RunCommandInput {
+  title?: string;
+  /** @minLength 1 */
+  goal: string;
+  constraints?: string;
+  successCriteria?: string;
+  riskTier?: string;
+  orchestrationMode?: string;
+  leadAgentId?: string;
+}
+
+export interface RunCommandResult {
+  intentId: string;
+  runId: string;
+  status: string;
+}
+
 export interface IntegrationBlueprint {
   id: string;
   name: string;

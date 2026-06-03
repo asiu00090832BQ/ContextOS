@@ -16,7 +16,7 @@ export function Adapters() {
   const deleteMutation = useDeleteAdapter();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: "", transport: "sse", endpointUrl: "" });
+  const [formData, setFormData] = useState({ name: "", transport: "streamable_http", endpointUrl: "" });
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,7 +24,7 @@ export function Adapters() {
       await createMutation.mutateAsync({ data: formData });
       toast({ title: "Adapter created successfully" });
       setIsCreateOpen(false);
-      setFormData({ name: "", transport: "sse", endpointUrl: "" });
+      setFormData({ name: "", transport: "streamable_http", endpointUrl: "" });
       queryClient.invalidateQueries({ queryKey: getListAdaptersQueryKey() });
     } catch (error: any) {
       toast({ title: "Failed to create adapter", description: error.message, variant: "destructive" });
@@ -70,13 +70,18 @@ export function Adapters() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Transport</label>
                 <select value={formData.transport} onChange={e => setFormData({...formData, transport: e.target.value})} className="w-full p-2 rounded-md border bg-background">
-                  <option value="sse">SSE (HTTP)</option>
+                  <option value="streamable_http">Streamable HTTP (MCP server)</option>
+                  <option value="websocket">WebSocket</option>
                   <option value="stdio">Stdio (Local)</option>
+                  <option value="demo">Demo</option>
                 </select>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Endpoint URL</label>
-                <input required value={formData.endpointUrl} onChange={e => setFormData({...formData, endpointUrl: e.target.value})} className="w-full p-2 rounded-md border bg-background" placeholder="https://..." />
+                <input value={formData.endpointUrl} onChange={e => setFormData({...formData, endpointUrl: e.target.value})} className="w-full p-2 rounded-md border bg-background" placeholder="https://example.com/mcp" />
+                <p className="text-xs text-muted-foreground">
+                  After registering, open the adapter and click "Discover" to handshake and import its tools.
+                </p>
               </div>
               <button disabled={createMutation.isPending} type="submit" className="w-full py-2 bg-primary text-primary-foreground rounded-md font-medium">
                 {createMutation.isPending ? "Registering..." : "Register Adapter"}

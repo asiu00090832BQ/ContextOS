@@ -18,6 +18,7 @@ import {
   CheckSquare,
   ScrollText,
   Gauge,
+  Radio,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: React.ElementType };
@@ -65,6 +66,13 @@ const navGroups: NavGroup[] = [
       { href: "/observability", label: "Traces", icon: Microscope },
       { href: "/evaluations", label: "Evaluations", icon: Gauge },
       { href: "/audit", label: "Audit Log", icon: ScrollText },
+    ],
+  },
+  {
+    title: "Remote & Access",
+    items: [
+      { href: "/remote-access", label: "Remote Access", icon: Radio },
+      { href: "/api-keys", label: "API Keys", icon: KeyRound },
     ],
   },
   {

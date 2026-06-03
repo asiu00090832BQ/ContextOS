@@ -275,6 +275,87 @@ export async function complete(
   }
 }
 
+export interface ListModelsInput {
+  providerType: string;
+  baseUrl?: string | null;
+  host?: string | null;
+  port?: number | null;
+  apiKey?: string | null;
+}
+
+/** Resolve a base URL from a plain descriptor (used before an endpoint exists). */
+function resolveBaseFromInput(
+  input: ListModelsInput,
+  defaultBase: string,
+  suffix = "",
+): string {
+  if (input.baseUrl) return input.baseUrl;
+  if (input.host) {
+    const scheme = input.port === 443 ? "https" : "http";
+    const portPart = input.port ? `:${input.port}` : "";
+    return `${scheme}://${input.host}${portPart}${suffix}`;
+  }
+  return defaultBase;
+}
+
+/**
+ * Query a provider for the real list of model names it exposes. Lets the UI
+ * auto-detect models instead of forcing the user to type one by hand. Throws a
+ * descriptive Error when the provider rejects the request or is unreachable.
+ */
+export async function listModels(input: ListModelsInput): Promise<string[]> {
+  const timeout = AbortSignal.timeout(15000);
+  if (providerRequiresKey(input.providerType) && !input.apiKey) {
+    throw new Error("An API key is required to list this provider's models.");
+  }
+
+  if (input.providerType === "anthropic") {
+    const base = resolveBaseFromInput(input, "https://api.anthropic.com");
+    const res = await fetch(`${base.replace(/\/$/, "")}/v1/models`, {
+      headers: {
+        "x-api-key": input.apiKey ?? "",
+        "anthropic-version": "2023-06-01",
+      },
+      signal: timeout,
+    });
+    if (!res.ok) throw new Error(`Provider responded ${res.status}.`);
+    const data = (await res.json()) as { data?: { id?: string }[] };
+    return dedupeSort((data.data ?? []).map((m) => m.id ?? ""));
+  }
+
+  if (input.providerType === "google") {
+    const base = resolveBaseFromInput(
+      input,
+      "https://generativelanguage.googleapis.com/v1beta",
+    );
+    const res = await fetch(
+      `${base.replace(/\/$/, "")}/models?key=${input.apiKey ?? ""}`,
+      { signal: timeout },
+    );
+    if (!res.ok) throw new Error(`Provider responded ${res.status}.`);
+    const data = (await res.json()) as { models?: { name?: string }[] };
+    return dedupeSort(
+      (data.models ?? []).map((m) => (m.name ?? "").replace(/^models\//, "")),
+    );
+  }
+
+  // openai / openai_compatible / openrouter / azure_openai
+  const base = resolveBaseFromInput(input, "https://api.openai.com/v1", "/v1");
+  const headers: Record<string, string> = {};
+  if (input.apiKey) headers.authorization = `Bearer ${input.apiKey}`;
+  const res = await fetch(`${base.replace(/\/$/, "")}/models`, {
+    headers,
+    signal: timeout,
+  });
+  if (!res.ok) throw new Error(`Provider responded ${res.status}.`);
+  const data = (await res.json()) as { data?: { id?: string }[] };
+  return dedupeSort((data.data ?? []).map((m) => m.id ?? ""));
+}
+
+function dedupeSort(ids: string[]): string[] {
+  return [...new Set(ids.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
 /** Connectivity test for an endpoint. Returns a structured result. */
 export async function testEndpoint(
   endpoint: ModelEndpoint,

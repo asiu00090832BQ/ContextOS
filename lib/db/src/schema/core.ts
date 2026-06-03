@@ -527,6 +527,31 @@ export const auditRecordsTable = pgTable(
   (t) => [index("audit_records_tenant_idx").on(t.tenantId)],
 );
 
+export const apiKeysTable = pgTable(
+  "api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenantsTable.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    keyPrefix: text("key_prefix").notNull(),
+    keyHash: text("key_hash").notNull().unique(),
+    lastFour: text("last_four").notNull(),
+    scopes: text("scopes").array(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => usersTable.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("api_keys_tenant_idx").on(t.tenantId)],
+);
+
 // Insert schemas + types
 export const insertTenantSchema = createInsertSchema(tenantsTable).omit({
   id: true,
@@ -565,3 +590,4 @@ export type PolicyBundle = typeof policyBundlesTable.$inferSelect;
 export type Principal = typeof principalsTable.$inferSelect;
 export type User = typeof usersTable.$inferSelect;
 export type Membership = typeof membershipsTable.$inferSelect;
+export type ApiKey = typeof apiKeysTable.$inferSelect;
