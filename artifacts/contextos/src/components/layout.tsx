@@ -1,10 +1,11 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
 import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
-import { LayoutDashboard, Cable, Zap, ListTree, Activity, Database, KeyRound, Network, Cpu, Microscope, Settings } from "lucide-react";
+import { LayoutDashboard, Cable, Zap, ListTree, Activity, Database, KeyRound, Network, Cpu, Microscope, Settings, BrainCircuit } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/model-endpoints", label: "Model Endpoints", icon: BrainCircuit },
   { href: "/linked-accounts", label: "Accounts", icon: KeyRound },
   { href: "/adapters", label: "Adapters", icon: Cable },
   { href: "/capabilities", label: "Capabilities", icon: Zap },
