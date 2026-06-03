@@ -1,17 +1,93 @@
+import { useState } from "react";
 import { useRoute } from "wouter";
-import { useGetAgent, getGetAgentQueryKey } from "@workspace/api-client-react";
+import {
+  useGetAgent,
+  getGetAgentQueryKey,
+  useListModelEndpoints,
+  getListModelEndpointsQueryKey,
+  useSetAgentModelPolicy,
+} from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Cpu, ServerCog, Shield } from "lucide-react";
+import { Cpu, ServerCog, Shield, Settings2 } from "lucide-react";
+import { Link } from "wouter";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "@/hooks/use-toast";
 
 export function AgentDetail() {
   const [, params] = useRoute("/agents/:id");
   const id = params?.id || "";
+  const queryClient = useQueryClient();
 
-  const { data: agent, isLoading } = useGetAgent(id, { query: { enabled: !!id, queryKey: getGetAgentQueryKey(id) } });
+  const { data: agent, isLoading } = useGetAgent(id, {
+    query: { enabled: !!id, queryKey: getGetAgentQueryKey(id) },
+  });
+  const { data: endpoints } = useListModelEndpoints({
+    query: { queryKey: getListModelEndpointsQueryKey() },
+  });
+
+  const setPolicyMutation = useSetAgentModelPolicy();
+  const [isOpen, setIsOpen] = useState(false);
+  const [form, setForm] = useState({
+    primaryEndpointId: "",
+    fallbackEndpointId: "",
+    temperature: "0.7",
+    maxTokens: "",
+  });
+
+  const endpointName = (endpointId?: string | null) =>
+    endpoints?.find((e) => e.id === endpointId)?.name || endpointId || "None";
+
+  const openDialog = () => {
+    setForm({
+      primaryEndpointId: agent?.modelPolicy?.primaryEndpointId || "",
+      fallbackEndpointId: agent?.modelPolicy?.fallbackEndpointId || "",
+      temperature: String((agent?.modelPolicy?.temperature ?? 70) / 100),
+      maxTokens: agent?.modelPolicy?.maxTokens
+        ? String(agent.modelPolicy.maxTokens)
+        : "",
+    });
+    setIsOpen(true);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await setPolicyMutation.mutateAsync({
+        id,
+        data: {
+          primaryEndpointId: form.primaryEndpointId || undefined,
+          fallbackEndpointId: form.fallbackEndpointId || undefined,
+          temperature: Math.round(parseFloat(form.temperature || "0") * 100),
+          maxTokens: form.maxTokens.trim() ? Number(form.maxTokens) : undefined,
+        },
+      });
+      toast({ title: "Model policy saved" });
+      setIsOpen(false);
+      queryClient.invalidateQueries({ queryKey: getGetAgentQueryKey(id) });
+    } catch (error: any) {
+      toast({
+        title: "Failed to save model policy",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
 
   if (isLoading) return <Skeleton className="w-full h-64" />;
-  if (!agent) return <div className="p-8 text-center text-muted-foreground">Agent not found.</div>;
+  if (!agent)
+    return (
+      <div className="p-8 text-center text-muted-foreground">Agent not found.</div>
+    );
+
+  const hasEndpoints = (endpoints?.length ?? 0) > 0;
 
   return (
     <div className="space-y-6">
@@ -51,19 +127,119 @@ export function AgentDetail() {
         </Card>
 
         <Card className="bg-card">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2"><ServerCog className="w-5 h-5 text-muted-foreground"/> Model Policy</CardTitle>
+            <Dialog open={isOpen} onOpenChange={setIsOpen}>
+              <DialogTrigger asChild>
+                <button
+                  onClick={openDialog}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted transition-colors"
+                >
+                  <Settings2 className="w-3.5 h-3.5" />
+                  {agent.modelPolicy ? "Edit" : "Assign LLM"}
+                </button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[480px]">
+                <DialogHeader>
+                  <DialogTitle>Model Policy</DialogTitle>
+                </DialogHeader>
+                {!hasEndpoints ? (
+                  <div className="py-4 text-sm text-muted-foreground space-y-3">
+                    <p>No model endpoints exist yet. Add an LLM first, then come back to assign it to this agent.</p>
+                    <Link href="/model-endpoints">
+                      <button className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90">
+                        Go to Model Endpoints
+                      </button>
+                    </Link>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSave} className="space-y-4 pt-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Primary Endpoint</label>
+                      <select
+                        required
+                        value={form.primaryEndpointId}
+                        onChange={(e) => setForm({ ...form, primaryEndpointId: e.target.value })}
+                        className="w-full p-2 rounded-md border bg-background"
+                      >
+                        <option value="" disabled>Select an endpoint…</option>
+                        {endpoints?.map((ep) => (
+                          <option key={ep.id} value={ep.id}>
+                            {ep.name} ({ep.modelName})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        Fallback Endpoint{" "}
+                        <span className="text-muted-foreground font-normal">(optional)</span>
+                      </label>
+                      <select
+                        value={form.fallbackEndpointId}
+                        onChange={(e) => setForm({ ...form, fallbackEndpointId: e.target.value })}
+                        className="w-full p-2 rounded-md border bg-background"
+                      >
+                        <option value="">None</option>
+                        {endpoints
+                          ?.filter((ep) => ep.id !== form.primaryEndpointId)
+                          .map((ep) => (
+                            <option key={ep.id} value={ep.id}>
+                              {ep.name} ({ep.modelName})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Temperature</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="2"
+                          value={form.temperature}
+                          onChange={(e) => setForm({ ...form, temperature: e.target.value })}
+                          className="w-full p-2 rounded-md border bg-background"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">
+                          Max Tokens{" "}
+                          <span className="text-muted-foreground font-normal">(opt.)</span>
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={form.maxTokens}
+                          onChange={(e) => setForm({ ...form, maxTokens: e.target.value })}
+                          className="w-full p-2 rounded-md border bg-background"
+                          placeholder="default"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      disabled={setPolicyMutation.isPending}
+                      type="submit"
+                      className="w-full py-2 bg-primary text-primary-foreground rounded-md font-medium disabled:opacity-60"
+                    >
+                      {setPolicyMutation.isPending ? "Saving..." : "Save Model Policy"}
+                    </button>
+                  </form>
+                )}
+              </DialogContent>
+            </Dialog>
           </CardHeader>
           <CardContent className="space-y-4">
             {agent.modelPolicy ? (
               <>
                 <div className="flex justify-between items-center py-2 border-b border-border/50">
                   <span className="text-sm text-muted-foreground">Primary Endpoint</span>
-                  <span className="font-mono text-sm">{agent.modelPolicy.primaryEndpointId || 'None'}</span>
+                  <span className="font-mono text-sm">{endpointName(agent.modelPolicy.primaryEndpointId)}</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-border/50">
                   <span className="text-sm text-muted-foreground">Fallback Endpoint</span>
-                  <span className="font-mono text-sm">{agent.modelPolicy.fallbackEndpointId || 'None'}</span>
+                  <span className="font-mono text-sm">{endpointName(agent.modelPolicy.fallbackEndpointId)}</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-border/50">
                   <span className="text-sm text-muted-foreground">Temperature</span>
@@ -75,7 +251,9 @@ export function AgentDetail() {
                 </div>
               </>
             ) : (
-              <div className="text-sm text-muted-foreground italic p-4 bg-muted/10 rounded">No specific model policy attached. Using platform defaults.</div>
+              <div className="text-sm text-muted-foreground italic p-4 bg-muted/10 rounded">
+                No model endpoint attached yet. Click "Assign LLM" to connect this agent to a model.
+              </div>
             )}
           </CardContent>
         </Card>
