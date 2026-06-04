@@ -552,6 +552,43 @@ export interface AgentModelPolicyInput {
   maxTokens?: number;
 }
 
+export interface Conversation {
+  id: string;
+  title: string;
+  /** @nullable */
+  agentId?: string | null;
+  /** @nullable */
+  agentName?: string | null;
+  messageCount: number;
+  /** @nullable */
+  lastMessageAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationInput {
+  title?: string;
+  agentId?: string;
+}
+
+export interface ConversationMessage {
+  id: string;
+  conversationId: string;
+  role: string;
+  content: string;
+  /** @nullable */
+  usedStub?: boolean | null;
+  /** @nullable */
+  runId?: string | null;
+  metadata?: JsonObject;
+  createdAt: string;
+}
+
+export interface PostMessageInput {
+  /** @minLength 1 */
+  content: string;
+}
+
 export interface ModelEndpoint {
   id: string;
   name: string;

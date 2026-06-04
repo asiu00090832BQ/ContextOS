@@ -18,3 +18,26 @@ class RunEventBus extends EventEmitter {
 
 export const runEvents = new RunEventBus();
 runEvents.setMaxListeners(0);
+
+/**
+ * Process-local event bus for in-app chat SSE streams. Keyed by conversationId.
+ * Used by the chat engine to push streaming agent replies and run-driven
+ * updates to /conversations/:id/events.
+ */
+class ConversationEventBus extends EventEmitter {
+  emitConversationEvent(conversationId: string, payload: unknown): void {
+    this.emit(`conversation:${conversationId}`, payload);
+  }
+
+  subscribe(
+    conversationId: string,
+    handler: (payload: unknown) => void,
+  ): () => void {
+    const channel = `conversation:${conversationId}`;
+    this.on(channel, handler);
+    return () => this.off(channel, handler);
+  }
+}
+
+export const conversationEvents = new ConversationEventBus();
+conversationEvents.setMaxListeners(0);

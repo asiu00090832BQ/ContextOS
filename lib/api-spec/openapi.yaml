@@ -1654,6 +1654,105 @@ paths:
               schema:
                 $ref: "#/components/schemas/Settings"
 
+  /conversations:
+    get:
+      operationId: listConversations
+      tags: [conversations]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Conversation"
+    post:
+      operationId: createConversation
+      tags: [conversations]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+  /conversations/{id}:
+    get:
+      operationId: getConversation
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+    delete:
+      operationId: deleteConversation
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+  /conversations/{id}/messages:
+    get:
+      operationId: listConversationMessages
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConversationMessage"
+    post:
+      operationId: postConversationMessage
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostMessageInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationMessage"
+  /conversations/{id}/events:
+    get:
+      operationId: listConversationEvents
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConversationMessage"
+
 components:
   parameters:
     IdPath:
@@ -2207,6 +2306,41 @@ components:
         messageType: { type: string }
         content: { type: string }
         createdAt: { type: string, format: date-time }
+
+    Conversation:
+      type: object
+      required: [id, title, messageCount, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        agentId: { type: ["string", "null"] }
+        agentName: { type: ["string", "null"] }
+        messageCount: { type: integer }
+        lastMessageAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ConversationInput:
+      type: object
+      properties:
+        title: { type: string }
+        agentId: { type: string }
+    ConversationMessage:
+      type: object
+      required: [id, conversationId, role, content, createdAt]
+      properties:
+        id: { type: string }
+        conversationId: { type: string }
+        role: { type: string }
+        content: { type: string }
+        usedStub: { type: ["boolean", "null"] }
+        runId: { type: ["string", "null"] }
+        metadata: { $ref: "#/components/schemas/JsonObject" }
+        createdAt: { type: string, format: date-time }
+    PostMessageInput:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1 }
 
     ModelEndpoint:
       type: object

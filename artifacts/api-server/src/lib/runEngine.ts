@@ -47,7 +47,7 @@ import { logger } from "./logger";
  * Resolve the configured model for an agent: its model policy plus the primary
  * and fallback endpoints. Used so runs invoke the real configured providers.
  */
-async function resolveAgentModel(
+export async function resolveAgentModel(
   tenantId: string,
   agentId: string,
 ): Promise<{

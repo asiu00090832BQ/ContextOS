@@ -20,6 +20,7 @@ import {
   Gauge,
   Radio,
   Wrench,
+  MessageSquare,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: React.ElementType };
@@ -50,6 +51,7 @@ const navGroups: NavGroup[] = [
   {
     title: "Work",
     items: [
+      { href: "/chat", label: "Chat", icon: MessageSquare },
       { href: "/intents", label: "Intents", icon: ListTree },
       { href: "/runs", label: "Runs", icon: Activity },
       { href: "/approvals", label: "Approvals", icon: CheckSquare },

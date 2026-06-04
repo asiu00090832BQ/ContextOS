@@ -2266,3 +2266,89 @@ export const UpdateSettingsResponse = zod.object({
 })
 
 
+export const ListConversationsResponseItem = zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "agentId": zod.string().nullish(),
+  "agentName": zod.string().nullish(),
+  "messageCount": zod.number(),
+  "lastMessageAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListConversationsResponse = zod.array(ListConversationsResponseItem)
+
+
+export const CreateConversationBody = zod.object({
+  "title": zod.string().optional(),
+  "agentId": zod.string().optional()
+})
+
+
+export const GetConversationParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetConversationResponse = zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "agentId": zod.string().nullish(),
+  "agentName": zod.string().nullish(),
+  "messageCount": zod.number(),
+  "lastMessageAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+export const DeleteConversationParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+export const ListConversationMessagesParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const ListConversationMessagesResponseItem = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string(),
+  "role": zod.string(),
+  "content": zod.string(),
+  "usedStub": zod.boolean().nullish(),
+  "runId": zod.string().nullish(),
+  "metadata": zod.record(zod.string(), zod.unknown()).optional(),
+  "createdAt": zod.coerce.date()
+})
+export const ListConversationMessagesResponse = zod.array(ListConversationMessagesResponseItem)
+
+
+export const PostConversationMessageParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+export const PostConversationMessageBody = zod.object({
+  "content": zod.string().min(1)
+})
+
+
+export const ListConversationEventsParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const ListConversationEventsResponseItem = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string(),
+  "role": zod.string(),
+  "content": zod.string(),
+  "usedStub": zod.boolean().nullish(),
+  "runId": zod.string().nullish(),
+  "metadata": zod.record(zod.string(), zod.unknown()).optional(),
+  "createdAt": zod.coerce.date()
+})
+export const ListConversationEventsResponse = zod.array(ListConversationEventsResponseItem)
+
+

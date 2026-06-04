@@ -17,6 +17,8 @@ import type {
   AgentModelPolicy,
   AgentRun,
   AgentMessage,
+  Conversation,
+  ConversationMessage,
   ModelEndpoint,
   IntegrationBlueprint,
   GeneratedMcpServer,
@@ -353,6 +355,35 @@ export function serializeAgentMessage(
     toAgentRunId: m.toAgentRunId,
     messageType: m.messageType,
     content: m.content,
+    createdAt: m.createdAt,
+  };
+}
+export function serializeConversation(
+  c: Conversation,
+  extra?: { agentName?: string | null; messageCount?: number; lastMessageAt?: Date | null },
+): Record<string, unknown> {
+  return {
+    id: c.id,
+    title: c.title,
+    agentId: c.agentId,
+    agentName: extra?.agentName ?? null,
+    messageCount: extra?.messageCount ?? 0,
+    lastMessageAt: extra?.lastMessageAt ?? null,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+  };
+}
+export function serializeConversationMessage(
+  m: ConversationMessage,
+): Record<string, unknown> {
+  return {
+    id: m.id,
+    conversationId: m.conversationId,
+    role: m.role,
+    content: m.content,
+    usedStub: m.usedStub,
+    runId: m.runId,
+    metadata: j(m.metadataJson),
     createdAt: m.createdAt,
   };
 }

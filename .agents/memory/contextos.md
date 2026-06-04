@@ -122,6 +122,16 @@ blocked as mixed content EXCEPT for localhost/127.0.0.1/::1; LM Studio serves pl
 https) at `/v1`; CORS must be enabled. Keep `requiresApiKey` keyless for openai_compatible / any
 explicit baseUrl+host so local servers don't demand a key.
 
+## Chat replies need a chat-specific stub, NOT the run-planner stub
+The shared `stubComplete` in `llm.ts` returns run-planner JSON
+(`{"status":"completed","reasoning":...,"result":...}`) — correct for runs, wrong for a chat
+thread (renders raw JSON as the message). Chat replies use a separate natural-language fallback
+(`chatStubReply` in `chatEngine.ts`) and treat a real provider's `usedStub` result the same way.
+**Why:** first pass dumped planner JSON into the chat bubble. **How to apply:** any conversational
+surface needs its own prose fallback; don't reuse the run stub. SSE events endpoint only streams
+when `Accept: text/event-stream` is set (browser EventSource does this automatically); plain curl
+hits the JSON snapshot fallback — pass `-H "Accept: text/event-stream"` to test the live stream.
+
 ## Tooling quirk — rg/bash output mangles identifiers
 In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dialog`→`ln`,
 `split(`→`splln`, `limit(`→`limln`). The `read` tool returns correct content. **How to apply:**

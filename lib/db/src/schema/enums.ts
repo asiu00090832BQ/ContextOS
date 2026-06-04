@@ -155,6 +155,12 @@ export const agentRunStatusEnum = pgEnum("agent_run_status", [
   "blocked",
 ]);
 
+export const conversationMessageRoleEnum = pgEnum("conversation_message_role", [
+  "user",
+  "agent",
+  "system",
+]);
+
 export const sharedContextModeEnum = pgEnum("shared_context_mode", [
   "isolated",
   "shared_summary",

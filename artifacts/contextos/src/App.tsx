@@ -14,6 +14,7 @@ import { Intents } from "@/pages/intents";
 import { IntentDetail } from "@/pages/intent-detail";
 import { Runs } from "@/pages/runs";
 import { RunDetail } from "@/pages/run-detail";
+import { Chat } from "@/pages/chat";
 import { Approvals } from "@/pages/approvals";
 import { Artifacts } from "@/pages/artifacts";
 import { Memory } from "@/pages/memory";
@@ -44,6 +45,7 @@ function Router() {
     <Layout>
       <Switch>
         <Route path="/" component={Dashboard} />
+        <Route path="/chat" component={Chat} />
         <Route path="/linked-accounts" component={LinkedAccounts} />
         <Route path="/build-mcp" component={BuildMcp} />
         <Route path="/adapters" component={Adapters} />
