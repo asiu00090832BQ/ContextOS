@@ -9,6 +9,10 @@ import {
 } from "@workspace/db";
 import { executeRun } from "./runEngine";
 import { discoverAdapter } from "./mcp";
+import {
+  executeNamedCapability,
+  listExecutableCapabilities,
+} from "./capabilityExec";
 
 type RiskTier = "L1" | "L2" | "L3" | "L4";
 type OrchestrationMode = "static_graph" | "dynamic_delegation";
@@ -385,7 +389,58 @@ export async function callTool(
         })),
       };
     }
-    default:
-      throw new McpToolError(`Unknown tool: ${name}`);
+    default: {
+      const result = await executeNamedCapability(tenantId, name, args);
+      if (result === null) {
+        throw new McpToolError(`Unknown tool: ${name}`);
+      }
+      if (!result.ok) {
+        throw new McpToolError(
+          result.error ?? `Tool "${name}" failed to execute.`,
+        );
+      }
+      return {
+        ok: true,
+        status: result.status ?? null,
+        durationMs: result.durationMs,
+        extracted: result.extracted ?? null,
+        body: result.body ?? null,
+      };
+    }
   }
+}
+
+function toJsonSchema(raw: unknown): JsonSchema {
+  const obj = (raw as Record<string, unknown> | null) ?? {};
+  const properties =
+    (obj.properties as Record<string, unknown> | undefined) ?? {};
+  const required = Array.isArray(obj.required)
+    ? (obj.required as string[])
+    : undefined;
+  return { type: "object", properties, ...(required ? { required } : {}) };
+}
+
+/**
+ * The full tool catalog visible to an MCP client: the built-in ContextOS tools
+ * plus every constructed (executable) capability registered in this tenant.
+ */
+export async function listToolsForTenant(
+  tenantId: string,
+): Promise<McpTool[]> {
+  const constructed = await listExecutableCapabilities(tenantId);
+  const seen = new Set(TOOLS.map((t) => t.name));
+  const dynamic: McpTool[] = [];
+  // Dedupe by name (first occurrence wins, matching the deterministic dispatch
+  // order in executeNamedCapability) so tools/list never advertises a tool name
+  // that would dispatch ambiguously.
+  for (const c of constructed) {
+    if (seen.has(c.name)) continue;
+    seen.add(c.name);
+    dynamic.push({
+      name: c.name,
+      description: c.description ?? `Constructed tool: ${c.name}`,
+      inputSchema: toJsonSchema(c.inputSchemaJson),
+    });
+  }
+  return [...TOOLS, ...dynamic];
 }

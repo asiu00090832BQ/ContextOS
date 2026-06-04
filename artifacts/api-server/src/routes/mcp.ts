@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import {
-  TOOLS,
+  listToolsForTenant,
   callTool,
   MCP_PROTOCOL_VERSION,
   MCP_SERVER_INFO,
@@ -59,7 +59,7 @@ async function dispatch(
       case "ping":
         return ok(id, {});
       case "tools/list":
-        return ok(id, { tools: TOOLS });
+        return ok(id, { tools: await listToolsForTenant(tenantId) });
       case "tools/call": {
         const params = msg.params ?? {};
         const name = typeof params.name === "string" ? params.name : "";

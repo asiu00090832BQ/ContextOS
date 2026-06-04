@@ -39,6 +39,8 @@ import type {
   AuditRecord,
   BlueprintInput,
   Capability,
+  ConstructedAuthInput,
+  ConstructedServerInput,
   ContextFragment,
   ContextFragmentInput,
   ContextFragmentUpdate,
@@ -56,10 +58,13 @@ import type {
   GetObservabilityMetricsParams,
   HealthStatus,
   HealthTestResult,
+  ImportOpenApiInput,
   IntegrationBlueprint,
   Intent,
   IntentInput,
   IntentUpdate,
+  InvokeCapabilityInput,
+  InvokeCapabilityResult,
   LinkedAccount,
   LinkedAccountInput,
   ListApprovalsParams,
@@ -101,6 +106,7 @@ import type {
   TraceDetail,
   UiView,
   UiViewInput,
+  WebToolInput,
   WorkingMemory
 } from './api.schemas';
 
@@ -1288,6 +1294,399 @@ export function useListCapabilities<TData = Awaited<ReturnType<typeof listCapabi
 
 
 
+
+export const getCreateConstructedServerUrl = () => {
+
+
+
+
+  return `/api/constructed-servers`
+}
+
+export const createConstructedServer = async (constructedServerInput: ConstructedServerInput, options?: RequestInit): Promise<AdapterDetail> => {
+
+  return customFetch<AdapterDetail>(getCreateConstructedServerUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      constructedServerInput,)
+  }
+);}
+
+
+
+
+export const getCreateConstructedServerMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createConstructedServer>>, TError,{data: BodyType<ConstructedServerInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createConstructedServer>>, TError,{data: BodyType<ConstructedServerInput>}, TContext> => {
+
+const mutationKey = ['createConstructedServer'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createConstructedServer>>, {data: BodyType<ConstructedServerInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createConstructedServer(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateConstructedServerMutationResult = NonNullable<Awaited<ReturnType<typeof createConstructedServer>>>
+    export type CreateConstructedServerMutationBody = BodyType<ConstructedServerInput>
+    export type CreateConstructedServerMutationError = ErrorType<unknown>
+
+    export const useCreateConstructedServer = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createConstructedServer>>, TError,{data: BodyType<ConstructedServerInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createConstructedServer>>,
+        TError,
+        {data: BodyType<ConstructedServerInput>},
+        TContext
+      > => {
+      return useMutation(getCreateConstructedServerMutationOptions(options));
+    }
+
+export const getImportOpenApiUrl = (id: string,) => {
+
+
+
+
+  return `/api/constructed-servers/${id}/import-openapi`
+}
+
+export const importOpenApi = async (id: string,
+    importOpenApiInput: ImportOpenApiInput, options?: RequestInit): Promise<AdapterDetail> => {
+
+  return customFetch<AdapterDetail>(getImportOpenApiUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      importOpenApiInput,)
+  }
+);}
+
+
+
+
+export const getImportOpenApiMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importOpenApi>>, TError,{id: string;data: BodyType<ImportOpenApiInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importOpenApi>>, TError,{id: string;data: BodyType<ImportOpenApiInput>}, TContext> => {
+
+const mutationKey = ['importOpenApi'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importOpenApi>>, {id: string;data: BodyType<ImportOpenApiInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  importOpenApi(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportOpenApiMutationResult = NonNullable<Awaited<ReturnType<typeof importOpenApi>>>
+    export type ImportOpenApiMutationBody = BodyType<ImportOpenApiInput>
+    export type ImportOpenApiMutationError = ErrorType<unknown>
+
+    export const useImportOpenApi = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importOpenApi>>, TError,{id: string;data: BodyType<ImportOpenApiInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importOpenApi>>,
+        TError,
+        {id: string;data: BodyType<ImportOpenApiInput>},
+        TContext
+      > => {
+      return useMutation(getImportOpenApiMutationOptions(options));
+    }
+
+export const getAddWebToolUrl = (id: string,) => {
+
+
+
+
+  return `/api/constructed-servers/${id}/tools`
+}
+
+export const addWebTool = async (id: string,
+    webToolInput: WebToolInput, options?: RequestInit): Promise<Capability> => {
+
+  return customFetch<Capability>(getAddWebToolUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      webToolInput,)
+  }
+);}
+
+
+
+
+export const getAddWebToolMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addWebTool>>, TError,{id: string;data: BodyType<WebToolInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addWebTool>>, TError,{id: string;data: BodyType<WebToolInput>}, TContext> => {
+
+const mutationKey = ['addWebTool'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addWebTool>>, {id: string;data: BodyType<WebToolInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  addWebTool(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddWebToolMutationResult = NonNullable<Awaited<ReturnType<typeof addWebTool>>>
+    export type AddWebToolMutationBody = BodyType<WebToolInput>
+    export type AddWebToolMutationError = ErrorType<unknown>
+
+    export const useAddWebTool = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addWebTool>>, TError,{id: string;data: BodyType<WebToolInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addWebTool>>,
+        TError,
+        {id: string;data: BodyType<WebToolInput>},
+        TContext
+      > => {
+      return useMutation(getAddWebToolMutationOptions(options));
+    }
+
+export const getSetConstructedServerAuthUrl = (id: string,) => {
+
+
+
+
+  return `/api/constructed-servers/${id}/auth`
+}
+
+export const setConstructedServerAuth = async (id: string,
+    constructedAuthInput: ConstructedAuthInput, options?: RequestInit): Promise<AdapterDetail> => {
+
+  return customFetch<AdapterDetail>(getSetConstructedServerAuthUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      constructedAuthInput,)
+  }
+);}
+
+
+
+
+export const getSetConstructedServerAuthMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setConstructedServerAuth>>, TError,{id: string;data: BodyType<ConstructedAuthInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setConstructedServerAuth>>, TError,{id: string;data: BodyType<ConstructedAuthInput>}, TContext> => {
+
+const mutationKey = ['setConstructedServerAuth'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setConstructedServerAuth>>, {id: string;data: BodyType<ConstructedAuthInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  setConstructedServerAuth(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetConstructedServerAuthMutationResult = NonNullable<Awaited<ReturnType<typeof setConstructedServerAuth>>>
+    export type SetConstructedServerAuthMutationBody = BodyType<ConstructedAuthInput>
+    export type SetConstructedServerAuthMutationError = ErrorType<unknown>
+
+    export const useSetConstructedServerAuth = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setConstructedServerAuth>>, TError,{id: string;data: BodyType<ConstructedAuthInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setConstructedServerAuth>>,
+        TError,
+        {id: string;data: BodyType<ConstructedAuthInput>},
+        TContext
+      > => {
+      return useMutation(getSetConstructedServerAuthMutationOptions(options));
+    }
+
+export const getDeleteCapabilityUrl = (id: string,) => {
+
+
+
+
+  return `/api/capabilities/${id}`
+}
+
+export const deleteCapability = async (id: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteCapabilityUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteCapabilityMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCapability>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteCapability>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['deleteCapability'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCapability>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteCapability(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteCapabilityMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCapability>>>
+
+    export type DeleteCapabilityMutationError = ErrorType<unknown>
+
+    export const useDeleteCapability = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCapability>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteCapability>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getDeleteCapabilityMutationOptions(options));
+    }
+
+export const getInvokeCapabilityUrl = (id: string,) => {
+
+
+
+
+  return `/api/capabilities/${id}/invoke`
+}
+
+export const invokeCapability = async (id: string,
+    invokeCapabilityInput: InvokeCapabilityInput, options?: RequestInit): Promise<InvokeCapabilityResult> => {
+
+  return customFetch<InvokeCapabilityResult>(getInvokeCapabilityUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      invokeCapabilityInput,)
+  }
+);}
+
+
+
+
+export const getInvokeCapabilityMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof invokeCapability>>, TError,{id: string;data: BodyType<InvokeCapabilityInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof invokeCapability>>, TError,{id: string;data: BodyType<InvokeCapabilityInput>}, TContext> => {
+
+const mutationKey = ['invokeCapability'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof invokeCapability>>, {id: string;data: BodyType<InvokeCapabilityInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  invokeCapability(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type InvokeCapabilityMutationResult = NonNullable<Awaited<ReturnType<typeof invokeCapability>>>
+    export type InvokeCapabilityMutationBody = BodyType<InvokeCapabilityInput>
+    export type InvokeCapabilityMutationError = ErrorType<unknown>
+
+    export const useInvokeCapability = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof invokeCapability>>, TError,{id: string;data: BodyType<InvokeCapabilityInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof invokeCapability>>,
+        TError,
+        {id: string;data: BodyType<InvokeCapabilityInput>},
+        TContext
+      > => {
+      return useMutation(getInvokeCapabilityMutationOptions(options));
+    }
 
 export const getListIntentsUrl = (params?: ListIntentsParams,) => {
   const normalizedParams = new URLSearchParams();

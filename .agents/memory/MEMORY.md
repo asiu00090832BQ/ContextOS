@@ -1,1 +1,2 @@
 - [ContextOS conventions](contextos.md) — stack, enum-drift trap, route mounting, build/restart quirks, seed script location.
+- [Constructed MCP SSRF hardening](constructed-mcp-ssrf.md) — all constructed-tool fetches use safeFetch: per-hop redirect + DNS-pinned + browser page.route; opt-in allowPrivateNetwork relaxes it.

@@ -21,6 +21,10 @@ export interface Adapter {
   linkedAccountId?: string | null;
   isGenerated: boolean;
   /** @nullable */
+  authType?: string | null;
+  /** @nullable */
+  allowPrivateNetwork?: boolean | null;
+  /** @nullable */
   lastDiscoveredAt?: Date | null;
   /** @nullable */
   lastHealthAt?: Date | null;

@@ -19,6 +19,7 @@ import {
   ScrollText,
   Gauge,
   Radio,
+  Wrench,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: React.ElementType };
@@ -39,6 +40,7 @@ const navGroups: NavGroup[] = [
   {
     title: "Tools & Connections",
     items: [
+      { href: "/build-mcp", label: "Build MCP", icon: Wrench },
       { href: "/adapters", label: "Adapters", icon: Cable },
       { href: "/capabilities", label: "Capabilities", icon: Zap },
       { href: "/integrations", label: "Integrations", icon: Network },

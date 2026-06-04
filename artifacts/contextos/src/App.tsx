@@ -7,6 +7,7 @@ import { Layout } from "@/components/layout";
 import { Dashboard } from "@/pages/dashboard";
 import { LinkedAccounts } from "@/pages/linked-accounts";
 import { Adapters } from "@/pages/adapters";
+import { BuildMcp } from "@/pages/build-mcp";
 import { AdapterDetail } from "@/pages/adapter-detail";
 import { Capabilities } from "@/pages/capabilities";
 import { Intents } from "@/pages/intents";
@@ -44,6 +45,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/linked-accounts" component={LinkedAccounts} />
+        <Route path="/build-mcp" component={BuildMcp} />
         <Route path="/adapters" component={Adapters} />
         <Route path="/adapters/:id" component={AdapterDetail} />
         <Route path="/capabilities" component={Capabilities} />

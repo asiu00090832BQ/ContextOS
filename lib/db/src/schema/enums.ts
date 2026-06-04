@@ -33,6 +33,7 @@ export const adapterTransportEnum = pgEnum("adapter_transport", [
   "stdio",
   "websocket",
   "demo",
+  "constructed",
 ]);
 
 export const adapterStatusEnum = pgEnum("adapter_status", [

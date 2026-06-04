@@ -150,6 +150,10 @@ export interface Adapter {
   linkedAccountId?: string | null;
   isGenerated: boolean;
   /** @nullable */
+  authType?: string | null;
+  /** @nullable */
+  allowPrivateNetwork?: boolean | null;
+  /** @nullable */
   lastDiscoveredAt?: string | null;
   /** @nullable */
   lastHealthAt?: string | null;
@@ -170,6 +174,8 @@ export interface Capability {
   humanReviewRequired?: boolean;
   inputSchema?: JsonObject;
   outputSchema?: JsonObject;
+  /** @nullable */
+  executionKind?: string | null;
   createdAt: string;
 }
 
@@ -203,6 +209,74 @@ export interface HealthTestResult {
   latencyMs: number;
   message: string;
   details?: JsonObject;
+}
+
+export interface ConstructedServerInput {
+  /** @minLength 1 */
+  name: string;
+  description?: string;
+  /** @minLength 1 */
+  baseUrl: string;
+  allowPrivateNetwork?: boolean;
+}
+
+export interface ImportOpenApiInput {
+  specUrl?: string;
+  specText?: string;
+  baseUrl?: string;
+  replaceExisting?: boolean;
+}
+
+export type WebToolInputKind = typeof WebToolInputKind[keyof typeof WebToolInputKind];
+
+
+export const WebToolInputKind = {
+  http: 'http',
+  browser: 'browser',
+} as const;
+
+export interface WebToolInput {
+  /** @minLength 1 */
+  name: string;
+  description?: string;
+  kind: WebToolInputKind;
+  actionKind?: string;
+  riskTier?: string;
+  humanReviewRequired?: boolean;
+  inputSchema?: JsonObject;
+  recipe?: JsonObject;
+}
+
+export type ConstructedAuthInputType = typeof ConstructedAuthInputType[keyof typeof ConstructedAuthInputType];
+
+
+export const ConstructedAuthInputType = {
+  none: 'none',
+  bearer: 'bearer',
+  api_key_header: 'api_key_header',
+  query: 'query',
+} as const;
+
+export interface ConstructedAuthInput {
+  type: ConstructedAuthInputType;
+  name?: string;
+  secret?: string;
+}
+
+export interface InvokeCapabilityInput {
+  arguments?: JsonObject;
+}
+
+export interface InvokeCapabilityResult {
+  ok: boolean;
+  kind: string;
+  /** @nullable */
+  status?: number | null;
+  durationMs: number;
+  body?: unknown;
+  extracted?: JsonObject;
+  /** @nullable */
+  error?: string | null;
 }
 
 export interface Intent {

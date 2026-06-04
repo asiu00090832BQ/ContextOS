@@ -19,5 +19,7 @@ export interface Capability {
   humanReviewRequired?: boolean;
   inputSchema?: JsonObject;
   outputSchema?: JsonObject;
+  /** @nullable */
+  executionKind?: string | null;
   createdAt: Date;
 }

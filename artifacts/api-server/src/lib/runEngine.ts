@@ -32,6 +32,9 @@ import {
 } from "./observability";
 import { complete, stubComplete, type LlmResult } from "./llm";
 import { resolveSecret } from "./secretStore";
+import { parseRecipe } from "./webTools";
+import { executeCapabilityRow } from "./capabilityExec";
+import { adaptersTable, type Adapter } from "@workspace/db";
 import {
   assembleVisibleContext,
   normalizePolicy,
@@ -313,11 +316,51 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
       .returning();
     await logEvent(tenantId, runId, "policy.bundle.assembled", `Policy bundle assembled (approval required at or above ${policyBundle.approvalThreshold})`);
 
+    const adapterCache = new Map<string, Adapter | undefined>();
+    const loadAdapter = async (
+      adapterId: string,
+    ): Promise<Adapter | undefined> => {
+      if (adapterCache.has(adapterId)) return adapterCache.get(adapterId);
+      const [a] = await db
+        .select()
+        .from(adaptersTable)
+        .where(eq(adaptersTable.id, adapterId));
+      adapterCache.set(adapterId, a);
+      return a;
+    };
+
     let pendingApproval = false;
     for (const cap of caps) {
       const needsApproval =
         cap.humanReviewRequired ||
         RISK_RANK[cap.riskTier] >= RISK_RANK[policyBundle.approvalThreshold];
+
+      // Real execution: a non-gated capability that carries an executable recipe
+      // is actually invoked against its web service. Everything else (gated, or
+      // discovery-only) stays simulated.
+      const recipe = needsApproval ? null : parseRecipe(cap.executionJson);
+      const actionInput = { query: intent.goal.slice(0, 80) };
+      let executed = false;
+      let execOutput: Record<string, unknown> = { ok: true, simulated: true };
+      let execOk = true;
+      let execDuration = 45;
+      if (recipe) {
+        const adapter = await loadAdapter(cap.adapterId);
+        if (adapter) {
+          const result = await executeCapabilityRow(cap, adapter, {});
+          executed = true;
+          execOk = result.ok;
+          execDuration = result.durationMs;
+          execOutput = {
+            ok: result.ok,
+            status: result.status ?? null,
+            extracted: result.extracted ?? null,
+            body: result.body ?? null,
+            error: result.error ?? null,
+          };
+        }
+      }
+
       const [action] = await db
         .insert(actionsTable)
         .values({
@@ -328,9 +371,13 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
           name: cap.name,
           kind: cap.actionKind,
           riskTier: cap.riskTier,
-          status: needsApproval ? "awaiting_approval" : "completed",
-          inputJson: { query: intent.goal.slice(0, 80) },
-          outputJson: needsApproval ? null : { ok: true, simulated: true },
+          status: needsApproval
+            ? "awaiting_approval"
+            : execOk
+              ? "completed"
+              : "failed",
+          inputJson: actionInput,
+          outputJson: needsApproval ? null : execOutput,
           policyDecisionJson: {
             decision: needsApproval ? "require_approval" : "allow",
             riskTier: cap.riskTier,
@@ -346,11 +393,13 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
         name: cap.name,
         layer: "tools",
         capabilityId: cap.id,
-        status: needsApproval ? "blocked" : "ok",
-        input: { query: intent.goal.slice(0, 80) },
-        output: needsApproval ? { gated: true } : { ok: true },
-        durationMs: 45,
-        metrics: { latencyMs: 45 },
+        status: needsApproval ? "blocked" : execOk ? "ok" : "error",
+        input: actionInput,
+        output: needsApproval
+          ? { gated: true }
+          : { ok: execOk, executed },
+        durationMs: execDuration,
+        metrics: { latencyMs: execDuration },
       });
       obsCount++;
       await recordObservation({

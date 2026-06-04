@@ -202,6 +202,8 @@ export const ListAdaptersResponseItem = zod.object({
   "status": zod.string(),
   "linkedAccountId": zod.string().nullish(),
   "isGenerated": zod.boolean(),
+  "authType": zod.string().nullish(),
+  "allowPrivateNetwork": zod.boolean().nullish(),
   "lastDiscoveredAt": zod.coerce.date().nullish(),
   "lastHealthAt": zod.coerce.date().nullish(),
   "capabilityCount": zod.number().nullish(),
@@ -239,6 +241,8 @@ export const GetAdapterResponse = zod.object({
   "status": zod.string(),
   "linkedAccountId": zod.string().nullish(),
   "isGenerated": zod.boolean(),
+  "authType": zod.string().nullish(),
+  "allowPrivateNetwork": zod.boolean().nullish(),
   "lastDiscoveredAt": zod.coerce.date().nullish(),
   "lastHealthAt": zod.coerce.date().nullish(),
   "capabilityCount": zod.number().nullish(),
@@ -255,6 +259,7 @@ export const GetAdapterResponse = zod.object({
   "humanReviewRequired": zod.boolean().optional(),
   "inputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "outputSchema": zod.record(zod.string(), zod.unknown()).optional(),
+  "executionKind": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })).optional(),
   "lastHealthResult": zod.record(zod.string(), zod.unknown()).optional()
@@ -287,6 +292,8 @@ export const UpdateAdapterResponse = zod.object({
   "status": zod.string(),
   "linkedAccountId": zod.string().nullish(),
   "isGenerated": zod.boolean(),
+  "authType": zod.string().nullish(),
+  "allowPrivateNetwork": zod.boolean().nullish(),
   "lastDiscoveredAt": zod.coerce.date().nullish(),
   "lastHealthAt": zod.coerce.date().nullish(),
   "capabilityCount": zod.number().nullish(),
@@ -314,6 +321,8 @@ export const DiscoverAdapterResponse = zod.object({
   "status": zod.string(),
   "linkedAccountId": zod.string().nullish(),
   "isGenerated": zod.boolean(),
+  "authType": zod.string().nullish(),
+  "allowPrivateNetwork": zod.boolean().nullish(),
   "lastDiscoveredAt": zod.coerce.date().nullish(),
   "lastHealthAt": zod.coerce.date().nullish(),
   "capabilityCount": zod.number().nullish(),
@@ -330,6 +339,7 @@ export const DiscoverAdapterResponse = zod.object({
   "humanReviewRequired": zod.boolean().optional(),
   "inputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "outputSchema": zod.record(zod.string(), zod.unknown()).optional(),
+  "executionKind": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })).optional(),
   "lastHealthResult": zod.record(zod.string(), zod.unknown()).optional()
@@ -365,9 +375,158 @@ export const ListCapabilitiesResponseItem = zod.object({
   "humanReviewRequired": zod.boolean().optional(),
   "inputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "outputSchema": zod.record(zod.string(), zod.unknown()).optional(),
+  "executionKind": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 export const ListCapabilitiesResponse = zod.array(ListCapabilitiesResponseItem)
+
+
+
+
+
+
+export const CreateConstructedServerBody = zod.object({
+  "name": zod.string().min(1),
+  "description": zod.string().optional(),
+  "baseUrl": zod.string().min(1),
+  "allowPrivateNetwork": zod.boolean().optional()
+})
+
+
+export const ImportOpenApiParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const ImportOpenApiBody = zod.object({
+  "specUrl": zod.string().optional(),
+  "specText": zod.string().optional(),
+  "baseUrl": zod.string().optional(),
+  "replaceExisting": zod.boolean().optional()
+})
+
+export const ImportOpenApiResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "transport": zod.string(),
+  "protocolVersion": zod.string(),
+  "endpointUrl": zod.string().nullish(),
+  "sessionMode": zod.string().optional(),
+  "status": zod.string(),
+  "linkedAccountId": zod.string().nullish(),
+  "isGenerated": zod.boolean(),
+  "authType": zod.string().nullish(),
+  "allowPrivateNetwork": zod.boolean().nullish(),
+  "lastDiscoveredAt": zod.coerce.date().nullish(),
+  "lastHealthAt": zod.coerce.date().nullish(),
+  "capabilityCount": zod.number().nullish(),
+  "createdAt": zod.coerce.date()
+}).and(zod.object({
+  "capabilities": zod.array(zod.object({
+  "id": zod.string(),
+  "adapterId": zod.string(),
+  "type": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "riskTier": zod.string(),
+  "actionKind": zod.string(),
+  "humanReviewRequired": zod.boolean().optional(),
+  "inputSchema": zod.record(zod.string(), zod.unknown()).optional(),
+  "outputSchema": zod.record(zod.string(), zod.unknown()).optional(),
+  "executionKind": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})).optional(),
+  "lastHealthResult": zod.record(zod.string(), zod.unknown()).optional()
+}))
+
+
+export const AddWebToolParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+export const AddWebToolBody = zod.object({
+  "name": zod.string().min(1),
+  "description": zod.string().optional(),
+  "kind": zod.enum(['http', 'browser']),
+  "actionKind": zod.string().optional(),
+  "riskTier": zod.string().optional(),
+  "humanReviewRequired": zod.boolean().optional(),
+  "inputSchema": zod.record(zod.string(), zod.unknown()).optional(),
+  "recipe": zod.record(zod.string(), zod.unknown()).optional()
+})
+
+
+export const SetConstructedServerAuthParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const SetConstructedServerAuthBody = zod.object({
+  "type": zod.enum(['none', 'bearer', 'api_key_header', 'query']),
+  "name": zod.string().optional(),
+  "secret": zod.string().optional()
+})
+
+export const SetConstructedServerAuthResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "transport": zod.string(),
+  "protocolVersion": zod.string(),
+  "endpointUrl": zod.string().nullish(),
+  "sessionMode": zod.string().optional(),
+  "status": zod.string(),
+  "linkedAccountId": zod.string().nullish(),
+  "isGenerated": zod.boolean(),
+  "authType": zod.string().nullish(),
+  "allowPrivateNetwork": zod.boolean().nullish(),
+  "lastDiscoveredAt": zod.coerce.date().nullish(),
+  "lastHealthAt": zod.coerce.date().nullish(),
+  "capabilityCount": zod.number().nullish(),
+  "createdAt": zod.coerce.date()
+}).and(zod.object({
+  "capabilities": zod.array(zod.object({
+  "id": zod.string(),
+  "adapterId": zod.string(),
+  "type": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "riskTier": zod.string(),
+  "actionKind": zod.string(),
+  "humanReviewRequired": zod.boolean().optional(),
+  "inputSchema": zod.record(zod.string(), zod.unknown()).optional(),
+  "outputSchema": zod.record(zod.string(), zod.unknown()).optional(),
+  "executionKind": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})).optional(),
+  "lastHealthResult": zod.record(zod.string(), zod.unknown()).optional()
+}))
+
+
+export const DeleteCapabilityParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+export const InvokeCapabilityParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const InvokeCapabilityBody = zod.object({
+  "arguments": zod.record(zod.string(), zod.unknown()).optional()
+})
+
+export const InvokeCapabilityResponse = zod.object({
+  "ok": zod.boolean(),
+  "kind": zod.string(),
+  "status": zod.number().nullish(),
+  "durationMs": zod.number(),
+  "body": zod.unknown().optional(),
+  "extracted": zod.record(zod.string(), zod.unknown()).optional(),
+  "error": zod.string().nullish()
+})
 
 
 export const ListIntentsQueryParams = zod.object({

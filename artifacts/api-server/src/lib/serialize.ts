@@ -49,6 +49,13 @@ export function serializeAdapter(
     status: a.status,
     linkedAccountId: a.linkedAccountId,
     isGenerated: a.isGenerated,
+    authType:
+      ((a.metadataJson as Record<string, unknown> | null)?.authType as
+        | string
+        | undefined) ?? null,
+    allowPrivateNetwork:
+      ((a.metadataJson as Record<string, unknown> | null)
+        ?.allowPrivateNetwork as boolean | undefined) ?? null,
     lastDiscoveredAt: a.lastDiscoveredAt ?? null,
     lastHealthAt: a.lastHealthAt ?? null,
     capabilityCount: capabilityCount ?? null,
@@ -79,6 +86,10 @@ export function serializeCapability(c: Capability): Record<string, unknown> {
     humanReviewRequired: c.humanReviewRequired,
     inputSchema: j(c.inputSchemaJson),
     outputSchema: j(c.outputSchemaJson),
+    executionKind:
+      ((c.executionJson as Record<string, unknown> | null)?.kind as
+        | string
+        | undefined) ?? null,
     createdAt: c.createdAt,
   };
 }

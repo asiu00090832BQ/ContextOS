@@ -142,6 +142,7 @@ export const adaptersTable = pgTable(
       () => linkedAccountsTable.id,
       { onDelete: "set null" },
     ),
+    credentialRef: text("credential_ref"),
     isGenerated: boolean("is_generated").notNull().default(false),
     generatedServerId: uuid("generated_server_id"),
     lastDiscoveredAt: timestamp("last_discovered_at", { withTimezone: true }),
@@ -181,6 +182,7 @@ export const capabilitiesTable = pgTable(
       Record<string, unknown>
     >(),
     annotationsJson: jsonb("annotations_json").$type<Record<string, unknown>>(),
+    executionJson: jsonb("execution_json").$type<Record<string, unknown>>(),
     humanReviewRequired: boolean("human_review_required")
       .notNull()
       .default(false),

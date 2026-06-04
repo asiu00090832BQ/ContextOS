@@ -273,6 +273,109 @@ paths:
                 items:
                   $ref: "#/components/schemas/Capability"
 
+  /constructed-servers:
+    post:
+      operationId: createConstructedServer
+      tags: [constructed]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConstructedServerInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdapterDetail"
+  /constructed-servers/{id}/import-openapi:
+    post:
+      operationId: importOpenApi
+      tags: [constructed]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportOpenApiInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdapterDetail"
+  /constructed-servers/{id}/tools:
+    post:
+      operationId: addWebTool
+      tags: [constructed]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebToolInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Capability"
+  /constructed-servers/{id}/auth:
+    put:
+      operationId: setConstructedServerAuth
+      tags: [constructed]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConstructedAuthInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdapterDetail"
+  /capabilities/{id}:
+    delete:
+      operationId: deleteCapability
+      tags: [capabilities]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+  /capabilities/{id}/invoke:
+    post:
+      operationId: invokeCapability
+      tags: [capabilities]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvokeCapabilityInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvokeCapabilityResult"
+
   /intents:
     get:
       operationId: listIntents
@@ -1675,6 +1778,8 @@ components:
         status: { type: string }
         linkedAccountId: { type: ["string", "null"] }
         isGenerated: { type: boolean }
+        authType: { type: ["string", "null"] }
+        allowPrivateNetwork: { type: ["boolean", "null"] }
         lastDiscoveredAt: { type: ["string", "null"], format: date-time }
         lastHealthAt: { type: ["string", "null"], format: date-time }
         capabilityCount: { type: ["integer", "null"] }
@@ -1722,6 +1827,7 @@ components:
         humanReviewRequired: { type: boolean }
         inputSchema: { $ref: "#/components/schemas/JsonObject" }
         outputSchema: { $ref: "#/components/schemas/JsonObject" }
+        executionKind: { type: ["string", "null"] }
         createdAt: { type: string, format: date-time }
 
     HealthTestResult:
@@ -1732,6 +1838,61 @@ components:
         latencyMs: { type: integer }
         message: { type: string }
         details: { $ref: "#/components/schemas/JsonObject" }
+
+    ConstructedServerInput:
+      type: object
+      required: [name, baseUrl]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string }
+        baseUrl: { type: string, minLength: 1 }
+        allowPrivateNetwork: { type: boolean }
+
+    ImportOpenApiInput:
+      type: object
+      properties:
+        specUrl: { type: string }
+        specText: { type: string }
+        baseUrl: { type: string }
+        replaceExisting: { type: boolean }
+
+    WebToolInput:
+      type: object
+      required: [name, kind]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string }
+        kind: { type: string, enum: [http, browser] }
+        actionKind: { type: string }
+        riskTier: { type: string }
+        humanReviewRequired: { type: boolean }
+        inputSchema: { $ref: "#/components/schemas/JsonObject" }
+        recipe: { $ref: "#/components/schemas/JsonObject" }
+
+    ConstructedAuthInput:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [none, bearer, api_key_header, query] }
+        name: { type: string }
+        secret: { type: string }
+
+    InvokeCapabilityInput:
+      type: object
+      properties:
+        arguments: { $ref: "#/components/schemas/JsonObject" }
+
+    InvokeCapabilityResult:
+      type: object
+      required: [ok, kind, durationMs]
+      properties:
+        ok: { type: boolean }
+        kind: { type: string }
+        status: { type: ["integer", "null"] }
+        durationMs: { type: integer }
+        body: {}
+        extracted: { $ref: "#/components/schemas/JsonObject" }
+        error: { type: ["string", "null"] }
 
     Intent:
       type: object
