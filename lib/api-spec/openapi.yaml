@@ -1902,6 +1902,10 @@ components:
         authType: { type: ["string", "null"] }
         allowPrivateNetwork: { type: ["boolean", "null"] }
         createdVia: { type: ["string", "null"] }
+        lastImportSmokeTest:
+          oneOf:
+            - $ref: "#/components/schemas/JsonObject"
+            - type: "null"
         lastDiscoveredAt: { type: ["string", "null"], format: date-time }
         lastHealthAt: { type: ["string", "null"], format: date-time }
         capabilityCount: { type: ["integer", "null"] }

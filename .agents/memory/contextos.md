@@ -174,6 +174,11 @@ synthesize minimal sample args by schema type only when forced. Never throws —
 as `smokeTest`/`smokeTestHint` in the import response. **Why:** a wrong base URL/auth silently
 breaks every imported tool. **How to apply:** keep the safe-action allowlist closed; any new
 auto-invocation must reuse this gate so untrusted-driven imports can't trigger side effects.
+The outcome is ALSO persisted on the adapter at `metadataJson.lastImportSmokeTest`
+(`{...SmokeTestOutcome, hint, ranAt}`) and surfaced via `serializeAdapter` → OpenAPI
+`Adapter.lastImportSmokeTest` (nullable JsonObject) → "Import Health" card on the adapter-detail
+web page. Only `import_openapi_tools` writes it (merge existing metadata, don't clobber
+authType/allowPrivateNetwork/createdVia); the UI route in `routes/constructedServers.ts` does not.
 
 ## Standalone esbuild test bundling quirk (api-server)
 To run a one-off check that imports api-server libs, place the .ts INSIDE `artifacts/api-server/`

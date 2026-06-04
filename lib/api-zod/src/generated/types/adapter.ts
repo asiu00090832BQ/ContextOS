@@ -5,6 +5,7 @@
  * ContextOS API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { JsonObject } from './jsonObject';
 
 export interface Adapter {
   id: string;
@@ -26,6 +27,7 @@ export interface Adapter {
   allowPrivateNetwork?: boolean | null;
   /** @nullable */
   createdVia?: string | null;
+  lastImportSmokeTest?: JsonObject | null;
   /** @nullable */
   lastDiscoveredAt?: Date | null;
   /** @nullable */

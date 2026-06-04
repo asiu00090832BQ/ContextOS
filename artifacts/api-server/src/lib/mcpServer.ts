@@ -843,6 +843,32 @@ export async function callTool(
         updatedAdapter ?? adapter,
         inserted,
       );
+      const smokeTestHint = !smokeTest.ran
+        ? "No safe read/list tool was available to auto-test; verify a tool manually with test_web_tool before relying on the import."
+        : smokeTest.ok
+          ? `Auto dry-run of "${smokeTest.tool}" succeeded — the base URL and auth look correct.`
+          : `Auto dry-run of "${smokeTest.tool}" FAILED (${smokeTest.error ?? `HTTP ${smokeTest.status}`}). Fix the base URL/auth (re-run import_openapi_tools) and re-test before relying on these tools.`;
+
+      // Persist the outcome so the ContextOS web UI can surface import health on
+      // the constructed-server detail view (read-only display; no re-execution).
+      const existingMeta =
+        ((updatedAdapter ?? adapter).metadataJson as Record<
+          string,
+          unknown
+        > | null) ?? {};
+      await db
+        .update(adaptersTable)
+        .set({
+          metadataJson: {
+            ...existingMeta,
+            lastImportSmokeTest: {
+              ...smokeTest,
+              hint: smokeTestHint,
+              ranAt: new Date().toISOString(),
+            },
+          },
+        })
+        .where(eq(adaptersTable.id, adapter.id));
 
       return {
         adapterId: adapter.id,
@@ -856,11 +882,7 @@ export async function callTool(
           description: c.description,
         })),
         smokeTest,
-        smokeTestHint: !smokeTest.ran
-          ? "No safe read/list tool was available to auto-test; verify a tool manually with test_web_tool before relying on the import."
-          : smokeTest.ok
-            ? `Auto dry-run of "${smokeTest.tool}" succeeded — the base URL and auth look correct.`
-            : `Auto dry-run of "${smokeTest.tool}" FAILED (${smokeTest.error ?? `HTTP ${smokeTest.status}`}). Fix the base URL/auth (re-run import_openapi_tools) and re-test before relying on these tools.`,
+        smokeTestHint,
       };
     }
     case "test_web_tool": {

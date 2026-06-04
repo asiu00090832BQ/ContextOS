@@ -165,6 +165,7 @@ export interface Adapter {
   allowPrivateNetwork?: boolean | null;
   /** @nullable */
   createdVia?: string | null;
+  lastImportSmokeTest?: JsonObject | null;
   /** @nullable */
   lastDiscoveredAt?: string | null;
   /** @nullable */

@@ -62,6 +62,9 @@ export function serializeAdapter(
       ((a.metadataJson as Record<string, unknown> | null)?.createdVia as
         | string
         | undefined) ?? null,
+    lastImportSmokeTest:
+      ((a.metadataJson as Record<string, unknown> | null)
+        ?.lastImportSmokeTest as Record<string, unknown> | undefined) ?? null,
     lastDiscoveredAt: a.lastDiscoveredAt ?? null,
     lastHealthAt: a.lastHealthAt ?? null,
     capabilityCount: capabilityCount ?? null,

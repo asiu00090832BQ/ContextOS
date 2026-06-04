@@ -2,9 +2,21 @@ import { useRoute } from "wouter";
 import { useGetAdapter, getGetAdapterQueryKey, useDiscoverAdapter, useTestAdapter } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Cable, Search, Activity, Zap, ServerCog } from "lucide-react";
+import { Cable, Search, Activity, Zap, ServerCog, CheckCircle2, AlertTriangle, Info } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
+
+interface ImportSmokeTest {
+  ran?: boolean;
+  reason?: string;
+  tool?: string;
+  ok?: boolean;
+  status?: number | null;
+  durationMs?: number;
+  error?: string | null;
+  hint?: string;
+  ranAt?: string;
+}
 
 export function AdapterDetail() {
   const [, params] = useRoute("/adapters/:id");
@@ -97,6 +109,96 @@ export function AdapterDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {(() => {
+        const smoke = (adapter as { lastImportSmokeTest?: ImportSmokeTest | null })
+          .lastImportSmokeTest;
+        if (!smoke) return null;
+        const failed = smoke.ran === true && smoke.ok === false;
+        const passed = smoke.ran === true && smoke.ok === true;
+        const tone = failed
+          ? "border-destructive/50 bg-destructive/10"
+          : passed
+            ? "border-green-500/40 bg-green-500/10"
+            : "border-border/50 bg-muted/20";
+        return (
+          <div className="mt-8">
+            <h2 className="text-xl font-bold font-mono border-b border-border/50 pb-2 mb-4">
+              Import Health
+            </h2>
+            <Card className={tone} data-testid="card-import-smoke-test">
+              <CardContent className="p-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 font-medium text-sm">
+                    {failed ? (
+                      <AlertTriangle className="w-4 h-4 text-destructive" />
+                    ) : passed ? (
+                      <CheckCircle2 className="w-4 h-4 text-green-500" />
+                    ) : (
+                      <Info className="w-4 h-4 text-muted-foreground" />
+                    )}
+                    Last import smoke test
+                  </div>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded font-mono uppercase ${
+                      failed
+                        ? "bg-destructive/20 text-destructive"
+                        : passed
+                          ? "bg-green-500/20 text-green-500"
+                          : "bg-muted text-muted-foreground"
+                    }`}
+                    data-testid="badge-import-smoke-status"
+                  >
+                    {failed ? "Failed" : passed ? "Passed" : "Skipped"}
+                  </span>
+                </div>
+
+                {smoke.ran ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <div className="text-muted-foreground">Tool</div>
+                      <div className="font-mono break-all">{smoke.tool ?? "—"}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">HTTP status</div>
+                      <div className="font-mono">{smoke.status ?? "—"}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Duration</div>
+                      <div className="font-mono">
+                        {typeof smoke.durationMs === "number" ? `${smoke.durationMs}ms` : "—"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Ran at</div>
+                      <div className="font-mono">
+                        {smoke.ranAt ? new Date(smoke.ranAt).toLocaleString() : "—"}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground">
+                    {smoke.reason ?? "No tool was auto-tested for this import."}
+                  </div>
+                )}
+
+                {failed && smoke.error && (
+                  <div
+                    className="text-xs font-mono bg-destructive/15 text-destructive rounded p-2 break-all"
+                    data-testid="text-import-smoke-error"
+                  >
+                    {smoke.error}
+                  </div>
+                )}
+
+                {smoke.hint && (
+                  <div className="text-xs text-muted-foreground">{smoke.hint}</div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
 
       <h2 className="text-xl font-bold font-mono mt-8 border-b border-border/50 pb-2">Capabilities</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
