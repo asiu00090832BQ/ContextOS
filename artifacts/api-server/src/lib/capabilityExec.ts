@@ -152,6 +152,53 @@ function sampleValueForParam(
 }
 
 /**
+ * The single safety gate shared by the post-import smoke test and the on-demand
+ * server re-test. Only read-shaped, non-mutating GET/HEAD L1 tools that don't
+ * require human review are ever eligible for auto dry-running, so neither path
+ * can have side effects.
+ */
+function isSafeSmokeCapability(c: Capability): boolean {
+  if (c.humanReviewRequired) return false;
+  if (!SAFE_SMOKE_ACTION_KINDS.has(c.actionKind)) return false;
+  if (c.riskTier !== "L1") return false;
+  const recipe = parseRecipe(c.executionJson);
+  if (!recipe || recipe.kind !== "http") return false;
+  return recipe.method === "GET" || recipe.method === "HEAD";
+}
+
+/** Synthesize the minimal sample args a capability's required params need. */
+function sampleArgsForCapability(
+  capability: Capability,
+): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  for (const param of requiredParamNames(capability)) {
+    args[param] = sampleValueForParam(capability, param);
+  }
+  return args;
+}
+
+/**
+ * Return every safe read/list capability that may be dry-run, each paired with
+ * synthesized sample args, ranked so tools needing the fewest required params
+ * (a no-arg list call) come first. Shares the same safety gate as the
+ * post-import smoke test — create/update/destructive tools are never returned.
+ */
+export function pickSafeSmokeCandidates(
+  capabilities: Capability[],
+): { capability: Capability; args: Record<string, unknown> }[] {
+  return capabilities
+    .filter(isSafeSmokeCapability)
+    .map((c) => ({ capability: c, required: requiredParamNames(c) }))
+    // Fewest required params first: a no-arg list call is the most
+    // representative and least likely to fail for an unrelated reason.
+    .sort((a, b) => a.required.length - b.required.length)
+    .map(({ capability }) => ({
+      capability,
+      args: sampleArgsForCapability(capability),
+    }));
+}
+
+/**
  * Choose a representative safe read/list capability to dry-run after an import
  * and synthesize the minimal sample args it needs. Prefers a tool that requires
  * no arguments (a plain list endpoint) so the smoke test exercises the base URL
@@ -161,28 +208,8 @@ function sampleValueForParam(
 export function pickSmokeTestCapability(
   capabilities: Capability[],
 ): { capability: Capability; args: Record<string, unknown> } | null {
-  const candidates = capabilities.filter((c) => {
-    if (c.humanReviewRequired) return false;
-    if (!SAFE_SMOKE_ACTION_KINDS.has(c.actionKind)) return false;
-    if (c.riskTier !== "L1") return false;
-    const recipe = parseRecipe(c.executionJson);
-    if (!recipe || recipe.kind !== "http") return false;
-    return recipe.method === "GET" || recipe.method === "HEAD";
-  });
-  if (candidates.length === 0) return null;
-
-  // Fewest required params first: a no-arg list call is the most representative
-  // and least likely to fail for an unrelated reason (e.g. a wrong sample id).
-  const ranked = candidates
-    .map((c) => ({ capability: c, required: requiredParamNames(c) }))
-    .sort((a, b) => a.required.length - b.required.length);
-  const best = ranked[0];
-
-  const args: Record<string, unknown> = {};
-  for (const param of best.required) {
-    args[param] = sampleValueForParam(best.capability, param);
-  }
-  return { capability: best.capability, args };
+  const candidates = pickSafeSmokeCandidates(capabilities);
+  return candidates.length > 0 ? candidates[0] : null;
 }
 
 /**
@@ -263,6 +290,75 @@ export async function recordCapabilityTest(
     .set({ lastTestJson: record })
     .where(eq(capabilitiesTable.id, capabilityId));
   return record;
+}
+
+// ---------------------------------------------------------------------------
+// On-demand server re-test (dry-run every safe read/list tool)
+// ---------------------------------------------------------------------------
+
+/** The per-tool outcome of a server re-test dry-run. */
+export interface RetestToolResult {
+  name: string;
+  ok: boolean;
+  status: number | null;
+  durationMs: number;
+  error: string | null;
+  /** Sample args synthesized for required parameters, if any. */
+  sampleArgs?: Record<string, unknown>;
+}
+
+/** Summary of dry-running every safe read/list tool of a constructed server. */
+export interface RetestServerOutcome {
+  /** Total capabilities on the server. */
+  total: number;
+  /** Number of safe tools that were actually dry-run. */
+  ran: number;
+  /** Number of dry-runs that succeeded. */
+  passed: number;
+  /** Number of dry-runs that failed. */
+  failed: number;
+  /** Capabilities skipped because they were not safe to auto-invoke. */
+  skipped: number;
+  results: RetestToolResult[];
+}
+
+/**
+ * Dry-run every safe read/list tool of a constructed server, reusing the exact
+ * same execution path (`executeCapabilityRow`) and safety gate as the
+ * post-import smoke test. Mutating (create/update/destructive) or human-review
+ * tools are never invoked; they are only counted as skipped. Never throws — each
+ * tool's ok/fail + error is surfaced so a user can re-verify a whole server's
+ * health after changing its base URL or credentials. Each dry-run also persists
+ * the tool's verified status via `recordCapabilityTest`, exactly like the
+ * post-import smoke test.
+ */
+export async function retestServerTools(
+  adapter: Adapter,
+  capabilities: Capability[],
+): Promise<RetestServerOutcome> {
+  const candidates = pickSafeSmokeCandidates(capabilities);
+  const results: RetestToolResult[] = [];
+  for (const { capability, args } of candidates) {
+    const result = await executeCapabilityRow(capability, adapter, args);
+    await recordCapabilityTest(capability.id, result);
+    results.push({
+      name: capability.name,
+      ok: result.ok,
+      status: result.status ?? null,
+      durationMs: result.durationMs,
+      error: result.error ?? null,
+      ...(Object.keys(args).length > 0 ? { sampleArgs: args } : {}),
+    });
+  }
+  const passed = results.filter((r) => r.ok).length;
+  return {
+    total: capabilities.length,
+    ran: results.length,
+    passed,
+    failed: results.length - passed,
+    skipped: capabilities.length - results.length,
+    results,
+  };
 }
 
 /** List all executable (recipe-bearing) capabilities for a tenant. */

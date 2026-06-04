@@ -302,6 +302,26 @@ export interface InvokeCapabilityResult {
   error?: string | null;
 }
 
+export interface RetestToolResult {
+  name: string;
+  ok: boolean;
+  /** @nullable */
+  status: number | null;
+  durationMs: number;
+  /** @nullable */
+  error: string | null;
+  sampleArgs?: JsonObject;
+}
+
+export interface RetestServerResult {
+  total: number;
+  ran: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  results: RetestToolResult[];
+}
+
 export interface Intent {
   id: string;
   title: string;

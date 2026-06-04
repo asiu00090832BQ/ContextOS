@@ -21,6 +21,7 @@ import {
   lastTestOf,
   listExecutableCapabilities,
   smokeTestImportedTools,
+  retestServerTools,
 } from "./capabilityExec";
 import {
   openApiToTools,
@@ -322,6 +323,21 @@ export const TOOLS: McpTool[] = [
         },
       },
       required: ["name"],
+    },
+  },
+  {
+    name: "retest_web_server",
+    description:
+      "Re-test a whole constructed web server by dry-running EVERY safe read/list tool on it (not just one), reusing the same safety gate as the post-import smoke test. Use this after you change a server's base URL or credentials to re-verify its health. Returns a per-tool ok/fail + error summary and never invokes create/update/destructive tools (those are skipped, not called).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        adapterId: {
+          type: "string",
+          description: "The constructed server's id to re-test.",
+        },
+      },
+      required: ["adapterId"],
     },
   },
   {
@@ -968,6 +984,36 @@ export async function callTool(
         hint: result.ok
           ? "The tool works; you can rely on it in your answer now."
           : "The tool failed. Fix the path/query/headers/auth (re-run add_web_mcp_tool or import_openapi_tools) and test_web_tool again before relying on it.",
+      };
+    }
+    case "retest_web_server": {
+      const adapterId = asString(args.adapterId);
+      if (!adapterId) throw new McpToolError("`adapterId` is required.");
+      const adapter = await loadConstructedAdapter(tenantId, adapterId);
+      if (!adapter) {
+        throw new McpToolError(
+          "Constructed server not found for that adapterId.",
+        );
+      }
+      const caps = await db
+        .select()
+        .from(capabilitiesTable)
+        .where(
+          and(
+            eq(capabilitiesTable.tenantId, tenantId),
+            eq(capabilitiesTable.adapterId, adapter.id),
+          ),
+        );
+      const outcome = await retestServerTools(adapter, caps);
+      return {
+        adapterId: adapter.id,
+        ...outcome,
+        hint:
+          outcome.ran === 0
+            ? "No safe read/list tool was available to dry-run; mutating tools are never auto-invoked."
+            : outcome.failed === 0
+              ? `All ${outcome.ran} safe tools responded correctly — the base URL and auth look right.`
+              : `${outcome.failed} of ${outcome.ran} tools FAILED. Fix the base URL/auth and re-test before relying on this server.`,
       };
     }
     case "remember": {

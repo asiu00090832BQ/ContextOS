@@ -91,6 +91,8 @@ export * from './principalInputType';
 export * from './principalUpdate';
 export * from './principalUpdateType';
 export * from './regenerateInput';
+export * from './retestServerResult';
+export * from './retestToolResult';
 export * from './run';
 export * from './runCommandInput';
 export * from './runCommandResult';

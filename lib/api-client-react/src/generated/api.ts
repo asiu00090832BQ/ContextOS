@@ -93,6 +93,7 @@ import type {
   PrincipalInput,
   PrincipalUpdate,
   RegenerateInput,
+  RetestServerResult,
   Run,
   RunCommandInput,
   RunCommandResult,
@@ -1630,6 +1631,70 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getSetConstructedServerAuthMutationOptions(options));
+    }
+
+export const getRetestConstructedServerUrl = (id: string,) => {
+
+
+
+
+  return `/api/constructed-servers/${id}/retest`
+}
+
+export const retestConstructedServer = async (id: string, options?: RequestInit): Promise<RetestServerResult> => {
+
+  return customFetch<RetestServerResult>(getRetestConstructedServerUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetestConstructedServerMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestConstructedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retestConstructedServer>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['retestConstructedServer'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retestConstructedServer>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  retestConstructedServer(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetestConstructedServerMutationResult = NonNullable<Awaited<ReturnType<typeof retestConstructedServer>>>
+
+    export type RetestConstructedServerMutationError = ErrorType<unknown>
+
+    export const useRetestConstructedServer = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retestConstructedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retestConstructedServer>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getRetestConstructedServerMutationOptions(options));
     }
 
 export const getDeleteCapabilityUrl = (id: string,) => {

@@ -15,6 +15,7 @@ import {
   InvokeCapabilityBody,
   InvokeCapabilityResponse,
   GetAdapterResponse,
+  RetestConstructedServerResponse,
 } from "@workspace/api-zod";
 import { serializeAdapterDetail, serializeCapability } from "../lib/serialize";
 import {
@@ -23,7 +24,7 @@ import {
   safeFetch,
   type AuthType,
 } from "../lib/webTools";
-import { executeCapabilityRow } from "../lib/capabilityExec";
+import { executeCapabilityRow, retestServerTools } from "../lib/capabilityExec";
 import { putSecret, deleteSecret } from "../lib/secretStore";
 
 const router: IRouter = Router();
@@ -386,5 +387,30 @@ router.post("/capabilities/:id/invoke", async (req, res): Promise<void> => {
     }),
   );
 });
+
+// Re-test a whole constructed server: dry-run every safe read/list tool so the
+// user can re-verify the server's health after changing its base URL or auth.
+// Reuses the post-import smoke-test safety gate — never invokes mutating tools.
+router.post(
+  "/constructed-servers/:id/retest",
+  async (req, res): Promise<void> => {
+    const params = ImportOpenApiParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    const adapter = await loadConstructedAdapter(req.tenantId, params.data.id);
+    if (!adapter || adapter.transport !== "constructed") {
+      res.status(404).json({ error: "Constructed server not found" });
+      return;
+    }
+    const caps = await db
+      .select()
+      .from(capabilitiesTable)
+      .where(eq(capabilitiesTable.adapterId, adapter.id));
+    const outcome = await retestServerTools(adapter, caps);
+    res.json(RetestConstructedServerResponse.parse(outcome));
+  },
+);
 
 export default router;

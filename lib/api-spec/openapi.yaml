@@ -355,6 +355,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdapterDetail"
+  /constructed-servers/{id}/retest:
+    post:
+      operationId: retestConstructedServer
+      tags: [constructed]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetestServerResult"
   /capabilities/{id}:
     delete:
       operationId: deleteCapability
@@ -2032,6 +2045,30 @@ components:
         body: {}
         extracted: { $ref: "#/components/schemas/JsonObject" }
         error: { type: ["string", "null"] }
+
+    RetestToolResult:
+      type: object
+      required: [name, ok, status, durationMs, error]
+      properties:
+        name: { type: string }
+        ok: { type: boolean }
+        status: { type: ["integer", "null"] }
+        durationMs: { type: integer }
+        error: { type: ["string", "null"] }
+        sampleArgs: { $ref: "#/components/schemas/JsonObject" }
+
+    RetestServerResult:
+      type: object
+      required: [total, ran, passed, failed, skipped, results]
+      properties:
+        total: { type: integer }
+        ran: { type: integer }
+        passed: { type: integer }
+        failed: { type: integer }
+        skipped: { type: integer }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/RetestToolResult" }
 
     Intent:
       type: object

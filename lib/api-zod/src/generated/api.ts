@@ -555,6 +555,27 @@ export const SetConstructedServerAuthResponse = zod.object({
 }))
 
 
+export const RetestConstructedServerParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const RetestConstructedServerResponse = zod.object({
+  "total": zod.number(),
+  "ran": zod.number(),
+  "passed": zod.number(),
+  "failed": zod.number(),
+  "skipped": zod.number(),
+  "results": zod.array(zod.object({
+  "name": zod.string(),
+  "ok": zod.boolean(),
+  "status": zod.number().nullable(),
+  "durationMs": zod.number(),
+  "error": zod.string().nullable(),
+  "sampleArgs": zod.record(zod.string(), zod.unknown()).optional()
+}))
+})
+
+
 export const DeleteCapabilityParams = zod.object({
   "id": zod.coerce.string()
 })

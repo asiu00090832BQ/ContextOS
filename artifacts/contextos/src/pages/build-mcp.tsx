@@ -11,11 +11,13 @@ import {
   useDeleteCapability,
   useInvokeCapability,
   useDeleteAdapter,
+  useRetestConstructedServer,
 } from "@workspace/api-client-react";
 import type {
   AdapterDetail,
   Capability,
   InvokeCapabilityResult,
+  RetestServerResult,
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,6 +39,9 @@ import {
   Play,
   FileJson,
   Bot,
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 
 const botBadge = (
@@ -243,9 +248,35 @@ function ServerPanel({
     query: { queryKey: getGetAdapterQueryKey(id) },
   });
   const deleteAdapterMutation = useDeleteAdapter();
+  const retestMutation = useRetestConstructedServer();
+  const [retest, setRetest] = useState<RetestServerResult | null>(null);
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getGetAdapterQueryKey(id) });
     queryClient.invalidateQueries({ queryKey: getListAdaptersQueryKey() });
+  };
+
+  const handleRetest = async () => {
+    try {
+      const res = await retestMutation.mutateAsync({ id });
+      const summary = res as RetestServerResult;
+      setRetest(summary);
+      toast({
+        title: `Re-test complete: ${summary.passed}/${summary.ran} passed`,
+        description:
+          summary.failed > 0
+            ? `${summary.failed} tool${summary.failed === 1 ? "" : "s"} failed.`
+            : summary.ran === 0
+              ? "No safe read/list tools to dry-run."
+              : "All safe tools responded correctly.",
+        variant: summary.failed > 0 ? "destructive" : undefined,
+      });
+    } catch (error) {
+      toast({
+        title: "Re-test failed",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
+    }
   };
 
   if (isLoading) return <Skeleton className="w-full h-64" />;
@@ -288,6 +319,17 @@ function ServerPanel({
                 auth: {adapter.authType ?? "none"}
               </span>
               <button
+                onClick={handleRetest}
+                disabled={retestMutation.isPending}
+                title="Dry-run every safe read/list tool to re-verify this server"
+                className="flex items-center gap-1 px-2 py-1 text-xs rounded-md border text-muted-foreground hover:text-primary hover:border-primary/50 disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${retestMutation.isPending ? "animate-spin" : ""}`}
+                />
+                {retestMutation.isPending ? "Re-testing..." : "Re-test"}
+              </button>
+              <button
                 onClick={handleDeleteServer}
                 disabled={deleteAdapterMutation.isPending}
                 title="Delete server"
@@ -311,6 +353,8 @@ function ServerPanel({
           ) : null}
         </CardContent>
       </Card>
+
+      {retest && <RetestResults summary={retest} />}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <ImportOpenApiCard id={id} onDone={invalidate} />
@@ -803,6 +847,78 @@ function ToolRow({
                 </pre>
               </div>
             )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RetestResults({ summary }: { summary: RetestServerResult }) {
+  const allOk = summary.failed === 0;
+  return (
+    <Card
+      className={
+        summary.ran === 0
+          ? ""
+          : allOk
+            ? "border-green-500/40"
+            : "border-destructive/40"
+      }
+    >
+      <CardHeader className="pb-2 border-b border-border/50">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <RefreshCw className="w-4 h-4 text-primary" /> Re-test results
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+          <span className="text-green-500">{summary.passed} passed</span>
+          <span className="text-muted-foreground">•</span>
+          <span className={summary.failed > 0 ? "text-destructive" : "text-muted-foreground"}>
+            {summary.failed} failed
+          </span>
+          <span className="text-muted-foreground">•</span>
+          <span className="text-muted-foreground">
+            {summary.skipped} skipped (mutating / unsafe)
+          </span>
+          <span className="text-muted-foreground">
+            of {summary.total} total
+          </span>
+        </div>
+        {summary.ran === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No safe read/list tools were available to dry-run. Mutating
+            (create/update/destructive) tools are never auto-invoked.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {summary.results.map((r) => (
+              <div
+                key={r.name}
+                className="flex items-start gap-2 text-xs border-b border-border/30 pb-1.5 last:border-0"
+              >
+                {r.ok ? (
+                  <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                ) : (
+                  <XCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono font-medium">{r.name}</span>
+                    <span className="text-muted-foreground font-mono">
+                      {r.status != null ? `HTTP ${r.status}` : "no response"} •{" "}
+                      {r.durationMs}ms
+                    </span>
+                  </div>
+                  {!r.ok && r.error && (
+                    <p className="text-destructive font-mono mt-0.5 break-words">
+                      {r.error}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </CardContent>

@@ -180,6 +180,12 @@ The outcome is ALSO persisted on the adapter at `metadataJson.lastImportSmokeTes
 web page. Only `import_openapi_tools` writes it (merge existing metadata, don't clobber
 authType/allowPrivateNetwork/createdVia); the UI route in `routes/constructedServers.ts` does not.
 
+The gate is now the single `isSafeSmokeCapability` predicate shared by `pickSmokeTestCapability`
+(one tool) and `pickSafeSmokeCandidates`/`retestServerTools` (ALL safe tools). The whole-server
+on-demand re-test is exposed on BOTH surfaces: REST `POST /constructed-servers/:id/retest` (UI
+"Re-test" button in build-mcp) and the `retest_web_server` MCP agent tool — any new auto-invoke
+path must go through `pickSafeSmokeCandidates`, never re-filter inline.
+
 ## Standalone esbuild test bundling quirk (api-server)
 To run a one-off check that imports api-server libs, place the .ts INSIDE `artifacts/api-server/`
 (relative imports resolve from there) and bundle with esbuild `--platform=node --format=cjs`
