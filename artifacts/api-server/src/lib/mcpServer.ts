@@ -15,6 +15,7 @@ import {
   executeNamedCapability,
   executeCapabilityRow,
   listExecutableCapabilities,
+  smokeTestImportedTools,
 } from "./capabilityExec";
 import {
   openApiToTools,
@@ -814,14 +815,25 @@ export async function callTool(
           })),
         )
         .returning();
-      await db
+      const [updatedAdapter] = await db
         .update(adaptersTable)
         .set({
           endpointUrl: baseUrl,
           protocolVersion: "constructed/1.0",
           lastDiscoveredAt: new Date(),
         })
-        .where(eq(adaptersTable.id, adapter.id));
+        .where(eq(adaptersTable.id, adapter.id))
+        .returning();
+
+      // Auto dry-run a representative safe read/list tool so a broken import
+      // (wrong base URL or auth) is caught now instead of on the first real
+      // request. Reuses the same execution path as test_web_tool, never invokes
+      // create/update/destructive tools, and never aborts the import on failure.
+      const smokeTest = await smokeTestImportedTools(
+        updatedAdapter ?? adapter,
+        inserted,
+      );
+
       return {
         adapterId: adapter.id,
         baseUrl,
@@ -833,6 +845,12 @@ export async function callTool(
           riskTier: c.riskTier,
           description: c.description,
         })),
+        smokeTest,
+        smokeTestHint: !smokeTest.ran
+          ? "No safe read/list tool was available to auto-test; verify a tool manually with test_web_tool before relying on the import."
+          : smokeTest.ok
+            ? `Auto dry-run of "${smokeTest.tool}" succeeded — the base URL and auth look correct.`
+            : `Auto dry-run of "${smokeTest.tool}" FAILED (${smokeTest.error ?? `HTTP ${smokeTest.status}`}). Fix the base URL/auth (re-run import_openapi_tools) and re-test before relying on these tools.`,
       };
     }
     case "test_web_tool": {

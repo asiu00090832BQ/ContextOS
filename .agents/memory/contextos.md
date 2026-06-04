@@ -163,6 +163,25 @@ SSRF/secret handling inside the shared webTools/secretStore helpers, never inlin
 bot's OpenRouter endpoint needs NO integration build — `providerFamily()` in `toolChat.ts` already
 maps openrouter/openai_compatible/azure_openai → openai-family native function calling.
 
+## Post-import auto smoke test (constructed web tools)
+After `import_openapi_tools` inserts capabilities, it auto dry-runs ONE representative safe
+read/list tool via the shared `executeCapabilityRow` path (same as `test_web_tool`) so a broken
+base URL/auth is caught at import time, not on first real use. Selection lives in
+`capabilityExec.ts` (`pickSmokeTestCapability`/`smokeTestImportedTools`): only `actionKind`
+read|list + riskTier L1 + GET/HEAD + !humanReviewRequired are eligible (create/update/destructive
+are NEVER auto-invoked), prefer the candidate with fewest required params (a no-arg list call),
+synthesize minimal sample args by schema type only when forced. Never throws — result is surfaced
+as `smokeTest`/`smokeTestHint` in the import response. **Why:** a wrong base URL/auth silently
+breaks every imported tool. **How to apply:** keep the safe-action allowlist closed; any new
+auto-invocation must reuse this gate so untrusted-driven imports can't trigger side effects.
+
+## Standalone esbuild test bundling quirk (api-server)
+To run a one-off check that imports api-server libs, place the .ts INSIDE `artifacts/api-server/`
+(relative imports resolve from there) and bundle with esbuild `--platform=node --format=cjs`
+(NOT esm — pg's dynamic `require("events")` breaks under esm) and `--external:playwright
+--external:playwright-core` (browserTools' dynamic import pulls in chromium-bidi which won't
+bundle). `tsx` is not installed; `pnpm exec tsc --noEmit` works for typecheck.
+
 ## Tooling quirk — rg/bash output mangles identifiers
 In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dialog`→`ln`,
 `split(`→`splln`, `limit(`→`limln`). The `read` tool returns correct content. **How to apply:**
