@@ -10,7 +10,12 @@ import {
   getWebhookSecret,
   type TelegramUpdate,
 } from "../lib/telegram";
-import { handleTelegramMessage, resolveOwnerTarget } from "../lib/telegramEngine";
+import {
+  handleTelegramMessage,
+  resolveOwnerTarget,
+  getTelegramModelEndpointId,
+  setTelegramModelEndpointId,
+} from "../lib/telegramEngine";
 import { logger } from "../lib/logger";
 
 /**
@@ -104,16 +109,10 @@ telegramAdminRouter.post(
   async (req, res): Promise<void> => {
     const token = getBotToken();
     const secret = getWebhookSecret();
-    if (!token) {
+    if (!token || !secret) {
       res
         .status(400)
         .json({ error: "TELEGRAM_BOT_TOKEN is not configured." });
-      return;
-    }
-    if (!secret) {
-      res
-        .status(400)
-        .json({ error: "TELEGRAM_WEBHOOK_SECRET is not configured." });
       return;
     }
     const url =
@@ -152,3 +151,31 @@ telegramAdminRouter.post(
     res.json({ ok: true });
   },
 );
+
+/** Which model endpoint the Telegram bot uses (null = managed Anthropic). */
+telegramAdminRouter.get("/telegram/model", async (req, res): Promise<void> => {
+  const modelEndpointId = await getTelegramModelEndpointId(req.tenantId);
+  res.json({ modelEndpointId });
+});
+
+telegramAdminRouter.put("/telegram/model", async (req, res): Promise<void> => {
+  const raw = (req.body ?? {}) as { modelEndpointId?: unknown };
+  const value = raw.modelEndpointId;
+  if (value !== null && value !== undefined && typeof value !== "string") {
+    res
+      .status(400)
+      .json({ error: "`modelEndpointId` must be a string or null." });
+    return;
+  }
+  try {
+    const modelEndpointId = await setTelegramModelEndpointId(
+      req.tenantId,
+      value && typeof value === "string" ? value : null,
+    );
+    res.json({ modelEndpointId });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "Failed to save selection.",
+    });
+  }
+});

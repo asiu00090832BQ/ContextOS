@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { resolveSecret, isSecretRef } from "./secretStore";
 import { logger } from "./logger";
 
@@ -17,8 +18,19 @@ export function getBotToken(): string | null {
   return raw;
 }
 
+/**
+ * The webhook secret is the shared token Telegram echoes back in the
+ * X-Telegram-Bot-Api-Secret-Token header so we can verify a webhook delivery is
+ * genuine. Rather than storing a separate plaintext secret, we derive it
+ * deterministically from the bot token via HMAC: it is stable across restarts,
+ * never persisted anywhere, and only computable by a party that already holds
+ * the (secret) bot token. The HMAC hex digest is 64 chars and uses only
+ * [0-9a-f], which is within Telegram's allowed 1–256 char `secret_token` set.
+ */
 export function getWebhookSecret(): string | null {
-  return process.env.TELEGRAM_WEBHOOK_SECRET ?? null;
+  const token = getBotToken();
+  if (!token) return null;
+  return createHmac("sha256", token).update("contextos-telegram-webhook").digest("hex");
 }
 
 export interface TelegramUser {

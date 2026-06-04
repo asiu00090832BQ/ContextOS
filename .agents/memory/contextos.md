@@ -132,6 +132,16 @@ surface needs its own prose fallback; don't reuse the run stub. SSE events endpo
 when `Accept: text/event-stream` is set (browser EventSource does this automatically); plain curl
 hits the JSON snapshot fallback — pass `-H "Accept: text/event-stream"` to test the live stream.
 
+## Telegram webhook secret is derived, never stored
+`getWebhookSecret()` in `lib/telegram.ts` returns `HMAC-SHA256(botToken, "contextos-telegram-webhook")`
+hex — it is NOT a separate stored env var. **Why:** a generated plaintext `TELEGRAM_WEBHOOK_SECRET`
+shared env var lands in `.replit` in clear text (committed to VCS); deriving from the (secret) bot
+token gives a stable, unstored, attacker-uncomputable value. **How to apply:** do not reintroduce a
+`TELEGRAM_WEBHOOK_SECRET` env var/secret; `secretConfigured` therefore tracks the bot token. Agents
+cannot set true secrets programmatically (only `requestEnvVar` from user) — derive-from-existing-secret
+is the pattern for generated stable secrets. Also: provider tool-name de-dup must truncate+counter
+(`base.slice(0, 64-suffixLen)+suffix`); a plain `+"_"` loops forever once the name hits the 64-char cap.
+
 ## Tooling quirk — rg/bash output mangles identifiers
 In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dialog`→`ln`,
 `split(`→`splln`, `limit(`→`limln`). The `read` tool returns correct content. **How to apply:**
