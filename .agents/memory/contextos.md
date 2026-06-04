@@ -142,6 +142,18 @@ cannot set true secrets programmatically (only `requestEnvVar` from user) — de
 is the pattern for generated stable secrets. Also: provider tool-name de-dup must truncate+counter
 (`base.slice(0, 64-suffixLen)+suffix`); a plain `+"_"` loops forever once the name hits the 64-char cap.
 
+## On-the-fly web-MCP construction is exposed as built-in agent tools
+The agent (over Telegram or any MCP client) builds brand-new web-service MCPs through built-in
+tools in `lib/mcpServer.ts` (`create_web_mcp_server`, `add_web_mcp_tool`, `import_openapi_tools`)
+that mirror the `routes/constructedServers.ts` insert shapes and reuse `webTools.ts`
+(openApiToTools/parseRecipe/safeFetch) + `secretStore.putSecret`. New tools appear immediately
+because `listToolsForTenant` runs every message. **Why:** these run as untrusted-driven mutations.
+**How to apply:** any tool that mutates a constructed server must load via a helper scoped to BOTH
+`tenantId` AND `transport='constructed'` so it can never alter a registered real MCP adapter; keep
+SSRF/secret handling inside the shared webTools/secretStore helpers, never inline. Selecting the
+bot's OpenRouter endpoint needs NO integration build — `providerFamily()` in `toolChat.ts` already
+maps openrouter/openai_compatible/azure_openai → openai-family native function calling.
+
 ## Tooling quirk — rg/bash output mangles identifiers
 In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dialog`→`ln`,
 `split(`→`splln`, `limit(`→`limln`). The `read` tool returns correct content. **How to apply:**
