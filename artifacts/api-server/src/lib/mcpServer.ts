@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, asc, desc } from "drizzle-orm";
 import {
   db,
   agentsTable,
@@ -12,6 +12,7 @@ import { executeRun } from "./runEngine";
 import { discoverAdapter } from "./mcp";
 import {
   executeNamedCapability,
+  executeCapabilityRow,
   listExecutableCapabilities,
 } from "./capabilityExec";
 import {
@@ -19,6 +20,7 @@ import {
   parseRecipe,
   safeFetch,
   type AuthType,
+  type ExecutionResult,
   type HttpRecipe,
 } from "./webTools";
 import { putSecret } from "./secretStore";
@@ -283,6 +285,31 @@ export const TOOLS: McpTool[] = [
         },
       },
       required: [],
+    },
+  },
+  {
+    name: "test_web_tool",
+    description:
+      "Dry-run a just-created web tool (a constructed capability from add_web_mcp_tool / import_openapi_tools) with sample arguments to confirm it works BEFORE relying on it in an answer. Unlike calling the tool directly, this never aborts the conversation on failure — it returns the live HTTP status, body, and error so you can fix a wrong path template, query, header, or auth and try again. Use it right after building a tool.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "The constructed tool's name to test.",
+        },
+        args: {
+          type: "object",
+          description:
+            "Sample arguments to invoke the tool with (matching its inputSchema). Defaults to an empty object.",
+        },
+        adapterId: {
+          type: "string",
+          description:
+            "Optional constructed server id to disambiguate when several tools share the same name. Omit to test the first matching tool.",
+        },
+      },
+      required: ["name"],
     },
   },
 ];
@@ -768,6 +795,62 @@ export async function callTool(
           riskTier: c.riskTier,
           description: c.description,
         })),
+      };
+    }
+    case "test_web_tool": {
+      const toolName = asString(args.name);
+      if (!toolName) throw new McpToolError("`name` is required.");
+      const sampleArgs =
+        args.args && typeof args.args === "object" && !Array.isArray(args.args)
+          ? (args.args as Record<string, unknown>)
+          : {};
+      const adapterId = asString(args.adapterId);
+      let result: ExecutionResult | null;
+      if (adapterId) {
+        const adapter = await loadConstructedAdapter(tenantId, adapterId);
+        if (!adapter) {
+          throw new McpToolError(
+            "Constructed server not found for that adapterId.",
+          );
+        }
+        const [cap] = await db
+          .select()
+          .from(capabilitiesTable)
+          .where(
+            and(
+              eq(capabilitiesTable.tenantId, tenantId),
+              eq(capabilitiesTable.adapterId, adapter.id),
+              eq(capabilitiesTable.name, toolName),
+            ),
+          )
+          .orderBy(asc(capabilitiesTable.createdAt), asc(capabilitiesTable.id));
+        if (!cap) {
+          throw new McpToolError(
+            `No tool named "${toolName}" on that constructed server.`,
+          );
+        }
+        result = await executeCapabilityRow(cap, adapter, sampleArgs);
+      } else {
+        result = await executeNamedCapability(tenantId, toolName, sampleArgs);
+      }
+      if (result === null) {
+        throw new McpToolError(
+          `No executable web tool named "${toolName}" found. Build it first with add_web_mcp_tool or import_openapi_tools.`,
+        );
+      }
+      // Intentionally do NOT throw on failure: the whole point is to surface a
+      // bad result so the agent can self-correct in the same conversation.
+      return {
+        tested: toolName,
+        ok: result.ok,
+        status: result.status ?? null,
+        durationMs: result.durationMs,
+        extracted: result.extracted ?? null,
+        body: result.body ?? null,
+        error: result.error ?? null,
+        hint: result.ok
+          ? "The tool works; you can rely on it in your answer now."
+          : "The tool failed. Fix the path/query/headers/auth (re-run add_web_mcp_tool or import_openapi_tools) and test_web_tool again before relying on it.",
       };
     }
     default: {

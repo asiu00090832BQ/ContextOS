@@ -26,7 +26,10 @@ const SYSTEM_PROMPT =
   "operate the user's ContextOS workspace and call any of the provided tools to " +
   "answer questions or take actions on their behalf. Prefer using tools to get " +
   "real data instead of guessing. Keep replies concise and friendly — they are " +
-  "shown in a Telegram chat, so avoid markdown tables and very long output.";
+  "shown in a Telegram chat, so avoid markdown tables and very long output. " +
+  "When you build a new web tool with add_web_mcp_tool or import_openapi_tools, " +
+  "first dry-run it with test_web_tool using sample arguments and only rely on " +
+  "it once it succeeds — if it fails, fix the path/query/headers/auth and test again.";
 
 /** Settings key (on tenants.settingsJson) holding the selected model endpoint. */
 export const TELEGRAM_MODEL_SETTING = "telegramModelEndpointId";
