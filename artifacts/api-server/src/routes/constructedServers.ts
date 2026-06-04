@@ -24,7 +24,11 @@ import {
   safeFetch,
   type AuthType,
 } from "../lib/webTools";
-import { executeCapabilityRow, retestServerTools } from "../lib/capabilityExec";
+import {
+  executeCapabilityRow,
+  retestServerTools,
+  smokeTestImportedTools,
+} from "../lib/capabilityExec";
 import { putSecret, deleteSecret } from "../lib/secretStore";
 
 const router: IRouter = Router();
@@ -176,22 +180,25 @@ router.post(
         .where(eq(capabilitiesTable.adapterId, adapter.id));
     }
 
-    await db.insert(capabilitiesTable).values(
-      parsedSpec.tools.map((t) => ({
-        tenantId: req.tenantId,
-        adapterId: adapter.id,
-        type: "tool" as CapabilityType,
-        name: t.name,
-        description: t.description,
-        riskTier: t.riskTier as RiskTier,
-        actionKind: t.actionKind as ActionKind,
-        humanReviewRequired: t.humanReviewRequired,
-        inputSchemaJson: t.inputSchema,
-        executionJson: t.recipe as unknown as Record<string, unknown>,
-      })),
-    );
+    const inserted = await db
+      .insert(capabilitiesTable)
+      .values(
+        parsedSpec.tools.map((t) => ({
+          tenantId: req.tenantId,
+          adapterId: adapter.id,
+          type: "tool" as CapabilityType,
+          name: t.name,
+          description: t.description,
+          riskTier: t.riskTier as RiskTier,
+          actionKind: t.actionKind as ActionKind,
+          humanReviewRequired: t.humanReviewRequired,
+          inputSchemaJson: t.inputSchema,
+          executionJson: t.recipe as unknown as Record<string, unknown>,
+        })),
+      )
+      .returning();
 
-    await db
+    const [updatedAdapter] = await db
       .update(adaptersTable)
       .set({
         endpointUrl: baseUrl,
@@ -205,6 +212,43 @@ router.post(
               },
             }
           : {}),
+      })
+      .where(eq(adaptersTable.id, adapter.id))
+      .returning();
+
+    // Auto dry-run a representative safe read/list tool so a broken import
+    // (wrong base URL or auth) is caught now instead of on the first real
+    // request — the same check the bot's import_openapi_tools tool performs.
+    // Reuses the test_web_tool execution path, never invokes
+    // create/update/destructive tools, and never aborts the import on failure.
+    const smokeTest = await smokeTestImportedTools(
+      updatedAdapter ?? adapter,
+      inserted,
+    );
+    const smokeTestHint = !smokeTest.ran
+      ? "No safe read/list tool was available to auto-test; verify a tool manually before relying on the import."
+      : smokeTest.ok
+        ? `Auto dry-run of "${smokeTest.tool}" succeeded — the base URL and auth look correct.`
+        : `Auto dry-run of "${smokeTest.tool}" FAILED (${smokeTest.error ?? `HTTP ${smokeTest.status}`}). Fix the base URL/auth (re-import) and re-test before relying on these tools.`;
+
+    // Persist the outcome so the constructed-server detail view can surface
+    // import health (read-only display; no re-execution).
+    const existingMeta =
+      ((updatedAdapter ?? adapter).metadataJson as Record<
+        string,
+        unknown
+      > | null) ?? {};
+    await db
+      .update(adaptersTable)
+      .set({
+        metadataJson: {
+          ...existingMeta,
+          lastImportSmokeTest: {
+            ...smokeTest,
+            hint: smokeTestHint,
+            ranAt: new Date().toISOString(),
+          },
+        },
       })
       .where(eq(adaptersTable.id, adapter.id));
 

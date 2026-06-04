@@ -177,8 +177,10 @@ auto-invocation must reuse this gate so untrusted-driven imports can't trigger s
 The outcome is ALSO persisted on the adapter at `metadataJson.lastImportSmokeTest`
 (`{...SmokeTestOutcome, hint, ranAt}`) and surfaced via `serializeAdapter` → OpenAPI
 `Adapter.lastImportSmokeTest` (nullable JsonObject) → "Import Health" card on the adapter-detail
-web page. Only `import_openapi_tools` writes it (merge existing metadata, don't clobber
-authType/allowPrivateNetwork/createdVia); the UI route in `routes/constructedServers.ts` does not.
+web page. BOTH import paths write it now (merge existing metadata, don't clobber
+authType/allowPrivateNetwork/createdVia/sourceTitle): the bot's `import_openapi_tools` and the
+UI route `POST /constructed-servers/:id/import-openapi` in `routes/constructedServers.ts`
+(the UI route captures `.returning()` rows from the insert/update to feed smokeTestImportedTools).
 
 The gate is now the single `isSafeSmokeCapability` predicate shared by `pickSmokeTestCapability`
 (one tool) and `pickSafeSmokeCandidates`/`retestServerTools` (ALL safe tools). The whole-server
