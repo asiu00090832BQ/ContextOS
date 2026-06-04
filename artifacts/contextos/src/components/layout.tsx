@@ -1,6 +1,12 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
+import {
+  useGetMe,
+  getGetMeQueryKey,
+  useGetDashboard,
+  getGetDashboardQueryKey,
+} from "@workspace/api-client-react";
+import { toast } from "@/hooks/use-toast";
 import {
   LayoutDashboard,
   Cable,
@@ -95,6 +101,30 @@ function isItemActive(location: string, href: string): boolean {
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { data: me } = useGetMe({ query: { queryKey: getGetMeQueryKey() } });
+  const { data: dashboard } = useGetDashboard({
+    query: {
+      queryKey: getGetDashboardQueryKey(),
+      refetchInterval: 20000,
+      refetchIntervalInBackground: true,
+    },
+  });
+  const newBotServerCount = dashboard?.newBotServerCount ?? 0;
+
+  const prevCountRef = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    const prev = prevCountRef.current;
+    if (prev !== null && newBotServerCount > prev) {
+      const added = newBotServerCount - prev;
+      toast({
+        title:
+          added === 1
+            ? "The assistant built a new web service"
+            : `The assistant built ${added} new web services`,
+        description: "Open Build MCP to review them.",
+      });
+    }
+    prevCountRef.current = newBotServerCount;
+  }, [newBotServerCount]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -118,6 +148,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               )}
               {group.items.map((item) => {
                 const isActive = isItemActive(location, item.href);
+                const badgeCount =
+                  item.href === "/build-mcp" ? newBotServerCount : 0;
                 return (
                   <Link
                     key={item.href}
@@ -129,7 +161,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     }`}
                   >
                     <item.icon className="w-4 h-4" />
-                    {item.label}
+                    <span className="flex-1">{item.label}</span>
+                    {badgeCount > 0 && (
+                      <span
+                        className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-violet-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
+                        title={`${badgeCount} new bot-built ${
+                          badgeCount === 1 ? "web service" : "web services"
+                        } to review`}
+                        aria-label={`${badgeCount} new bot-built web services to review`}
+                      >
+                        {badgeCount > 99 ? "99+" : badgeCount}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
