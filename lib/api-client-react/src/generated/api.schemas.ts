@@ -35,6 +35,13 @@ export interface MeContext {
   tenants: Tenant[];
 }
 
+export interface BotServerSummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  isNew: boolean;
+}
+
 export interface Artifact {
   id: string;
   /** @nullable */
@@ -100,6 +107,9 @@ export interface DashboardSummary {
   generatedServerCount: number;
   traceCount: number;
   intentCount?: number;
+  botServerCount?: number;
+  newBotServerCount?: number;
+  recentBotServers?: BotServerSummary[];
   recentArtifacts?: Artifact[];
   recentAudit?: AuditRecord[];
   recentRuns?: Run[];

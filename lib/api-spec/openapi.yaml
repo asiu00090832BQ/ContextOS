@@ -70,6 +70,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DashboardSummary"
+  /dashboard/review-bot-servers:
+    post:
+      operationId: reviewBotServers
+      tags: [dashboard]
+      summary: Mark bot-built servers as reviewed
+      responses:
+        "204":
+          description: Reviewed
 
   /linked-accounts:
     get:
@@ -1826,6 +1834,11 @@ components:
         generatedServerCount: { type: integer }
         traceCount: { type: integer }
         intentCount: { type: integer }
+        botServerCount: { type: integer }
+        newBotServerCount: { type: integer }
+        recentBotServers:
+          type: array
+          items: { $ref: "#/components/schemas/BotServerSummary" }
         recentArtifacts:
           type: array
           items: { $ref: "#/components/schemas/Artifact" }
@@ -1835,6 +1848,15 @@ components:
         recentRuns:
           type: array
           items: { $ref: "#/components/schemas/Run" }
+
+    BotServerSummary:
+      type: object
+      required: [id, name, createdAt, isNew]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        createdAt: { type: string, format: date-time }
+        isNew: { type: boolean }
 
     LinkedAccount:
       type: object

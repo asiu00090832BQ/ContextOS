@@ -13,6 +13,7 @@ import {
   intentsTable,
   artifactsTable,
   auditRecordsTable,
+  tenantsTable,
 } from "@workspace/db";
 import { GetMeResponse, GetDashboardResponse } from "@workspace/api-zod";
 import { getContext } from "../lib/context";
@@ -120,6 +121,41 @@ router.get("/dashboard", async (req, res): Promise<void> => {
     .orderBy(desc(auditRecordsTable.createdAt))
     .limit(8);
 
+  const [tenant] = await db
+    .select({ settingsJson: tenantsTable.settingsJson })
+    .from(tenantsTable)
+    .where(eq(tenantsTable.id, tenantId));
+  const reviewedAtRaw = (tenant?.settingsJson as Record<string, unknown> | null)
+    ?.botServersReviewedAt;
+  const reviewedAt =
+    typeof reviewedAtRaw === "string" ? new Date(reviewedAtRaw) : null;
+
+  const constructedAdapters = await db
+    .select()
+    .from(adaptersTable)
+    .where(
+      and(
+        eq(adaptersTable.tenantId, tenantId),
+        eq(adaptersTable.transport, "constructed"),
+      ),
+    )
+    .orderBy(desc(adaptersTable.createdAt));
+  const botServers = constructedAdapters.filter(
+    (a) =>
+      ((a.metadataJson as Record<string, unknown> | null)?.createdVia as
+        | string
+        | undefined) === "agent",
+  );
+  const isNew = (createdAt: Date): boolean =>
+    reviewedAt == null || createdAt.getTime() > reviewedAt.getTime();
+  const newBotServerCount = botServers.filter((a) => isNew(a.createdAt)).length;
+  const recentBotServers = botServers.slice(0, 5).map((a) => ({
+    id: a.id,
+    name: a.name,
+    createdAt: a.createdAt,
+    isNew: isNew(a.createdAt),
+  }));
+
   res.json(
     GetDashboardResponse.parse({
       adapterCount: adapters.c,
@@ -131,11 +167,38 @@ router.get("/dashboard", async (req, res): Promise<void> => {
       generatedServerCount: servers.c,
       traceCount: traces.c,
       intentCount: intents.c,
+      botServerCount: botServers.length,
+      newBotServerCount,
+      recentBotServers,
       recentRuns: recentRuns.map((r) => serializeRun(r, intentTitles.get(r.intentId) ?? null)),
       recentArtifacts: recentArtifacts.map(serializeArtifact),
       recentAudit: recentAudit.map(serializeAudit),
     }),
   );
 });
+
+router.post(
+  "/dashboard/review-bot-servers",
+  async (req, res): Promise<void> => {
+    const tenantId = req.tenantId;
+    const [tenant] = await db
+      .select({ settingsJson: tenantsTable.settingsJson })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId));
+    if (!tenant) {
+      res.status(404).json({ error: "Tenant not found" });
+      return;
+    }
+    const settings = {
+      ...((tenant.settingsJson as Record<string, unknown> | null) ?? {}),
+      botServersReviewedAt: new Date().toISOString(),
+    };
+    await db
+      .update(tenantsTable)
+      .set({ settingsJson: settings })
+      .where(eq(tenantsTable.id, tenantId));
+    res.status(204).end();
+  },
+);
 
 export default router;

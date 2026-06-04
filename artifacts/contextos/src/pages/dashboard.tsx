@@ -1,10 +1,32 @@
-import { useGetDashboard, getGetDashboardQueryKey } from "@workspace/api-client-react";
+import {
+  useGetDashboard,
+  getGetDashboardQueryKey,
+  useReviewBotServers,
+} from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Activity, Cable, ListTree, Zap, Cpu } from "lucide-react";
+import { Activity, Cable, Zap, Cpu, Bot, ArrowRight } from "lucide-react";
+import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function Dashboard() {
+  const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const { data, isLoading } = useGetDashboard({ query: { queryKey: getGetDashboardQueryKey() } });
+  const reviewMutation = useReviewBotServers();
+
+  const markReviewed = async () => {
+    try {
+      await reviewMutation.mutateAsync();
+    } finally {
+      queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
+    }
+  };
+
+  const handleReview = async () => {
+    await markReviewed();
+    navigate("/build-mcp");
+  };
 
   if (isLoading || !data) {
     return (
@@ -65,7 +87,51 @@ export function Dashboard() {
           </CardContent>
         </Card>
       </div>
-      
+
+      {(data.newBotServerCount ?? 0) > 0 && (
+        <Card className="border-violet-500/40 bg-violet-500/5">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 rounded-md bg-violet-500/15 p-2">
+                <Bot className="h-5 w-5 text-violet-500" />
+              </div>
+              <div>
+                <div className="font-medium">
+                  The assistant built{" "}
+                  {data.newBotServerCount === 1
+                    ? "a new web service"
+                    : `${data.newBotServerCount} new web services`}{" "}
+                  for you
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {(data.recentBotServers ?? [])
+                    .filter((s) => s.isNew)
+                    .slice(0, 3)
+                    .map((s) => s.name)
+                    .join(", ") || "Review them to make sure they look right."}
+                </div>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={() => void markReviewed()}
+                disabled={reviewMutation.isPending}
+                className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={() => void handleReview()}
+                disabled={reviewMutation.isPending}
+                className="flex items-center gap-2 rounded-md bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50"
+              >
+                Review in Build MCP <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>

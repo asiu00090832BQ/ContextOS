@@ -7,6 +7,7 @@
  */
 import type { Artifact } from './artifact';
 import type { AuditRecord } from './auditRecord';
+import type { BotServerSummary } from './botServerSummary';
 import type { Run } from './run';
 
 export interface DashboardSummary {
@@ -19,6 +20,9 @@ export interface DashboardSummary {
   generatedServerCount: number;
   traceCount: number;
   intentCount?: number;
+  botServerCount?: number;
+  newBotServerCount?: number;
+  recentBotServers?: BotServerSummary[];
   recentArtifacts?: Artifact[];
   recentAudit?: AuditRecord[];
   recentRuns?: Run[];

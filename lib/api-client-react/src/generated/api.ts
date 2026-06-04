@@ -357,6 +357,76 @@ export function useGetDashboard<TData = Awaited<ReturnType<typeof getDashboard>>
 
 
 
+export const getReviewBotServersUrl = () => {
+
+
+
+
+  return `/api/dashboard/review-bot-servers`
+}
+
+/**
+ * @summary Mark bot-built servers as reviewed
+ */
+export const reviewBotServers = async ( options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getReviewBotServersUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getReviewBotServersMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewBotServers>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reviewBotServers>>, TError,void, TContext> => {
+
+const mutationKey = ['reviewBotServers'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reviewBotServers>>, void> = () => {
+
+
+          return  reviewBotServers(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReviewBotServersMutationResult = NonNullable<Awaited<ReturnType<typeof reviewBotServers>>>
+
+    export type ReviewBotServersMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Mark bot-built servers as reviewed
+ */
+export const useReviewBotServers = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewBotServers>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reviewBotServers>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getReviewBotServersMutationOptions(options));
+    }
+
 export const getListLinkedAccountsUrl = () => {
 
 

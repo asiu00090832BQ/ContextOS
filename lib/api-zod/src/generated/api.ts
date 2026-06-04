@@ -57,6 +57,14 @@ export const GetDashboardResponse = zod.object({
   "generatedServerCount": zod.number(),
   "traceCount": zod.number(),
   "intentCount": zod.number().optional(),
+  "botServerCount": zod.number().optional(),
+  "newBotServerCount": zod.number().optional(),
+  "recentBotServers": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "isNew": zod.boolean()
+})).optional(),
   "recentArtifacts": zod.array(zod.object({
   "id": zod.string(),
   "runId": zod.string().nullish(),
