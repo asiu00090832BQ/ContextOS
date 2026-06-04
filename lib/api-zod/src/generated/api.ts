@@ -270,6 +270,12 @@ export const GetAdapterResponse = zod.object({
   "inputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "outputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "executionKind": zod.string().nullish(),
+  "lastTest": zod.union([zod.null(),zod.object({
+  "ok": zod.boolean(),
+  "status": zod.number().nullish(),
+  "testedAt": zod.coerce.date(),
+  "error": zod.string().nullish()
+})]).optional(),
   "createdAt": zod.coerce.date()
 })).optional(),
   "lastHealthResult": zod.record(zod.string(), zod.unknown()).optional()
@@ -352,6 +358,12 @@ export const DiscoverAdapterResponse = zod.object({
   "inputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "outputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "executionKind": zod.string().nullish(),
+  "lastTest": zod.union([zod.null(),zod.object({
+  "ok": zod.boolean(),
+  "status": zod.number().nullish(),
+  "testedAt": zod.coerce.date(),
+  "error": zod.string().nullish()
+})]).optional(),
   "createdAt": zod.coerce.date()
 })).optional(),
   "lastHealthResult": zod.record(zod.string(), zod.unknown()).optional()
@@ -388,6 +400,12 @@ export const ListCapabilitiesResponseItem = zod.object({
   "inputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "outputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "executionKind": zod.string().nullish(),
+  "lastTest": zod.union([zod.null(),zod.object({
+  "ok": zod.boolean(),
+  "status": zod.number().nullish(),
+  "testedAt": zod.coerce.date(),
+  "error": zod.string().nullish()
+})]).optional(),
   "createdAt": zod.coerce.date()
 })
 export const ListCapabilitiesResponse = zod.array(ListCapabilitiesResponseItem)
@@ -447,6 +465,12 @@ export const ImportOpenApiResponse = zod.object({
   "inputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "outputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "executionKind": zod.string().nullish(),
+  "lastTest": zod.union([zod.null(),zod.object({
+  "ok": zod.boolean(),
+  "status": zod.number().nullish(),
+  "testedAt": zod.coerce.date(),
+  "error": zod.string().nullish()
+})]).optional(),
   "createdAt": zod.coerce.date()
 })).optional(),
   "lastHealthResult": zod.record(zod.string(), zod.unknown()).optional()
@@ -513,6 +537,12 @@ export const SetConstructedServerAuthResponse = zod.object({
   "inputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "outputSchema": zod.record(zod.string(), zod.unknown()).optional(),
   "executionKind": zod.string().nullish(),
+  "lastTest": zod.union([zod.null(),zod.object({
+  "ok": zod.boolean(),
+  "status": zod.number().nullish(),
+  "testedAt": zod.coerce.date(),
+  "error": zod.string().nullish()
+})]).optional(),
   "createdAt": zod.coerce.date()
 })).optional(),
   "lastHealthResult": zod.record(zod.string(), zod.unknown()).optional()

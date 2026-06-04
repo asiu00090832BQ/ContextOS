@@ -7,6 +7,8 @@ import {
   adaptersTable,
   capabilitiesTable,
   workingMemoriesTable,
+  type Adapter,
+  type Capability,
 } from "@workspace/db";
 import { parse as parseYaml } from "yaml";
 import { executeRun } from "./runEngine";
@@ -14,6 +16,9 @@ import { discoverAdapter } from "./mcp";
 import {
   executeNamedCapability,
   executeCapabilityRow,
+  resolveNamedCapability,
+  recordCapabilityTest,
+  lastTestOf,
   listExecutableCapabilities,
   smokeTestImportedTools,
 } from "./capabilityExec";
@@ -309,6 +314,11 @@ export const TOOLS: McpTool[] = [
           type: "string",
           description:
             "Optional constructed server id to disambiguate when several tools share the same name. Omit to test the first matching tool.",
+        },
+        force: {
+          type: "boolean",
+          description:
+            "Re-run the test even when the tool was already verified working. By default a known-good tool is not re-tested and its stored result is returned.",
         },
       },
       required: ["name"],
@@ -861,14 +871,17 @@ export async function callTool(
           ? (args.args as Record<string, unknown>)
           : {};
       const adapterId = asString(args.adapterId);
-      let result: ExecutionResult | null;
+      const force = args.force === true;
+      let capability: Capability;
+      let adapter: Adapter;
       if (adapterId) {
-        const adapter = await loadConstructedAdapter(tenantId, adapterId);
-        if (!adapter) {
+        const found = await loadConstructedAdapter(tenantId, adapterId);
+        if (!found) {
           throw new McpToolError(
             "Constructed server not found for that adapterId.",
           );
         }
+        adapter = found;
         const [cap] = await db
           .select()
           .from(capabilitiesTable)
@@ -885,15 +898,40 @@ export async function callTool(
             `No tool named "${toolName}" on that constructed server.`,
           );
         }
-        result = await executeCapabilityRow(cap, adapter, sampleArgs);
+        capability = cap;
       } else {
-        result = await executeNamedCapability(tenantId, toolName, sampleArgs);
+        const resolved = await resolveNamedCapability(tenantId, toolName);
+        if (!resolved) {
+          throw new McpToolError(
+            `No executable web tool named "${toolName}" found. Build it first with add_web_mcp_tool or import_openapi_tools.`,
+          );
+        }
+        capability = resolved.capability;
+        adapter = resolved.adapter;
       }
-      if (result === null) {
-        throw new McpToolError(
-          `No executable web tool named "${toolName}" found. Build it first with add_web_mcp_tool or import_openapi_tools.`,
-        );
+
+      // Skip re-testing a tool already verified working (unless force=true), so
+      // the bot can rely on a known-good tool without spending another request.
+      const prior = lastTestOf(capability);
+      if (!force && prior?.ok) {
+        return {
+          tested: toolName,
+          ok: true,
+          status: prior.status,
+          skipped: true,
+          lastTestedAt: prior.testedAt,
+          error: null,
+          hint: "Already verified working on the last test; skipped re-testing. Pass force=true to test again.",
+        };
       }
+
+      const result = await executeCapabilityRow(
+        capability,
+        adapter,
+        sampleArgs,
+      );
+      // Persist the outcome so it can be reused and surfaced later.
+      const record = await recordCapabilityTest(capability.id, result);
       // Intentionally do NOT throw on failure: the whole point is to surface a
       // bad result so the agent can self-correct in the same conversation.
       return {
@@ -904,6 +942,7 @@ export async function callTool(
         extracted: result.extracted ?? null,
         body: result.body ?? null,
         error: result.error ?? null,
+        lastTestedAt: record.testedAt,
         hint: result.ok
           ? "The tool works; you can rely on it in your answer now."
           : "The tool failed. Fix the path/query/headers/auth (re-run add_web_mcp_tool or import_openapi_tools) and test_web_tool again before relying on it.",
@@ -1003,9 +1042,21 @@ export async function listToolsForTenant(
   for (const c of constructed) {
     if (seen.has(c.name)) continue;
     seen.add(c.name);
+    const base = c.description ?? `Constructed tool: ${c.name}`;
+    // Surface the last verification outcome inline so the bot can prefer a
+    // known-good tool and be warned about one whose last dry-run failed.
+    const test = lastTestOf(c);
+    let suffix = "";
+    if (test?.ok) {
+      suffix = " [verified working — no need to re-test]";
+    } else if (test && !test.ok) {
+      suffix = ` [last test FAILED${
+        test.status ? ` (status ${test.status})` : ""
+      } — re-test with test_web_tool before relying on it]`;
+    }
     dynamic.push({
       name: c.name,
-      description: c.description ?? `Constructed tool: ${c.name}`,
+      description: `${base}${suffix}`,
       inputSchema: toJsonSchema(c.inputSchemaJson),
     });
   }

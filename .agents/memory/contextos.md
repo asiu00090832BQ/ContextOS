@@ -181,6 +181,15 @@ To run a one-off check that imports api-server libs, place the .ts INSIDE `artif
 (NOT esm — pg's dynamic `require("events")` breaks under esm) and `--external:playwright
 --external:playwright-core` (browserTools' dynamic import pulls in chromium-bidi which won't
 bundle). `tsx` is not installed; `pnpm exec tsc --noEmit` works for typecheck.
+## Constructed web-tool verification status (last-test memory)
+`test_web_tool` persists its dry-run outcome onto the capability row
+(`capabilities.last_test_json` = `{ok,status,testedAt,error}`) via `recordCapabilityTest`.
+A known-good tool (`lastTest.ok`) is NOT re-tested unless `force=true`; the stored result is
+returned as `skipped:true`. `listToolsForTenant` appends a `[verified working …]` /
+`[last test FAILED …]` suffix to each constructed tool's description so the bot can prefer
+verified tools. Exposed to the app as `Capability.lastTest`. **How to apply:** any future edit
+to a tool's recipe must INVALIDATE (clear) `lastTestJson`, or a stale "verified" badge lies.
+Use `resolveNamedCapability` (returns cap+adapter) when you need the row, not just the result.
 
 ## Tooling quirk — rg/bash output mangles identifiers
 In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dialog`→`ln`,

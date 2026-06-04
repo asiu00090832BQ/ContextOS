@@ -1950,7 +1950,20 @@ components:
         inputSchema: { $ref: "#/components/schemas/JsonObject" }
         outputSchema: { $ref: "#/components/schemas/JsonObject" }
         executionKind: { type: ["string", "null"] }
+        lastTest:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/CapabilityTestResult"
         createdAt: { type: string, format: date-time }
+
+    CapabilityTestResult:
+      type: object
+      required: [ok, testedAt]
+      properties:
+        ok: { type: boolean }
+        status: { type: ["integer", "null"] }
+        testedAt: { type: string, format: date-time }
+        error: { type: ["string", "null"] }
 
     HealthTestResult:
       type: object

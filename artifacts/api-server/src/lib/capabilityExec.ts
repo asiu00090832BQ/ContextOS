@@ -50,15 +50,15 @@ export async function executeCapabilityRow(
 }
 
 /**
- * Resolve a constructed-tool capability by name within a tenant and execute it.
- * Returns null when no executable capability with that name exists (so callers
- * can fall back to built-in tool handling).
+ * Resolve a constructed-tool capability (plus its owning adapter) by name within
+ * a tenant. Returns null when no executable capability with that name exists.
+ * Uses the same deterministic ordering as dispatch/listing so a duplicated tool
+ * name always resolves to the capability that tools/list advertised.
  */
-export async function executeNamedCapability(
+export async function resolveNamedCapability(
   tenantId: string,
   name: string,
-  args: Record<string, unknown>,
-): Promise<ExecutionResult | null> {
+): Promise<{ capability: Capability; adapter: Adapter } | null> {
   const rows = await db
     .select({ capability: capabilitiesTable, adapter: adaptersTable })
     .from(capabilitiesTable)
@@ -72,7 +72,20 @@ export async function executeNamedCapability(
     // Deterministic ordering so a duplicated tool name always dispatches to the
     // same capability (matching what listToolsForTenant advertises).
     .orderBy(asc(capabilitiesTable.createdAt), asc(capabilitiesTable.id));
-  const match = rows.find((r) => parseRecipe(r.capability.executionJson));
+  return rows.find((r) => parseRecipe(r.capability.executionJson)) ?? null;
+}
+
+/**
+ * Resolve a constructed-tool capability by name within a tenant and execute it.
+ * Returns null when no executable capability with that name exists (so callers
+ * can fall back to built-in tool handling).
+ */
+export async function executeNamedCapability(
+  tenantId: string,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<ExecutionResult | null> {
+  const match = await resolveNamedCapability(tenantId, name);
   if (!match) return null;
   return executeCapabilityRow(match.capability, match.adapter, args);
 }
@@ -196,6 +209,9 @@ export async function smokeTestImportedTools(
     adapter,
     pick.args,
   );
+  // Persist the smoke-test outcome so the verified/failed status is recorded
+  // the same way a manual test_web_tool run would record it.
+  await recordCapabilityTest(pick.capability.id, result);
   return {
     ran: true,
     tool: pick.capability.name,
@@ -205,6 +221,48 @@ export async function smokeTestImportedTools(
     error: result.error ?? null,
     ...(Object.keys(pick.args).length > 0 ? { sampleArgs: pick.args } : {}),
   };
+}
+
+/** The persisted outcome of the most recent test_web_tool dry-run. */
+export interface CapabilityTestRecord {
+  ok: boolean;
+  status: number | null;
+  testedAt: string;
+  error: string | null;
+}
+
+/** Read a capability's last recorded test outcome, if any. */
+export function lastTestOf(capability: Capability): CapabilityTestRecord | null {
+  const raw = capability.lastTestJson as CapabilityTestRecord | null;
+  if (!raw || typeof raw.ok !== "boolean") return null;
+  return {
+    ok: raw.ok,
+    status: typeof raw.status === "number" ? raw.status : null,
+    testedAt: typeof raw.testedAt === "string" ? raw.testedAt : "",
+    error: typeof raw.error === "string" ? raw.error : null,
+  };
+}
+
+/**
+ * Persist the outcome of a dry-run onto the capability so the bot can later skip
+ * re-testing a known-good tool (or warn before relying on one that last failed)
+ * and the app can surface which tools are verified.
+ */
+export async function recordCapabilityTest(
+  capabilityId: string,
+  result: ExecutionResult,
+): Promise<CapabilityTestRecord> {
+  const record: CapabilityTestRecord = {
+    ok: result.ok,
+    status: result.status ?? null,
+    testedAt: new Date().toISOString(),
+    error: result.error ? result.error.slice(0, 500) : null,
+  };
+  await db
+    .update(capabilitiesTable)
+    .set({ lastTestJson: record })
+    .where(eq(capabilitiesTable.id, capabilityId));
+  return record;
 }
 
 /** List all executable (recipe-bearing) capabilities for a tenant. */

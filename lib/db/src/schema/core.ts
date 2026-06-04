@@ -183,6 +183,12 @@ export const capabilitiesTable = pgTable(
     >(),
     annotationsJson: jsonb("annotations_json").$type<Record<string, unknown>>(),
     executionJson: jsonb("execution_json").$type<Record<string, unknown>>(),
+    lastTestJson: jsonb("last_test_json").$type<{
+      ok: boolean;
+      status: number | null;
+      testedAt: string;
+      error: string | null;
+    }>(),
     humanReviewRequired: boolean("human_review_required")
       .notNull()
       .default(false),

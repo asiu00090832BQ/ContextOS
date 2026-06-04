@@ -28,6 +28,7 @@ export * from './auditRecord';
 export * from './blueprintInput';
 export * from './botServerSummary';
 export * from './capability';
+export * from './capabilityTestResult';
 export * from './constructedAuthInput';
 export * from './constructedAuthInputType';
 export * from './constructedServerInput';

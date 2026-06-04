@@ -96,6 +96,7 @@ export function serializeCapability(c: Capability): Record<string, unknown> {
       ((c.executionJson as Record<string, unknown> | null)?.kind as
         | string
         | undefined) ?? null,
+    lastTest: c.lastTestJson ?? null,
     createdAt: c.createdAt,
   };
 }

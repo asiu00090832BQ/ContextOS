@@ -5,6 +5,7 @@
  * ContextOS API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { CapabilityTestResult } from './capabilityTestResult';
 import type { JsonObject } from './jsonObject';
 
 export interface Capability {
@@ -21,5 +22,6 @@ export interface Capability {
   outputSchema?: JsonObject;
   /** @nullable */
   executionKind?: string | null;
+  lastTest?: null | CapabilityTestResult;
   createdAt: Date;
 }

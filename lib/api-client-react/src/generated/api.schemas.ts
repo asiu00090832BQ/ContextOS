@@ -174,6 +174,15 @@ export interface Adapter {
   createdAt: string;
 }
 
+export interface CapabilityTestResult {
+  ok: boolean;
+  /** @nullable */
+  status?: number | null;
+  testedAt: string;
+  /** @nullable */
+  error?: string | null;
+}
+
 export interface Capability {
   id: string;
   adapterId: string;
@@ -188,6 +197,7 @@ export interface Capability {
   outputSchema?: JsonObject;
   /** @nullable */
   executionKind?: string | null;
+  lastTest?: null | CapabilityTestResult;
   createdAt: string;
 }
 
