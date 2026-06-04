@@ -1,5 +1,7 @@
 import type { ModelEndpoint } from "@workspace/db";
+import { anthropic as managedAnthropic } from "@workspace/integrations-anthropic-ai";
 import { logger } from "./logger";
+import { MANAGED_ANTHROPIC_REF, MANAGED_ANTHROPIC_MODEL } from "./toolChat";
 
 export interface LlmMessage {
   role: "system" | "user" | "assistant";
@@ -242,8 +244,42 @@ async function callGoogle({
   );
 }
 
+/**
+ * Completion via the Replit-managed Anthropic integration (no API key of its
+ * own). Mirrors the managed path in toolChat so an endpoint marked with the
+ * managed sentinel is usable by agents (run/chat engines), not just the bot.
+ */
+async function callManagedAnthropic({
+  endpoint,
+  req,
+}: ProviderCallArgs): Promise<string> {
+  const system = req.messages
+    .filter((m) => m.role === "system")
+    .map((m) => m.content)
+    .join("\n");
+  const messages = req.messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
+  const res = await managedAnthropic.messages.create({
+    model: endpoint.modelName || MANAGED_ANTHROPIC_MODEL,
+    ...(system ? { system } : {}),
+    messages,
+    max_tokens: req.maxTokens ?? 1024,
+    temperature: req.temperature ?? 0.7,
+  });
+  return res.content
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("");
+}
+
 /** Dispatch a single completion request to the correct provider. Throws on failure. */
 async function callProvider(args: ProviderCallArgs): Promise<string> {
+  if (args.endpoint.apiKeyRef === MANAGED_ANTHROPIC_REF) {
+    return callManagedAnthropic(args);
+  }
   switch (args.endpoint.providerType) {
     case "anthropic":
       return callAnthropic(args);
@@ -302,7 +338,11 @@ export async function complete(
   apiKey: string | null,
   req: LlmRequest,
 ): Promise<LlmResult> {
-  if (!endpoint || (requiresApiKey(endpoint.providerType, endpoint) && !apiKey)) {
+  const managed = endpoint?.apiKeyRef === MANAGED_ANTHROPIC_REF;
+  if (
+    !endpoint ||
+    (!managed && requiresApiKey(endpoint.providerType, endpoint) && !apiKey)
+  ) {
     return stubComplete(req, endpoint?.name ?? "stub");
   }
 

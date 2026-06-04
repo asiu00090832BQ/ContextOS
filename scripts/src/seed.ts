@@ -182,6 +182,19 @@ async function seed(): Promise<void> {
       apiKeyRef: "stored",
       status: "untested",
     },
+    {
+      // Routes through the Replit-managed Anthropic integration (no API key of
+      // its own). The sentinel apiKeyRef is recognized in toolChat.ts
+      // (MANAGED_ANTHROPIC_REF) so this is a real, selectable endpoint usable by
+      // both the Telegram bot and agents.
+      id: randomUUID(),
+      tenantId,
+      name: "Replit Claude (Sonnet 4.6)",
+      providerType: "anthropic",
+      modelName: "claude-sonnet-4-6",
+      apiKeyRef: "managed://replit-anthropic",
+      status: "active",
+    },
   ]);
 
   // ---- Agents + policies ----

@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 import {
   db,
   conversationsTable,
@@ -6,6 +6,7 @@ import {
   telegramChatsTable,
   modelEndpointsTable,
   tenantsTable,
+  workingMemoriesTable,
   type ModelEndpoint,
 } from "@workspace/db";
 import { getContext } from "./context";
@@ -20,6 +21,11 @@ const MAX_TOKENS = 8192;
 const MAX_TOOL_ITERATIONS = 6;
 // How many prior messages to load for short-term memory.
 const HISTORY_LIMIT = 30;
+// Telegram chat history older than this is pruned. Durable rules/tasks should be
+// saved to long-term memory (the `remember` tool) so they outlive this window.
+export const TELEGRAM_HISTORY_TTL_MS = 48 * 60 * 60 * 1000;
+// Cap how many long-term memories we inject into the prompt to bound its size.
+const LONG_TERM_INJECT_LIMIT = 50;
 
 const SYSTEM_PROMPT =
   "You are ContextOS, a helpful assistant reachable over Telegram. You can " +
@@ -29,7 +35,62 @@ const SYSTEM_PROMPT =
   "shown in a Telegram chat, so avoid markdown tables and very long output. " +
   "When you build a new web tool with add_web_mcp_tool or import_openapi_tools, " +
   "first dry-run it with test_web_tool using sample arguments and only rely on " +
-  "it once it succeeds — if it fails, fix the path/query/headers/auth and test again.";
+  "it once it succeeds — if it fails, fix the path/query/headers/auth and test again. " +
+  "Your Telegram chat history is automatically pruned after 48 hours, so when " +
+  "the user gives you a standing operational rule, a preference, or a larger " +
+  "ongoing task, save it with the `remember` tool so it persists. Your saved " +
+  "long-term memories are provided to you below on every message.";
+
+/**
+ * Load this tenant's long-term memories (working memories not bound to a run)
+ * and render them as a prompt block so the bot retains operational rules and
+ * larger tasks even after the rolling 48h chat history has been pruned.
+ */
+async function buildLongTermMemoryBlock(tenantId: string): Promise<string> {
+  const rows = await db
+    .select()
+    .from(workingMemoriesTable)
+    .where(
+      and(
+        eq(workingMemoriesTable.tenantId, tenantId),
+        isNull(workingMemoriesTable.runId),
+      ),
+    )
+    .orderBy(desc(workingMemoriesTable.createdAt))
+    .limit(LONG_TERM_INJECT_LIMIT);
+  if (rows.length === 0) return "";
+  const lines = rows.map((m) => `- [${m.type}] ${m.key}: ${m.value}`);
+  return `\n\nLong-term memory (durable rules/tasks/preferences the user set; persists beyond the 48h chat window):\n${lines.join("\n")}`;
+}
+
+/**
+ * Delete Telegram conversation messages older than the 48h retention window.
+ * Long-term memories (working_memories with a null run id) are never touched, so
+ * operational rules and larger tasks saved via the `remember` tool persist.
+ * Returns the number of pruned messages.
+ */
+export async function pruneTelegramHistory(): Promise<number> {
+  const cutoff = new Date(Date.now() - TELEGRAM_HISTORY_TTL_MS);
+  const telegramConversations = db
+    .select({ id: telegramChatsTable.conversationId })
+    .from(telegramChatsTable);
+  const deleted = await db
+    .delete(conversationMessagesTable)
+    .where(
+      and(
+        inArray(conversationMessagesTable.conversationId, telegramConversations),
+        lt(conversationMessagesTable.createdAt, cutoff),
+      ),
+    )
+    .returning({ id: conversationMessagesTable.id });
+  if (deleted.length > 0) {
+    logger.info(
+      { count: deleted.length },
+      "Pruned expired Telegram chat history",
+    );
+  }
+  return deleted.length;
+}
 
 /** Settings key (on tenants.settingsJson) holding the selected model endpoint. */
 export const TELEGRAM_MODEL_SETTING = "telegramModelEndpointId";
@@ -211,13 +272,14 @@ export async function handleTelegramMessage(
 
   const endpoint = await resolveTelegramEndpoint(tenantId);
   const apiKey = endpoint ? resolveSecret(endpoint.apiKeyRef) : null;
+  const system = SYSTEM_PROMPT + (await buildLongTermMemoryBlock(tenantId));
 
   let replyText = "";
   try {
     const result = await runToolChat({
       endpoint,
       apiKey,
-      system: SYSTEM_PROMPT,
+      system,
       history,
       tools,
       maxTokens: MAX_TOKENS,

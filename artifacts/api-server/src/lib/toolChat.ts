@@ -6,6 +6,13 @@ import { logger } from "./logger";
 /** Default model used when talking to the Replit-managed Anthropic integration. */
 export const MANAGED_ANTHROPIC_MODEL = "claude-sonnet-4-6";
 export const MANAGED_ANTHROPIC_LABEL = "Managed Anthropic (Claude Sonnet 4.6)";
+/**
+ * Sentinel `apiKeyRef` marking a model endpoint that should route through the
+ * Replit-managed Anthropic integration (no API key of its own). Lets us expose
+ * the managed model as a real, selectable endpoint row without special-casing
+ * the default null path or touching the provider enum.
+ */
+export const MANAGED_ANTHROPIC_REF = "managed://replit-anthropic";
 
 export interface ToolSpec {
   /** Real ContextOS tool name. */
@@ -386,6 +393,20 @@ export async function runToolChat(
       nameMap,
     );
     return { text, modelLabel: MANAGED_ANTHROPIC_LABEL };
+  }
+
+  // A real endpoint row explicitly marked as managed (its apiKeyRef is the
+  // managed sentinel) routes through the same Replit-managed Anthropic
+  // integration — but as a selectable endpoint usable by the bot and agents.
+  if (endpoint.apiKeyRef === MANAGED_ANTHROPIC_REF) {
+    const text = await runAnthropicToolChat(
+      managedAnthropic as unknown as Anthropic,
+      endpoint.modelName || MANAGED_ANTHROPIC_MODEL,
+      opts,
+      prepared,
+      nameMap,
+    );
+    return { text, modelLabel: `${endpoint.name} (${endpoint.modelName})` };
   }
 
   const family = providerFamily(endpoint.providerType);

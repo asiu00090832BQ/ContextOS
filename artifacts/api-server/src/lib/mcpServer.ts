@@ -1,4 +1,4 @@
-import { eq, and, asc, desc } from "drizzle-orm";
+import { eq, and, asc, desc, isNull } from "drizzle-orm";
 import {
   db,
   agentsTable,
@@ -6,6 +6,7 @@ import {
   runsTable,
   adaptersTable,
   capabilitiesTable,
+  workingMemoriesTable,
 } from "@workspace/db";
 import { parse as parseYaml } from "yaml";
 import { executeRun } from "./runEngine";
@@ -311,6 +312,38 @@ export const TOOLS: McpTool[] = [
       },
       required: ["name"],
     },
+  },
+  {
+    name: "remember",
+    description:
+      "Save a durable, long-term memory — an operational rule, a standing preference, or a larger ongoing task — that must survive beyond the rolling 48-hour Telegram chat window. Use this whenever the user states a standing instruction or a big task to keep working on. Saved memories are automatically reloaded into your context on every future message.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: {
+          type: "string",
+          description:
+            "Short stable label for the memory, e.g. 'tone' or 'project-x-goal'.",
+        },
+        value: {
+          type: "string",
+          description: "The full content to remember.",
+        },
+        kind: {
+          type: "string",
+          enum: ["semantic", "procedural", "episodic"],
+          description:
+            "semantic = facts/rules/preferences; procedural = how-to / operational rules; episodic = notable events or larger tasks. Defaults to semantic.",
+        },
+      },
+      required: ["key", "value"],
+    },
+  },
+  {
+    name: "recall_memories",
+    description:
+      "List your saved long-term memories (operational rules, preferences, larger tasks). They are also injected automatically each message, but use this to review or confirm exactly what is stored.",
+    inputSchema: { type: "object", properties: {} },
   },
 ];
 
@@ -856,6 +889,53 @@ export async function callTool(
         hint: result.ok
           ? "The tool works; you can rely on it in your answer now."
           : "The tool failed. Fix the path/query/headers/auth (re-run add_web_mcp_tool or import_openapi_tools) and test_web_tool again before relying on it.",
+      };
+    }
+    case "remember": {
+      const key = asString(args.key);
+      const value = asString(args.value);
+      if (!key || !value) {
+        throw new McpToolError("`key` and `value` are required.");
+      }
+      const kind = asString(args.kind);
+      const type: "semantic" | "procedural" | "episodic" =
+        kind === "procedural"
+          ? "procedural"
+          : kind === "episodic"
+            ? "episodic"
+            : "semantic";
+      const [row] = await db
+        .insert(workingMemoriesTable)
+        .values({
+          tenantId,
+          type,
+          key,
+          value,
+          tags: ["long_term", "telegram"],
+          metadataJson: { source: "telegram_bot", savedBy: userId || null },
+        })
+        .returning();
+      return { remembered: true, id: row.id, key, type };
+    }
+    case "recall_memories": {
+      const rows = await db
+        .select()
+        .from(workingMemoriesTable)
+        .where(
+          and(
+            eq(workingMemoriesTable.tenantId, tenantId),
+            isNull(workingMemoriesTable.runId),
+          ),
+        )
+        .orderBy(desc(workingMemoriesTable.createdAt));
+      return {
+        memories: rows.map((m) => ({
+          id: m.id,
+          key: m.key,
+          value: m.value,
+          type: m.type,
+          createdAt: m.createdAt,
+        })),
       };
     }
     default: {
