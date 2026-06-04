@@ -656,12 +656,17 @@ function buildFragments(intent: Intent) {
 // build/import tools plus their verification counterparts and a few read-only
 // discovery tools. Arbitrary (possibly destructive) constructed capabilities
 // are never exposed here — the loop is for building & verifying integrations.
+// NOTE: `test_web_tool` is deliberately EXCLUDED. It executes any named
+// capability via executeCapabilityRow with no risk gate, so an autonomous
+// agent could invoke a create/update/destructive tool through it without
+// approval. Verification instead goes through `retest_web_server`, which only
+// dry-runs safe read/list tools and skips destructive ones, and through
+// `import_openapi_tools`, whose post-import smoke test is likewise safe-gated.
 const BUILDER_TOOL_NAMES = new Set([
   "create_web_mcp_server",
   "register_mcp_server",
   "add_web_mcp_tool",
   "import_openapi_tools",
-  "test_web_tool",
   "retest_web_server",
   "list_adapters",
   "list_capabilities",
@@ -673,12 +678,12 @@ const BUILDER_MAX_ITERATIONS = 8;
 const BUILDER_SYSTEM_PROMPT =
   "You are an autonomous integration builder running inside a ContextOS run. " +
   "To accomplish the task you may build new MCP servers and web tools using ONLY these tools: " +
-  "create_web_mcp_server, register_mcp_server, add_web_mcp_tool, import_openapi_tools, test_web_tool, retest_web_server, " +
+  "create_web_mcp_server, register_mcp_server, add_web_mcp_tool, import_openapi_tools, retest_web_server, " +
   "plus list_adapters / list_capabilities / list_intents to inspect what already exists. " +
   "Prefer reusing an existing server or tool over creating a duplicate. " +
-  "After you create or import a web tool, dry-run it with test_web_tool using sample arguments and only rely on it once it succeeds; " +
-  "if it fails, correct the path/query/headers/auth and test again. " +
-  "Only safe read/list operations are auto-invoked during verification — never assume a write or destructive tool works without explicit user approval. " +
+  "After you create or import web tools, verify them with retest_web_server, which dry-runs the server's safe read/list tools and reports a per-tool pass/fail; " +
+  "if a tool fails, correct the path/query/headers/auth and retest. " +
+  "Only safe read/list operations are auto-invoked during verification — write or destructive tools are NEVER executed autonomously and require explicit user approval before use. " +
   "When you are done, briefly summarize which servers/tools you built or reused and their verification status.";
 
 /**
@@ -696,6 +701,44 @@ function endpointIsLive(
   if (endpoint.providerType === "openai_compatible") return true;
   if (endpoint.baseUrl?.trim() || endpoint.host?.trim()) return true;
   return false;
+}
+
+/** A single builder tool invocation outcome, surfaced in the run transcript. */
+interface BuilderToolCall {
+  name: string;
+  ok: boolean;
+  summary: string;
+}
+
+/**
+ * Summarize a builder tool result for the transcript WITHOUT leaking secrets.
+ * Only a small allowlist of non-sensitive identifier/status fields is surfaced;
+ * everything else is reduced to its shape so credentials in tool output can
+ * never reach a run-visible context fragment.
+ */
+function summarizeBuilderResult(out: unknown): string {
+  if (out == null) return "ok";
+  if (typeof out !== "object") return String(out).slice(0, 200);
+  const o = out as Record<string, unknown>;
+  const safeKeys = [
+    "adapterId",
+    "name",
+    "tested",
+    "ok",
+    "status",
+    "count",
+    "created",
+    "imported",
+    "skipped",
+    "summary",
+  ];
+  const picked: string[] = [];
+  for (const k of safeKeys) {
+    if (k in o && o[k] != null && typeof o[k] !== "object") {
+      picked.push(`${k}=${String(o[k]).slice(0, 80)}`);
+    }
+  }
+  return picked.length > 0 ? picked.join(", ") : "completed";
 }
 
 /**
@@ -717,8 +760,9 @@ async function runBuilderCompletion(args: {
   sharedBlock: string;
   temperature: number | undefined;
   maxTokens: number | undefined;
-}): Promise<LlmResult> {
+}): Promise<{ result: LlmResult; toolCalls: BuilderToolCall[] }> {
   const start = Date.now();
+  const toolCalls: BuilderToolCall[] = [];
   const catalog = await listToolsForTenant(args.tenantId);
   const tools: ToolSpec[] = catalog
     .filter((t) => BUILDER_TOOL_NAMES.has(t.name))
@@ -779,6 +823,11 @@ async function runBuilderCompletion(args: {
             data: { tool: name, argKeys: Object.keys(toolArgs ?? {}) },
           },
         );
+        toolCalls.push({
+          name,
+          ok: true,
+          summary: summarizeBuilderResult(out),
+        });
         return { content: JSON.stringify(out), isError: false };
       } catch (err) {
         const message =
@@ -798,6 +847,7 @@ async function runBuilderCompletion(args: {
             data: { tool: name, argKeys: Object.keys(toolArgs ?? {}) },
           },
         );
+        toolCalls.push({ name, ok: false, summary: message.slice(0, 200) });
         return { content: message, isError: true };
       }
     },
@@ -808,15 +858,18 @@ async function runBuilderCompletion(args: {
   const promptTokens = Math.ceil((system.length + args.task.length) / 4);
   const completionTokens = Math.max(1, Math.ceil(content.length / 4));
   return {
-    content,
-    promptTokens,
-    completionTokens,
-    totalTokens: promptTokens + completionTokens,
-    costUsdMicros: 0,
-    finishReason: "stop",
-    usedStub: false,
-    latencyMs,
-    timeToFirstTokenMs: Math.min(latencyMs, 80),
+    result: {
+      content,
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      costUsdMicros: 0,
+      finishReason: "stop",
+      usedStub: false,
+      latencyMs,
+      timeToFirstTokenMs: Math.min(latencyMs, 80),
+    },
+    toolCalls,
   };
 }
 
@@ -971,15 +1024,20 @@ async function runAgent(args: RunAgentArgs): Promise<{
   // Builder agents with a live (non-stub) model run an agentic tool-calling
   // loop so they can actually construct & verify MCP servers/tools during the
   // run. Everything else keeps the existing complete()/stub behavior intact.
-  const builder =
-    args.canBuildIntegrations && endpointIsLive(primary, primaryKey)
-      ? { endpoint: primary as ModelEndpoint, apiKey: primaryKey }
-      : args.canBuildIntegrations && endpointIsLive(fallback, fallbackKey)
-        ? { endpoint: fallback as ModelEndpoint, apiKey: fallbackKey }
-        : null;
+  const builderEndpoints: { endpoint: ModelEndpoint; apiKey: string | null }[] =
+    [];
+  if (args.canBuildIntegrations) {
+    if (endpointIsLive(primary, primaryKey)) {
+      builderEndpoints.push({ endpoint: primary as ModelEndpoint, apiKey: primaryKey });
+    }
+    if (endpointIsLive(fallback, fallbackKey)) {
+      builderEndpoints.push({ endpoint: fallback as ModelEndpoint, apiKey: fallbackKey });
+    }
+  }
 
   let result: LlmResult;
-  if (builder) {
+  let builderToolCalls: BuilderToolCall[] = [];
+  if (builderEndpoints.length > 0) {
     await logEvent(
       args.tenantId,
       args.runId,
@@ -988,30 +1046,52 @@ async function runAgent(args: RunAgentArgs): Promise<{
       "info",
       { agentId: args.agentId },
     );
-    try {
-      result = await runBuilderCompletion({
-        tenantId: args.tenantId,
-        runId: args.runId,
-        agentId: args.agentId,
-        agentName: args.agentName,
-        actorUserId: args.actorUserId ?? "",
-        endpoint: builder.endpoint,
-        apiKey: builder.apiKey,
-        task: args.task,
-        systemPrompt: args.systemPrompt,
-        sharedBlock,
-        temperature,
-        maxTokens,
-      });
-    } catch (err) {
-      await logEvent(
-        args.tenantId,
-        args.runId,
-        "agent.builder.failed",
-        `${args.agentName} builder loop failed: ${String(err)}`,
-        "warn",
-        { agentId: args.agentId },
-      );
+    // Try each live endpoint in turn (primary -> fallback), mirroring the
+    // failover semantics of complete(); only drop to the stub if all fail.
+    let built: { result: LlmResult; toolCalls: BuilderToolCall[] } | null = null;
+    for (let i = 0; i < builderEndpoints.length; i++) {
+      const ep = builderEndpoints[i];
+      try {
+        built = await runBuilderCompletion({
+          tenantId: args.tenantId,
+          runId: args.runId,
+          agentId: args.agentId,
+          agentName: args.agentName,
+          actorUserId: args.actorUserId ?? "",
+          endpoint: ep.endpoint,
+          apiKey: ep.apiKey,
+          task: args.task,
+          systemPrompt: args.systemPrompt,
+          sharedBlock,
+          temperature,
+          maxTokens,
+        });
+        if (i > 0) {
+          await logEvent(
+            args.tenantId,
+            args.runId,
+            "model.fallback",
+            `${args.agentName}: builder primary endpoint failed; used fallback "${ep.endpoint.name}"`,
+            "warn",
+            { agentId: args.agentId },
+          );
+        }
+        break;
+      } catch (err) {
+        await logEvent(
+          args.tenantId,
+          args.runId,
+          "agent.builder.failed",
+          `${args.agentName} builder loop failed on "${ep.endpoint.name}": ${String(err)}`,
+          "warn",
+          { agentId: args.agentId },
+        );
+      }
+    }
+    if (built) {
+      result = built.result;
+      builderToolCalls = built.toolCalls;
+    } else {
       result = stubComplete(llmReq, args.agentName);
     }
   } else if (primary) {
@@ -1082,6 +1162,29 @@ async function runAgent(args: RunAgentArgs): Promise<{
     agentId: args.agentId,
     agentRunId: agentRun.id,
   });
+
+  // Surface each builder tool call (and its outcome) as its own run-visible
+  // fragment so the transcript shows the concrete build/verify steps the agent
+  // took, not just the final summary. Summaries are secret-scrubbed upstream.
+  if (builderToolCalls.length > 0) {
+    await db.insert(contextFragmentsTable).values(
+      builderToolCalls.map((tc) => ({
+        tenantId: args.tenantId,
+        runId: args.runId,
+        traceId: args.traceId,
+        type: "summary" as const,
+        source: `tool:${tc.name}`,
+        content: `${tc.name} ${tc.ok ? "ok" : "failed"}: ${tc.summary}`,
+        tokens: 0,
+        relevanceScore: 60,
+        selected: true,
+        sensitivity: "internal" as const,
+        redacted: false,
+        agentId: args.agentId,
+        agentRunId: agentRun.id,
+      })),
+    );
+  }
 
   const agentObs = await recordObservation({
     tenantId: args.tenantId,

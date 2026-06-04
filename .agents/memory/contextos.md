@@ -207,10 +207,3 @@ In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dia
 `split(`→`splln`, `limit(`→`limln`). The `read` tool returns correct content. **How to apply:**
 use `read` for exact strings before editing; don't trust rg/bash output for verbatim identifiers.
 No test runner is configured — bundle standalone checks with esbuild (`scripts/verify-isolation.ts`).
-
-## Constructed-server provenance (createdVia)
-`createdVia` is NOT a top-level adapters column — it lives in `adapters.metadata_json->>'createdVia'`.
-callTool builder/bot handlers (create_web_mcp_server, register_mcp_server, import_openapi_tools) tag
-`"agent"`; the UI constructedServers route tags `"ui"`. The dashboard callout / Build MCP "Built by bot"
-badge read this field. **Why:** a drizzle `eq(adaptersTable.createdVia,...)` silently emits empty SQL
-(the property doesn't exist) — query the JSON path instead.
