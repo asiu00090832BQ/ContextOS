@@ -38,3 +38,8 @@ externalPort = 3002
 [[ports]]
 localPort = 21736
 externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+TELEGRAM_WEBHOOK_SECRET = "4a79f5ec8a0a26eb0e9b11ba671db53c09598d6d1f6a47e82fd70bc168fe2927"

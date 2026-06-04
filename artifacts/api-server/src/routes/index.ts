@@ -17,11 +17,16 @@ import commandsRouter from "./commands";
 import mcpRouter from "./mcp";
 import integrationsRouter from "./integrations";
 import observabilityRouter from "./observability";
+import { telegramWebhookRouter, telegramAdminRouter } from "./telegram";
 
 const router: IRouter = Router();
 
 // Health stays unauthenticated and outside tenant scope.
 router.use(healthRouter);
+
+// The Telegram webhook must stay outside tenant context / API-key auth — it is
+// authenticated solely by the Telegram secret-token header.
+router.use(telegramWebhookRouter);
 
 // All domain routers are tenant-scoped (single auto-bootstrapped owner + tenant).
 router.use(tenantContext);
@@ -41,5 +46,6 @@ router.use(commandsRouter);
 router.use(mcpRouter);
 router.use(integrationsRouter);
 router.use(observabilityRouter);
+router.use(telegramAdminRouter);
 
 export default router;
