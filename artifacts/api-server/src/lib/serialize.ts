@@ -309,6 +309,7 @@ export function serializeAgent(
     capabilityScope: a.capabilityScope ?? null,
     contextPolicy: a.contextPolicy,
     exposeAsCapabilityProvider: a.exposeAsCapabilityProvider,
+    canBuildIntegrations: a.canBuildIntegrations,
     isActive: a.isActive,
     modelPolicy: modelPolicy ? serializeModelPolicy(modelPolicy) : undefined,
     createdAt: a.createdAt,

@@ -1139,6 +1139,7 @@ export const ListAgentsResponseItem = zod.object({
   "capabilityScope": zod.array(zod.string()).nullish(),
   "contextPolicy": zod.string(),
   "exposeAsCapabilityProvider": zod.boolean().optional(),
+  "canBuildIntegrations": zod.boolean().optional(),
   "isActive": zod.boolean(),
   "modelPolicy": zod.object({
   "id": zod.string(),
@@ -1163,7 +1164,8 @@ export const CreateAgentBody = zod.object({
   "systemPrompt": zod.string().optional(),
   "capabilityScope": zod.array(zod.string()).optional(),
   "contextPolicy": zod.string().optional(),
-  "exposeAsCapabilityProvider": zod.boolean().optional()
+  "exposeAsCapabilityProvider": zod.boolean().optional(),
+  "canBuildIntegrations": zod.boolean().optional()
 })
 
 
@@ -1180,6 +1182,7 @@ export const GetAgentResponse = zod.object({
   "capabilityScope": zod.array(zod.string()).nullish(),
   "contextPolicy": zod.string(),
   "exposeAsCapabilityProvider": zod.boolean().optional(),
+  "canBuildIntegrations": zod.boolean().optional(),
   "isActive": zod.boolean(),
   "modelPolicy": zod.object({
   "id": zod.string(),
@@ -1207,7 +1210,8 @@ export const UpdateAgentBody = zod.object({
   "capabilityScope": zod.array(zod.string()).optional(),
   "contextPolicy": zod.string().optional(),
   "isActive": zod.boolean().optional(),
-  "exposeAsCapabilityProvider": zod.boolean().optional()
+  "exposeAsCapabilityProvider": zod.boolean().optional(),
+  "canBuildIntegrations": zod.boolean().optional()
 })
 
 export const UpdateAgentResponse = zod.object({
@@ -1219,6 +1223,7 @@ export const UpdateAgentResponse = zod.object({
   "capabilityScope": zod.array(zod.string()).nullish(),
   "contextPolicy": zod.string(),
   "exposeAsCapabilityProvider": zod.boolean().optional(),
+  "canBuildIntegrations": zod.boolean().optional(),
   "isActive": zod.boolean(),
   "modelPolicy": zod.object({
   "id": zod.string(),

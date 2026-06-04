@@ -79,6 +79,9 @@ export const agentsTable = pgTable(
     exposeAsCapabilityProvider: boolean("expose_as_capability_provider")
       .notNull()
       .default(false),
+    canBuildIntegrations: boolean("can_build_integrations")
+      .notNull()
+      .default(false),
     isActive: boolean("is_active").notNull().default(true),
     metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true })

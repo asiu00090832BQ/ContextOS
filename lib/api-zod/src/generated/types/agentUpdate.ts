@@ -15,4 +15,5 @@ export interface AgentUpdate {
   contextPolicy?: string;
   isActive?: boolean;
   exposeAsCapabilityProvider?: boolean;
+  canBuildIntegrations?: boolean;
 }

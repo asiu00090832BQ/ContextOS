@@ -45,6 +45,7 @@ const EMPTY_FORM = {
   contextPolicy: "isolated",
   capabilityScope: "",
   exposeAsCapabilityProvider: false,
+  canBuildIntegrations: false,
 };
 
 export function Agents() {
@@ -78,6 +79,7 @@ export function Agents() {
           contextPolicy: formData.contextPolicy,
           capabilityScope: scope.length > 0 ? scope : undefined,
           exposeAsCapabilityProvider: formData.exposeAsCapabilityProvider,
+          canBuildIntegrations: formData.canBuildIntegrations,
         },
       });
       toast({ title: "Agent created" });
@@ -233,6 +235,20 @@ export function Agents() {
                   className="h-4 w-4 rounded border"
                 />
                 Expose this agent as a capability other agents can call
+              </label>
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.canBuildIntegrations}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      canBuildIntegrations: e.target.checked,
+                    })
+                  }
+                  className="h-4 w-4 rounded border"
+                />
+                Let this agent build MCP servers/tools during a run
               </label>
               <button
                 disabled={createMutation.isPending}

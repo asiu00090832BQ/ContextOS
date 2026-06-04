@@ -15,4 +15,5 @@ export interface AgentInput {
   capabilityScope?: string[];
   contextPolicy?: string;
   exposeAsCapabilityProvider?: boolean;
+  canBuildIntegrations?: boolean;
 }

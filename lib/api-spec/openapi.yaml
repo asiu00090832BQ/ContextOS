@@ -2307,6 +2307,7 @@ components:
         capabilityScope: { type: ["array", "null"], items: { type: string } }
         contextPolicy: { type: string }
         exposeAsCapabilityProvider: { type: boolean }
+        canBuildIntegrations: { type: boolean }
         isActive: { type: boolean }
         modelPolicy: { $ref: "#/components/schemas/AgentModelPolicy" }
         createdAt: { type: string, format: date-time }
@@ -2321,6 +2322,7 @@ components:
         capabilityScope: { type: array, items: { type: string } }
         contextPolicy: { type: string }
         exposeAsCapabilityProvider: { type: boolean }
+        canBuildIntegrations: { type: boolean }
     AgentUpdate:
       type: object
       properties:
@@ -2331,6 +2333,7 @@ components:
         contextPolicy: { type: string }
         isActive: { type: boolean }
         exposeAsCapabilityProvider: { type: boolean }
+        canBuildIntegrations: { type: boolean }
 
     AgentModelPolicy:
       type: object

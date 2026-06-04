@@ -98,6 +98,7 @@ router.post("/agents", async (req, res): Promise<void> => {
       capabilityScope: parsed.data.capabilityScope ?? null,
       contextPolicy: (parsed.data.contextPolicy as ContextPolicy) ?? "isolated",
       exposeAsCapabilityProvider: parsed.data.exposeAsCapabilityProvider ?? false,
+      canBuildIntegrations: parsed.data.canBuildIntegrations ?? false,
     })
     .returning();
   res.status(201).json(GetAgentResponse.parse(serializeAgent(row)));
@@ -142,6 +143,9 @@ router.patch("/agents/:id", async (req, res): Promise<void> => {
       ...(parsed.data.isActive !== undefined ? { isActive: parsed.data.isActive } : {}),
       ...(parsed.data.exposeAsCapabilityProvider !== undefined
         ? { exposeAsCapabilityProvider: parsed.data.exposeAsCapabilityProvider }
+        : {}),
+      ...(parsed.data.canBuildIntegrations !== undefined
+        ? { canBuildIntegrations: parsed.data.canBuildIntegrations }
         : {}),
     })
     .where(and(eq(agentsTable.id, params.data.id), eq(agentsTable.tenantId, req.tenantId)))

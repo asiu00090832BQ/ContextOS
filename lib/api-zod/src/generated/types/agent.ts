@@ -19,6 +19,7 @@ export interface Agent {
   capabilityScope?: string[] | null;
   contextPolicy: string;
   exposeAsCapabilityProvider?: boolean;
+  canBuildIntegrations?: boolean;
   isActive: boolean;
   modelPolicy?: AgentModelPolicy;
   createdAt: Date;

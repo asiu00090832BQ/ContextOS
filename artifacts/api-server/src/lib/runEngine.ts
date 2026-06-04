@@ -34,6 +34,12 @@ import { complete, stubComplete, type LlmResult } from "./llm";
 import { resolveSecret } from "./secretStore";
 import { parseRecipe } from "./webTools";
 import { executeCapabilityRow } from "./capabilityExec";
+import {
+  runToolChat,
+  MANAGED_ANTHROPIC_REF,
+  type ToolSpec,
+} from "./toolChat";
+import { listToolsForTenant, callTool, McpToolError } from "./mcpServer";
 import { adaptersTable, type Adapter } from "@workspace/db";
 import {
   assembleVisibleContext,
@@ -238,6 +244,8 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
         task: `Plan and coordinate: ${intent.goal}`,
         systemPrompt: lead.systemPrompt,
         contextPolicy: lead.contextPolicy,
+        canBuildIntegrations: lead.canBuildIntegrations,
+        actorUserId: intent.createdBy ?? "",
       });
       totalTokens += leadResult.tokensUsed;
       totalCost += leadResult.costUsdMicros;
@@ -270,6 +278,8 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
           systemPrompt: w.systemPrompt,
           contextPolicy: w.contextPolicy,
           parentAgentRunId: leadResult.agentRunId,
+          canBuildIntegrations: w.canBuildIntegrations,
+          actorUserId: intent.createdBy ?? "",
         });
         totalTokens += wr.tokensUsed;
         totalCost += wr.costUsdMicros;
@@ -642,6 +652,174 @@ function buildFragments(intent: Intent) {
   ];
 }
 
+// Builder agents may invoke ONLY these meta-tools during a run: the MCP
+// build/import tools plus their verification counterparts and a few read-only
+// discovery tools. Arbitrary (possibly destructive) constructed capabilities
+// are never exposed here — the loop is for building & verifying integrations.
+const BUILDER_TOOL_NAMES = new Set([
+  "create_web_mcp_server",
+  "register_mcp_server",
+  "add_web_mcp_tool",
+  "import_openapi_tools",
+  "test_web_tool",
+  "retest_web_server",
+  "list_adapters",
+  "list_capabilities",
+  "list_intents",
+]);
+
+const BUILDER_MAX_ITERATIONS = 8;
+
+const BUILDER_SYSTEM_PROMPT =
+  "You are an autonomous integration builder running inside a ContextOS run. " +
+  "To accomplish the task you may build new MCP servers and web tools using ONLY these tools: " +
+  "create_web_mcp_server, register_mcp_server, add_web_mcp_tool, import_openapi_tools, test_web_tool, retest_web_server, " +
+  "plus list_adapters / list_capabilities / list_intents to inspect what already exists. " +
+  "Prefer reusing an existing server or tool over creating a duplicate. " +
+  "After you create or import a web tool, dry-run it with test_web_tool using sample arguments and only rely on it once it succeeds; " +
+  "if it fails, correct the path/query/headers/auth and test again. " +
+  "Only safe read/list operations are auto-invoked during verification — never assume a write or destructive tool works without explicit user approval. " +
+  "When you are done, briefly summarize which servers/tools you built or reused and their verification status.";
+
+/**
+ * A model endpoint is "live" (will not produce a deterministic stub) when it is
+ * the managed Anthropic endpoint, has a resolvable API key, or targets a
+ * keyless/explicit endpoint. Mirrors the stub decision in llm.complete().
+ */
+function endpointIsLive(
+  endpoint: ModelEndpoint | null,
+  apiKey: string | null,
+): boolean {
+  if (!endpoint) return false;
+  if (endpoint.apiKeyRef === MANAGED_ANTHROPIC_REF) return true;
+  if (apiKey) return true;
+  if (endpoint.providerType === "openai_compatible") return true;
+  if (endpoint.baseUrl?.trim() || endpoint.host?.trim()) return true;
+  return false;
+}
+
+/**
+ * Run an agentic tool-calling loop that lets a builder agent construct and
+ * verify MCP servers/tools during a run. Returns an LlmResult-shaped value so
+ * the surrounding runAgent bookkeeping (agent run, fragment, observations) is
+ * unchanged. Each tool call is logged to the run transcript.
+ */
+async function runBuilderCompletion(args: {
+  tenantId: string;
+  runId: string;
+  agentId: string;
+  agentName: string;
+  actorUserId: string;
+  endpoint: ModelEndpoint;
+  apiKey: string | null;
+  task: string;
+  systemPrompt: string | null;
+  sharedBlock: string;
+  temperature: number | undefined;
+  maxTokens: number | undefined;
+}): Promise<LlmResult> {
+  const start = Date.now();
+  const catalog = await listToolsForTenant(args.tenantId);
+  const tools: ToolSpec[] = catalog
+    .filter((t) => BUILDER_TOOL_NAMES.has(t.name))
+    .map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema:
+        (t.inputSchema as unknown as Record<string, unknown>) ?? {
+          type: "object",
+        },
+    }));
+
+  const system =
+    (args.systemPrompt ? `${args.systemPrompt}\n\n` : "") +
+    BUILDER_SYSTEM_PROMPT +
+    (args.sharedBlock
+      ? `\n\nContext available to you:\n${args.sharedBlock}`
+      : "");
+
+  const result = await runToolChat({
+    endpoint: args.endpoint,
+    apiKey: args.apiKey,
+    system,
+    history: [{ role: "user", content: args.task }],
+    tools,
+    maxTokens: args.maxTokens ?? 4096,
+    maxIterations: BUILDER_MAX_ITERATIONS,
+    // resolveAgentModel already returns temperature in the 0..1 range.
+    temperature: args.temperature,
+    executeTool: async (name, toolArgs) => {
+      // Defense in depth: even though the model is only offered builder tools,
+      // refuse anything outside the allowlist so a hallucinated tool name can
+      // never reach an arbitrary (possibly destructive) constructed capability.
+      if (!BUILDER_TOOL_NAMES.has(name)) {
+        return {
+          content: `Tool "${name}" is not permitted for an autonomous builder agent.`,
+          isError: true,
+        };
+      }
+      try {
+        const out = await callTool(
+          args.tenantId,
+          args.actorUserId,
+          name,
+          toolArgs as Record<string, unknown>,
+        );
+        await logEvent(
+          args.tenantId,
+          args.runId,
+          "agent.tool_call",
+          `${args.agentName} called ${name}`,
+          "info",
+          // Log only the argument NAMES, never their values — builder tool args
+          // can carry credentials (e.g. create_web_mcp_server.secret) that must
+          // stay out of the event log / secret-store isolation boundary.
+          {
+            agentId: args.agentId,
+            data: { tool: name, argKeys: Object.keys(toolArgs ?? {}) },
+          },
+        );
+        return { content: JSON.stringify(out), isError: false };
+      } catch (err) {
+        const message =
+          err instanceof McpToolError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Tool execution failed.";
+        await logEvent(
+          args.tenantId,
+          args.runId,
+          "agent.tool_call",
+          `${args.agentName} call to ${name} failed: ${message}`,
+          "warn",
+          {
+            agentId: args.agentId,
+            data: { tool: name, argKeys: Object.keys(toolArgs ?? {}) },
+          },
+        );
+        return { content: message, isError: true };
+      }
+    },
+  });
+
+  const latencyMs = Date.now() - start;
+  const content = result.text || "(builder agent produced no summary)";
+  const promptTokens = Math.ceil((system.length + args.task.length) / 4);
+  const completionTokens = Math.max(1, Math.ceil(content.length / 4));
+  return {
+    content,
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens + completionTokens,
+    costUsdMicros: 0,
+    finishReason: "stop",
+    usedStub: false,
+    latencyMs,
+    timeToFirstTokenMs: Math.min(latencyMs, 80),
+  };
+}
+
 interface RunAgentArgs {
   tenantId: string;
   runId: string;
@@ -661,6 +839,8 @@ interface RunAgentArgs {
   systemPrompt: string | null;
   contextPolicy?: string | null;
   parentAgentRunId?: string;
+  canBuildIntegrations?: boolean;
+  actorUserId?: string;
 }
 
 async function runAgent(args: RunAgentArgs): Promise<{
@@ -785,11 +965,59 @@ async function runAgent(args: RunAgentArgs): Promise<{
   llmReq.temperature = temperature;
   llmReq.maxTokens = maxTokens;
 
+  const primaryKey = primary ? resolveSecret(primary.apiKeyRef) : null;
+  const fallbackKey = fallback ? resolveSecret(fallback.apiKeyRef) : null;
+
+  // Builder agents with a live (non-stub) model run an agentic tool-calling
+  // loop so they can actually construct & verify MCP servers/tools during the
+  // run. Everything else keeps the existing complete()/stub behavior intact.
+  const builder =
+    args.canBuildIntegrations && endpointIsLive(primary, primaryKey)
+      ? { endpoint: primary as ModelEndpoint, apiKey: primaryKey }
+      : args.canBuildIntegrations && endpointIsLive(fallback, fallbackKey)
+        ? { endpoint: fallback as ModelEndpoint, apiKey: fallbackKey }
+        : null;
+
   let result: LlmResult;
-  if (primary) {
-    result = await complete(primary, resolveSecret(primary.apiKeyRef), llmReq);
+  if (builder) {
+    await logEvent(
+      args.tenantId,
+      args.runId,
+      "agent.builder.started",
+      `${args.agentName} started an autonomous integration-builder loop`,
+      "info",
+      { agentId: args.agentId },
+    );
+    try {
+      result = await runBuilderCompletion({
+        tenantId: args.tenantId,
+        runId: args.runId,
+        agentId: args.agentId,
+        agentName: args.agentName,
+        actorUserId: args.actorUserId ?? "",
+        endpoint: builder.endpoint,
+        apiKey: builder.apiKey,
+        task: args.task,
+        systemPrompt: args.systemPrompt,
+        sharedBlock,
+        temperature,
+        maxTokens,
+      });
+    } catch (err) {
+      await logEvent(
+        args.tenantId,
+        args.runId,
+        "agent.builder.failed",
+        `${args.agentName} builder loop failed: ${String(err)}`,
+        "warn",
+        { agentId: args.agentId },
+      );
+      result = stubComplete(llmReq, args.agentName);
+    }
+  } else if (primary) {
+    result = await complete(primary, primaryKey, llmReq);
     if (result.usedStub && fallback) {
-      const fb = await complete(fallback, resolveSecret(fallback.apiKeyRef), llmReq);
+      const fb = await complete(fallback, fallbackKey, llmReq);
       if (!fb.usedStub) {
         await logEvent(
           args.tenantId,

@@ -592,6 +592,7 @@ export async function callTool(
           description: asString(args.description) ?? null,
           transport: "streamable_http",
           endpointUrl,
+          metadataJson: { createdVia: "agent" },
         })
         .returning();
       const result = await discoverAdapter(adapter.name, adapter.endpointUrl);

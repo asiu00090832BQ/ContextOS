@@ -561,6 +561,7 @@ export interface Agent {
   capabilityScope?: string[] | null;
   contextPolicy: string;
   exposeAsCapabilityProvider?: boolean;
+  canBuildIntegrations?: boolean;
   isActive: boolean;
   modelPolicy?: AgentModelPolicy;
   createdAt: string;
@@ -575,6 +576,7 @@ export interface AgentInput {
   capabilityScope?: string[];
   contextPolicy?: string;
   exposeAsCapabilityProvider?: boolean;
+  canBuildIntegrations?: boolean;
 }
 
 export interface AgentUpdate {
@@ -586,6 +588,7 @@ export interface AgentUpdate {
   contextPolicy?: string;
   isActive?: boolean;
   exposeAsCapabilityProvider?: boolean;
+  canBuildIntegrations?: boolean;
 }
 
 export interface AgentModelPolicyInput {
