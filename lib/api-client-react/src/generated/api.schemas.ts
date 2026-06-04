@@ -154,6 +154,8 @@ export interface Adapter {
   /** @nullable */
   allowPrivateNetwork?: boolean | null;
   /** @nullable */
+  createdVia?: string | null;
+  /** @nullable */
   lastDiscoveredAt?: string | null;
   /** @nullable */
   lastHealthAt?: string | null;

@@ -599,6 +599,7 @@ export async function callTool(
             authType,
             authName: asString(args.authName) ?? null,
             allowPrivateNetwork: args.allowPrivateNetwork === true,
+            createdVia: "agent",
           },
         })
         .returning();
@@ -709,7 +710,11 @@ export async function callTool(
             endpointUrl: asString(args.baseUrl) ?? "",
             status: "active",
             protocolVersion: "constructed/1.0",
-            metadataJson: { authType: "none", allowPrivateNetwork: false },
+            metadataJson: {
+              authType: "none",
+              allowPrivateNetwork: false,
+              createdVia: "agent",
+            },
           })
           .returning();
         adapter = created;

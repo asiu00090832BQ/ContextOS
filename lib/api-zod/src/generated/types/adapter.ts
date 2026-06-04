@@ -25,6 +25,8 @@ export interface Adapter {
   /** @nullable */
   allowPrivateNetwork?: boolean | null;
   /** @nullable */
+  createdVia?: string | null;
+  /** @nullable */
   lastDiscoveredAt?: Date | null;
   /** @nullable */
   lastHealthAt?: Date | null;

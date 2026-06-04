@@ -10,6 +10,7 @@ import {
   useSetConstructedServerAuth,
   useDeleteCapability,
   useInvokeCapability,
+  useDeleteAdapter,
 } from "@workspace/api-client-react";
 import type {
   AdapterDetail,
@@ -35,7 +36,14 @@ import {
   ShieldCheck,
   Play,
   FileJson,
+  Bot,
 } from "lucide-react";
+
+const botBadge = (
+  <span className="flex items-center gap-1 text-xs font-medium bg-violet-500/15 text-violet-500 px-2 py-0.5 rounded">
+    <Bot className="w-3 h-3" /> Built by bot
+  </span>
+);
 
 const inputClass = "w-full p-2 rounded-md border bg-background text-sm";
 const labelClass = "text-sm font-medium";
@@ -193,12 +201,15 @@ export function BuildMcp() {
                   : "border-border hover:border-primary/50"
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="font-medium">{a.name}</span>
-                <span className="text-xs font-mono bg-muted px-2 py-0.5 rounded">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium truncate">{a.name}</span>
+                <span className="text-xs font-mono bg-muted px-2 py-0.5 rounded shrink-0">
                   {a.capabilityCount ?? 0} tools
                 </span>
               </div>
+              {a.createdVia === "agent" && (
+                <div className="mt-1.5">{botBadge}</div>
+              )}
               <div className="text-xs text-muted-foreground font-mono truncate mt-1">
                 {a.endpointUrl}
               </div>
@@ -208,7 +219,7 @@ export function BuildMcp() {
 
         <div className="lg:col-span-2">
           {selectedId ? (
-            <ServerPanel id={selectedId} />
+            <ServerPanel id={selectedId} onDeleted={() => setSelectedId(null)} />
           ) : (
             <div className="p-8 text-center text-muted-foreground bg-muted/20 border border-dashed rounded-lg">
               Select or create a server to manage its tools.
@@ -220,11 +231,18 @@ export function BuildMcp() {
   );
 }
 
-function ServerPanel({ id }: { id: string }) {
+function ServerPanel({
+  id,
+  onDeleted,
+}: {
+  id: string;
+  onDeleted: () => void;
+}) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useGetAdapter(id, {
     query: { queryKey: getGetAdapterQueryKey(id) },
   });
+  const deleteAdapterMutation = useDeleteAdapter();
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getGetAdapterQueryKey(id) });
     queryClient.invalidateQueries({ queryKey: getListAdaptersQueryKey() });
@@ -233,19 +251,60 @@ function ServerPanel({ id }: { id: string }) {
   if (isLoading) return <Skeleton className="w-full h-64" />;
   if (!data) return null;
   const adapter = data as AdapterDetail;
+  const isBot = adapter.createdVia === "agent";
+
+  const handleDeleteServer = async () => {
+    if (
+      !confirm(
+        `Delete server "${adapter.name}" and all of its tools? This cannot be undone.`,
+      )
+    )
+      return;
+    try {
+      await deleteAdapterMutation.mutateAsync({ id });
+      toast({ title: "Server deleted" });
+      queryClient.invalidateQueries({ queryKey: getListAdaptersQueryKey() });
+      onDeleted();
+    } catch (error) {
+      toast({
+        title: "Failed to delete server",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader className="pb-2 border-b border-border/50">
-          <CardTitle className="flex items-center justify-between">
-            <span>{adapter.name}</span>
-            <span className="text-xs font-mono font-normal bg-muted px-2 py-1 rounded">
-              auth: {adapter.authType ?? "none"}
+          <CardTitle className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="truncate">{adapter.name}</span>
+              {isBot && botBadge}
+            </span>
+            <span className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-mono font-normal bg-muted px-2 py-1 rounded">
+                auth: {adapter.authType ?? "none"}
+              </span>
+              <button
+                onClick={handleDeleteServer}
+                disabled={deleteAdapterMutation.isPending}
+                title="Delete server"
+                className="flex items-center gap-1 px-2 py-1 text-xs rounded-md border text-muted-foreground hover:text-destructive hover:border-destructive/50 disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete
+              </button>
             </span>
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-4 text-sm text-muted-foreground font-mono">
+          {isBot && (
+            <p className="font-sans text-xs text-violet-500 mb-2">
+              This server was built by the assistant. Review its tools, test
+              them, fix auth, or delete what you don't need.
+            </p>
+          )}
           {adapter.endpointUrl}
           {adapter.allowPrivateNetwork ? (
             <span className="ml-2 text-amber-500">• private network allowed</span>

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useListAdapters, getListAdaptersQueryKey, useCreateAdapter, useDeleteAdapter } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Cable, Plus, Trash2 } from "lucide-react";
+import { Cable, Plus, Trash2, Bot } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
@@ -96,8 +96,15 @@ export function Adapters() {
           <Link key={adapter.id} href={`/adapters/${adapter.id}`}>
             <Card className="bg-card hover:border-primary/50 transition-colors cursor-pointer relative group h-full">
               <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-border/50">
-                <CardTitle className="text-lg font-medium">{adapter.name}</CardTitle>
-                <Cable className="h-4 w-4 text-primary" />
+                <CardTitle className="text-lg font-medium flex items-center gap-2 min-w-0">
+                  <span className="truncate">{adapter.name}</span>
+                  {adapter.createdVia === "agent" && (
+                    <span className="flex items-center gap-1 text-xs font-medium bg-violet-500/15 text-violet-500 px-2 py-0.5 rounded shrink-0">
+                      <Bot className="w-3 h-3" /> Built by bot
+                    </span>
+                  )}
+                </CardTitle>
+                <Cable className="h-4 w-4 text-primary shrink-0" />
               </CardHeader>
               <CardContent className="pt-4 flex flex-col gap-2">
                 <div className="flex justify-between items-center">

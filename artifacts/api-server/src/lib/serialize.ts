@@ -58,6 +58,10 @@ export function serializeAdapter(
     allowPrivateNetwork:
       ((a.metadataJson as Record<string, unknown> | null)
         ?.allowPrivateNetwork as boolean | undefined) ?? null,
+    createdVia:
+      ((a.metadataJson as Record<string, unknown> | null)?.createdVia as
+        | string
+        | undefined) ?? null,
     lastDiscoveredAt: a.lastDiscoveredAt ?? null,
     lastHealthAt: a.lastHealthAt ?? null,
     capabilityCount: capabilityCount ?? null,

@@ -142,6 +142,15 @@ cannot set true secrets programmatically (only `requestEnvVar` from user) — de
 is the pattern for generated stable secrets. Also: provider tool-name de-dup must truncate+counter
 (`base.slice(0, 64-suffixLen)+suffix`); a plain `+"_"` loops forever once the name hits the 64-char cap.
 
+## Constructed-server origin flag (agent vs UI)
+Constructed adapters carry no top-level "who made this" column; origin is tracked via
+`metadataJson.createdVia` = `"agent"` (set by the bot tools in `lib/mcpServer.ts`) or `"ui"`
+(set by the UI create route in `routes/constructedServers.ts`). Surfaced through
+`serializeAdapter` → OpenAPI `Adapter.createdVia` → web badge "Built by bot" (Build MCP + Adapters
+lists). **Why:** no migration needed and consistent with how authType/allowPrivateNetwork already
+live in metadataJson. **How to apply:** any NEW constructed-adapter insert path must set
+`createdVia` or its servers render unflagged (legacy rows have null → treated as manual).
+
 ## On-the-fly web-MCP construction is exposed as built-in agent tools
 The agent (over Telegram or any MCP client) builds brand-new web-service MCPs through built-in
 tools in `lib/mcpServer.ts` (`create_web_mcp_server`, `add_web_mcp_tool`, `import_openapi_tools`)

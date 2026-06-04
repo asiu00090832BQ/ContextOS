@@ -84,6 +84,7 @@ router.post("/constructed-servers", async (req, res): Promise<void> => {
       metadataJson: {
         authType: "none",
         allowPrivateNetwork: parsed.data.allowPrivateNetwork === true,
+        createdVia: "ui",
       },
     })
     .returning();
