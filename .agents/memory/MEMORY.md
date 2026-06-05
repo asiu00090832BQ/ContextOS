@@ -4,3 +4,4 @@
 - [Run engine on LangGraph](contextos-langgraph.md) — runEngine is a LangGraph StateGraph; resume uses DB-as-checkpoint (no in-memory checkpointer); runAgent builder loop is pre-existing, not new.
 - [ContextOS bot as first-class agent](contextos-bot-agent.md) — restricted agent, fail-closed BOT_ALLOWED_TOOLS allow-list by caller kind; own agentId memory partition.
 - [LLM call paths](llm-call-paths.md) — two independent provider dispatch paths (bot runToolChat vs agent llm.ts complete); endpoint/provider routing changes must hit BOTH.
+- [Telegram webhook](contextos-telegram-webhook.md) — bot "stops working" = stale dev-domain webhook 404; re-register via POST /api/telegram/set-webhook; secret is HMAC(token).
