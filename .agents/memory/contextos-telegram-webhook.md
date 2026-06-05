@@ -15,6 +15,8 @@ Telegram delivers updates to a **registered webhook URL**. ContextOS registers t
 
 **Webhook secret:** there is no separate stored secret — it is derived deterministically as `HMAC_SHA256(TELEGRAM_BOT_TOKEN, "contextos-telegram-webhook")` (hex). To test the webhook end-to-end without exposing the secret, compute it in a `node -e` one-liner (env has the token) and pass it as the `x-telegram-bot-api-secret-token` header. Never print it.
 
-**Durable fix:** point the webhook at the **published deployment** URL (stable `.replit.app`) instead of the dev domain, so it survives dev sleeps/rotations. The deployed api-server runs the same webhook + tool loop with the same `TELEGRAM_BOT_TOKEN`.
+**Durable fix:** point the webhook at the **published deployment** URL (stable `.replit.app`) instead of the dev domain, so it survives dev sleeps/rotations. The deployed api-server runs the same webhook + tool loop with the same `TELEGRAM_BOT_TOKEN`. After publishing, repoint: `getDeploymentInfo().primaryUrl` + `/api/telegram/webhook` via the set-webhook admin route (or the bot client `setWebhook`).
+
+**Deployment target MUST be VM (Reserved VM), not Autoscale.** The webhook handler ACKs Telegram with `200` immediately and then does the LLM/tool work + `sendMessage` in a fire-and-forget `void (async () => …)()`. On autoscale the instance can scale down right after the response, killing that pending async work — the bot would receive messages but never reply. VM is always-on so the async reply always completes. The machine type is chosen by the **user in the Publish dialog** — the agent cannot set `deploymentTarget` (`.replit` is edit-locked; no `deployConfig` callback exists in this env).
 
 **Note:** Telegram already executes commands via the agentic tool loop (`handleTelegramMessage` → `runToolChat`, bot caller, `BOT_ALLOWED_TOOLS`). When the bot "won't do anything," check the webhook registration first — it is almost always delivery, not the model/tool path.
