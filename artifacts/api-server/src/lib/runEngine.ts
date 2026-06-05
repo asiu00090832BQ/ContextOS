@@ -290,7 +290,94 @@ async function orchestrateAgentsNode(state: RunStateT): Promise<Partial<RunState
     .from(agentsTable)
     .where(and(eq(agentsTable.tenantId, tenantId), eq(agentsTable.isActive, true)))
     .orderBy(agentsTable.createdAt, agentsTable.id);
-  const lead = agents.find((a) => a.role === "lead") ?? agents[0];
+
+  // The QA/verifier agent never participates as a lead or worker. Instead it
+  // exclusively reviews the work the run's CODING agents produce (those flagged
+  // `canBuildIntegrations`), finding bugs and proposing changes — a strict QA
+  // pass over every coding agent's output. It is selected by its "verifier"
+  // role; when none is configured QA review is simply skipped.
+  const qaAgent = agents.find((a) => a.role === "verifier");
+  const workforce = agents.filter((a) => a.id !== qaAgent?.id);
+
+  // Run the QA agent against one coding agent's output. The producer's work is
+  // handed to QA through the SANCTIONED context broker — an explicit, per-
+  // producer `shared_context_grant` — instead of injecting raw output into the
+  // prompt, so the isolation chokepoint still applies (sensitivity ceilings hold
+  // and redacted material never crosses). The QA call runs under a "brokered"
+  // policy so it sees exactly the granted producer work and nothing else.
+  // Findings are recorded as an agent message (QA -> producer), an episodic
+  // working memory, and a run event so the critique is visible in the
+  // transcript. No-op for non-coding agents (only `canBuildIntegrations` agents
+  // are QA-gated) or when no QA agent exists.
+  const reviewWithQA = async (
+    producer: (typeof agents)[number],
+    producerAgentRunId: string,
+  ): Promise<void> => {
+    if (!qaAgent || !producer.canBuildIntegrations) return;
+    // Grant QA visibility of this producer's run fragments (its output plus
+    // build/verify steps), capped at "internal" sensitivity. The broker enforces
+    // the ceiling and drops anything redacted, grant or not.
+    await db.insert(sharedContextGrantsTable).values({
+      tenantId,
+      runId,
+      fromAgentId: producer.id,
+      toAgentId: qaAgent.id,
+      mode: "shared_full",
+      maxSensitivity: "internal",
+      note: `QA review of ${producer.name}`,
+    });
+    const review = await runAgent({
+      tenantId,
+      runId,
+      traceId,
+      parentObsId: rootObs,
+      agentId: qaAgent.id,
+      agentName: qaAgent.name,
+      role: qaAgent.role,
+      task:
+        `Strict QA review. The coding agent "${producer.name}" produced work ` +
+        `for the goal "${intent.goal}", shared into your context above. Perform ` +
+        `rigorous QA and critique testing: identify bugs, correctness and ` +
+        `edge-case issues, and list concrete, actionable change suggestions. If ` +
+        `the work is solid, say so explicitly.`,
+      systemPrompt: qaAgent.systemPrompt,
+      contextPolicy: "brokered",
+      parentAgentRunId: producerAgentRunId,
+      canBuildIntegrations: false,
+      actorUserId: intent.createdBy ?? "",
+    });
+    totalTokens += review.tokensUsed;
+    totalCost += review.costUsdMicros;
+    obsCount++;
+    await db.insert(agentMessagesTable).values({
+      tenantId,
+      runId,
+      fromAgentId: qaAgent.id,
+      toAgentId: producer.id,
+      fromAgentRunId: review.agentRunId,
+      toAgentRunId: producerAgentRunId,
+      messageType: "qa_review",
+      content: review.content,
+    });
+    await db.insert(workingMemoriesTable).values({
+      tenantId,
+      runId,
+      type: "episodic",
+      key: `qa.review.${producerAgentRunId}`,
+      value: `QA agent "${qaAgent.name}" reviewed work by coding agent "${producer.name}" and recorded bug/change findings.`,
+      sensitivity: "internal",
+      tags: ["qa", "review", producer.role],
+      metadataJson: {
+        qaAgentId: qaAgent.id,
+        qaAgentRunId: review.agentRunId,
+        reviewedAgentId: producer.id,
+        reviewedAgentRunId: producerAgentRunId,
+      },
+    });
+    await logEvent(tenantId, runId, "qa.review", `${qaAgent.name} QA-reviewed work by ${producer.name}`, "info", { agentId: qaAgent.id });
+  };
+
+  const lead = workforce.find((a) => a.role === "lead") ?? workforce[0];
 
   if (lead) {
     await db.update(runsTable).set({ leadAgentId: lead.id }).where(eq(runsTable.id, runId));
@@ -325,7 +412,10 @@ async function orchestrateAgentsNode(state: RunStateT): Promise<Partial<RunState
       metadataJson: { agentId: lead.id, agentRunId: leadResult.agentRunId },
     });
 
-    const workers = agents.filter((a) => a.id !== lead.id).slice(0, 2);
+    // QA reviews the lead's output when the lead is itself a coding agent.
+    await reviewWithQA(lead, leadResult.agentRunId);
+
+    const workers = workforce.filter((a) => a.id !== lead.id).slice(0, 2);
     for (const w of workers) {
       const wr = await runAgent({
         tenantId,
@@ -356,6 +446,9 @@ async function orchestrateAgentsNode(state: RunStateT): Promise<Partial<RunState
         content: `Delegating sub-task to ${w.name}: ${intent.goal}`,
       });
       await logEvent(tenantId, runId, "agent.message", `${lead.name} delegated to ${w.name}`, "info", { agentId: lead.id });
+
+      // QA reviews each worker's output when that worker is a coding agent.
+      await reviewWithQA(w, wr.agentRunId);
     }
   }
 
@@ -1079,6 +1172,7 @@ async function runAgent(args: RunAgentArgs): Promise<{
   agentRunId: string;
   tokensUsed: number;
   costUsdMicros: number;
+  content: string;
 }> {
   // Context isolation: assemble ONLY what this agent's policy permits it to see
   // from other agents in the run. This is the single enforcement chokepoint —
@@ -1410,5 +1504,6 @@ async function runAgent(args: RunAgentArgs): Promise<{
     agentRunId: agentRun.id,
     tokensUsed: result.totalTokens,
     costUsdMicros: result.costUsdMicros,
+    content: result.content,
   };
 }

@@ -29,7 +29,7 @@ include action/constructed/dynamic-capability tools.
 read helper; `includeShared = contextPolicy !== "isolated"`. The `/bot/*` routes
 mutate ONLY rows scoped to `tenantId + agentId=botId`.
 
-## Stale-cache trap (cost me a code-review fail)
+## Stale-cache trap
 `getContext()` caches the full `botAgent` row, and Telegram reads
 `botAgent.contextPolicy` when building the long-term memory block. After
 `PUT /bot/policy` updates the DB, that cached policy is STALE until restart.

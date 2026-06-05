@@ -1,5 +1,6 @@
 - [ContextOS conventions](contextos.md) — stack, enum-drift trap, route mounting, build/restart quirks, seed script location.
 - [Constructed MCP SSRF hardening](constructed-mcp-ssrf.md) — all constructed-tool fetches use safeFetch: per-hop redirect + DNS-pinned + browser page.route; opt-in allowPrivateNetwork relaxes it.
+- [Cross-agent sharing in runEngine](contextos-cross-agent-sharing.md) — hand off another agent's output via a shared_context_grant + brokered policy, never by embedding it in the prompt.
 - [Run engine on LangGraph](contextos-langgraph.md) — runEngine is a LangGraph StateGraph; resume uses DB-as-checkpoint (no in-memory checkpointer); runAgent builder loop is pre-existing, not new.
 - [ContextOS bot as first-class agent](contextos-bot-agent.md) — bot is a restricted agent (fail-closed BOT_ALLOWED_TOOLS by caller kind) with its own agentId memory partition; clearContextCache() after any bot-agent write.
 - [LLM call paths](llm-call-paths.md) — two independent provider dispatch paths (bot runToolChat vs agent llm.ts complete); endpoint/provider routing changes must hit BOTH.
