@@ -14,7 +14,17 @@ import { resolveSecret } from "./secretStore";
 import { runEvents, conversationEvents } from "./events";
 import { serializeConversationMessage } from "./serialize";
 import { getContext } from "./context";
+import {
+  listToolsForTenant,
+  callTool,
+  McpToolError,
+} from "./mcpServer";
+import { runToolChat, type ToolChatMessage, type ToolSpec } from "./toolChat";
 import { logger } from "./logger";
+
+// Agentic tool-calling loop bounds for the in-app Chat assistant (the bot).
+const BOT_MAX_TOKENS = 8192;
+const BOT_MAX_TOOL_ITERATIONS = 8;
 
 const DEFAULT_SYSTEM_PROMPT =
   "You are a helpful in-app assistant for ContextOS. Answer concisely and, " +
@@ -121,7 +131,14 @@ function trackRunForConversation(
   runId: string,
 ): void {
   let settled = false;
-  const unsubscribe = runEvents.subscribe(runId, (payload) => {
+  let unsubscribe: () => void = () => {};
+  const finalize = (): void => {
+    if (settled) return;
+    settled = true;
+    unsubscribe();
+    void finalizeRunMessage(tenantId, conversationId, runId);
+  };
+  unsubscribe = runEvents.subscribe(runId, (payload) => {
     const evt = payload as { type?: string };
     if (!evt?.type) return;
     if (evt.type === "run.waiting") {
@@ -134,12 +151,30 @@ function trackRunForConversation(
       return;
     }
     if (evt.type === "run.completed" || evt.type === "run.failed") {
-      if (settled) return;
-      settled = true;
-      unsubscribe();
-      void finalizeRunMessage(tenantId, conversationId, runId);
+      finalize();
     }
   });
+  // Tool-triggered runs (run_command / run_intent) start executing *before* we
+  // subscribe, so a fast run can reach a terminal state and emit its event
+  // before this listener attaches. Reconcile against the persisted run status
+  // so the completion follow-up is never missed.
+  void (async () => {
+    const [run] = await db
+      .select()
+      .from(runsTable)
+      .where(and(eq(runsTable.id, runId), eq(runsTable.tenantId, tenantId)));
+    if (!run || settled) return;
+    if (run.status === "completed" || run.status === "failed") {
+      finalize();
+    } else if (run.status === "waiting_approval") {
+      void postSystemMessage(
+        tenantId,
+        conversationId,
+        "The run is paused awaiting your approval. Review and approve it on the run card above to continue.",
+        runId,
+      );
+    }
+  })();
 }
 
 async function postSystemMessage(
@@ -212,6 +247,156 @@ async function kickOffRun(
   return run.id;
 }
 
+/** Stream a persisted agent message to live conversation listeners. */
+async function streamReply(
+  conversationId: string,
+  content: string,
+  row: typeof conversationMessagesTable.$inferSelect,
+): Promise<void> {
+  emit(conversationId, { kind: "reply.start", messageId: row.id, conversationId });
+  for (const chunk of chunkText(content)) {
+    emit(conversationId, { kind: "reply.chunk", messageId: row.id, delta: chunk });
+    await sleep(18);
+  }
+  emit(conversationId, {
+    kind: "reply.done",
+    message: serializeConversationMessage(row),
+  });
+}
+
+/**
+ * Run the in-app Chat assistant (the ContextOS bot) as a real agentic
+ * tool-calling loop — exactly like the Telegram surface — so a command typed in
+ * Chat actually executes: user message → MCP tool → platform → LLM, looping
+ * until the model produces a final answer. The bot decides when to call tools
+ * (it is gated to BOT_ALLOWED_TOOLS), and when it starts a run via run_command
+ * / run_intent we capture the returned runId to link an inline run card and
+ * post follow-up status messages, preserving the existing RunCard experience.
+ */
+async function generateBotToolReply(
+  tenantId: string,
+  conversationId: string,
+  userId: string | null,
+  botAgent: Agent,
+  history: (typeof conversationMessagesTable.$inferSelect)[],
+): Promise<void> {
+  const caller = { kind: "bot" as const, agentId: botAgent.id };
+
+  const catalog = await listToolsForTenant(tenantId, caller);
+  const tools: ToolSpec[] = catalog.map((t) => ({
+    name: t.name,
+    description: t.description,
+    inputSchema:
+      (t.inputSchema as unknown as Record<string, unknown>) ?? { type: "object" },
+  }));
+
+  const toolHistory: ToolChatMessage[] = [];
+  for (const m of history) {
+    if (m.role === "user") toolHistory.push({ role: "user", content: m.content });
+    else if (m.role === "agent")
+      toolHistory.push({ role: "assistant", content: m.content });
+    // System notes are not part of the model thread.
+  }
+
+  const { primary, temperature, maxTokens } = await resolveAgentModel(
+    tenantId,
+    botAgent.id,
+  );
+  const apiKey = primary ? resolveSecret(primary.apiKeyRef) : null;
+  const system = botAgent.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+
+  // The first run started by a tool call is linked to the reply for the inline
+  // RunCard; every run we see is tracked so its terminal state posts a
+  // follow-up message into the thread.
+  let linkedRunId: string | null = null;
+  const trackedRuns = new Set<string>();
+
+  let content = "";
+  // A live model reply attributes to its endpoint (or the managed default);
+  // a failure falls back to a stub-style notice so the UI badge reflects it.
+  // `usedEndpointName` is the endpoint that produced the reply (null on
+  // failure); `configuredEndpointName` is what the agent has configured, so the
+  // badge can show "configured endpoint failed" rather than "none configured".
+  let usedStub = false;
+  let usedEndpointName: string | null = primary?.name ?? "Managed Anthropic";
+  const configuredEndpointName: string | null = primary?.name ?? null;
+
+  try {
+    const result = await runToolChat({
+      endpoint: primary,
+      apiKey,
+      system,
+      history: toolHistory,
+      tools,
+      maxTokens: maxTokens ?? BOT_MAX_TOKENS,
+      maxIterations: BOT_MAX_TOOL_ITERATIONS,
+      temperature,
+      executeTool: async (name, args) => {
+        try {
+          const out = await callTool(tenantId, userId ?? "", name, args, caller);
+          // Capture any run kicked off by the tool so the conversation can
+          // render an inline run card and post follow-up status updates.
+          const runId = (out as { runId?: unknown })?.runId;
+          if (typeof runId === "string" && runId.length > 0) {
+            if (!linkedRunId) linkedRunId = runId;
+            if (!trackedRuns.has(runId)) {
+              trackedRuns.add(runId);
+              trackRunForConversation(tenantId, conversationId, runId);
+            }
+          }
+          return { content: JSON.stringify(out), isError: false };
+        } catch (err) {
+          const message =
+            err instanceof McpToolError
+              ? err.message
+              : err instanceof Error
+                ? err.message
+                : "Tool execution failed.";
+          return { content: message, isError: true };
+        }
+      },
+    });
+    content = result.text.trim();
+  } catch (err) {
+    logger.error({ err, conversationId }, "Web chat tool loop failed");
+    content =
+      "Sorry, I couldn't reach the configured model. Check this agent's model " +
+      "endpoint in ContextOS and try again.";
+    usedStub = true;
+    usedEndpointName = null;
+  }
+
+  if (!content) {
+    content = "Sorry, I couldn't produce a response. Please try again.";
+  }
+
+  // Always record the configured endpoint (even on failure) so the badge shows
+  // "configured endpoint failed" rather than implying none is configured.
+  const metadataJson: Record<string, unknown> | undefined =
+    usedEndpointName || configuredEndpointName
+      ? { modelEndpointName: usedEndpointName, configuredEndpointName }
+      : undefined;
+
+  const [row] = await db
+    .insert(conversationMessagesTable)
+    .values({
+      tenantId,
+      conversationId,
+      role: "agent",
+      content,
+      usedStub,
+      runId: linkedRunId,
+      metadataJson,
+    })
+    .returning();
+  await db
+    .update(conversationsTable)
+    .set({ updatedAt: new Date() })
+    .where(eq(conversationsTable.id, conversationId));
+
+  await streamReply(conversationId, content, row);
+}
+
 /**
  * Generate and stream an agent reply for the latest user message in a
  * conversation. Streams chunks over the conversation SSE bus, persists the
@@ -245,6 +430,15 @@ export async function generateAgentReply(
       .from(conversationMessagesTable)
       .where(eq(conversationMessagesTable.conversationId, conversationId))
       .orderBy(asc(conversationMessagesTable.createdAt));
+
+    // The default in-app Chat assistant IS the ContextOS bot. Route it through a
+    // real agentic tool-calling loop (same as Telegram) so typed commands
+    // actually execute via MCP → platform → LLM, instead of single-shot text.
+    const { botAgent } = await getContext();
+    if (agent && botAgent && agent.id === botAgent.id) {
+      await generateBotToolReply(tenantId, conversationId, userId, agent, history);
+      return;
+    }
 
     const llmMessages: LlmMessage[] = [
       { role: "system", content: agent?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT },
