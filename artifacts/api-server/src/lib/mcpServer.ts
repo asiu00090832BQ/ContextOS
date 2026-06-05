@@ -731,11 +731,26 @@ export async function callTool(
           executionJson: recipe as unknown as Record<string, unknown>,
         })
         .returning();
+      // Auto dry-run the new tool when it is a safe read/list operation so a
+      // broken base URL/auth/recipe is caught now instead of on the first real
+      // call. Reuses the shared smoke-test path + safe allowlist gate (read/list,
+      // riskTier L1, GET/HEAD, !humanReviewRequired); create/update/destructive
+      // tools are never auto-invoked. The outcome is recorded on the capability's
+      // lastTest via recordCapabilityTest so the tool shows verified/failed right
+      // away — the same check the UI single-tool route performs.
+      const smokeTest = await smokeTestImportedTools(adapter, [cap]);
+      const smokeTestHint = !smokeTest.ran
+        ? "Not auto-tested (create/update/destructive or non-GET tool). Verify it manually with test_web_tool before relying on it."
+        : smokeTest.ok
+          ? `Auto dry-run of "${smokeTest.tool}" succeeded — the base URL and auth look correct.`
+          : `Auto dry-run of "${smokeTest.tool}" FAILED (${smokeTest.error ?? `HTTP ${smokeTest.status}`}). Fix the base URL/auth/recipe and re-test before relying on this tool.`;
       return {
         capabilityId: cap.id,
         name: cap.name,
         adapterId: adapter.id,
         note: "This tool is now callable in this conversation.",
+        smokeTest,
+        smokeTestHint,
       };
     }
     case "import_openapi_tools": {
