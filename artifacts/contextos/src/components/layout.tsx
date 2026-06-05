@@ -10,12 +10,10 @@ import { toast } from "@/hooks/use-toast";
 import {
   LayoutDashboard,
   Cable,
-  Zap,
   ListTree,
   Activity,
   Database,
   KeyRound,
-  Network,
   Cpu,
   Microscope,
   Settings,
@@ -25,7 +23,6 @@ import {
   ScrollText,
   Gauge,
   Radio,
-  Wrench,
   MessageSquare,
   Send,
 } from "lucide-react";
@@ -48,10 +45,7 @@ const navGroups: NavGroup[] = [
   {
     title: "Tools & Connections",
     items: [
-      { href: "/build-mcp", label: "Build MCP", icon: Wrench },
-      { href: "/adapters", label: "Adapters", icon: Cable },
-      { href: "/capabilities", label: "Capabilities", icon: Zap },
-      { href: "/integrations", label: "Integrations", icon: Network },
+      { href: "/servers", label: "MCP Servers", icon: Cable },
       { href: "/linked-accounts", label: "Accounts", icon: KeyRound },
     ],
   },
@@ -120,7 +114,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           added === 1
             ? "The assistant built a new web service"
             : `The assistant built ${added} new web services`,
-        description: "Open Build MCP to review them.",
+        description: "Open MCP Servers to review them.",
       });
     }
     prevCountRef.current = newBotServerCount;
@@ -149,7 +143,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               {group.items.map((item) => {
                 const isActive = isItemActive(location, item.href);
                 const badgeCount =
-                  item.href === "/build-mcp" ? newBotServerCount : 0;
+                  item.href === "/servers" ? newBotServerCount : 0;
                 return (
                   <Link
                     key={item.href}

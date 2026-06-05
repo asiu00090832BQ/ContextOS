@@ -6,10 +6,7 @@ import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
 import { Dashboard } from "@/pages/dashboard";
 import { LinkedAccounts } from "@/pages/linked-accounts";
-import { Adapters } from "@/pages/adapters";
-import { BuildMcp } from "@/pages/build-mcp";
-import { AdapterDetail } from "@/pages/adapter-detail";
-import { Capabilities } from "@/pages/capabilities";
+import { Servers } from "@/pages/servers";
 import { Intents } from "@/pages/intents";
 import { IntentDetail } from "@/pages/intent-detail";
 import { Runs } from "@/pages/runs";
@@ -24,9 +21,6 @@ import { AgentDetail } from "@/pages/agent-detail";
 import { ModelEndpoints } from "@/pages/model-endpoints";
 import { ApiKeys } from "@/pages/api-keys";
 import { RemoteAccess } from "@/pages/remote-access";
-import { Integrations } from "@/pages/integrations";
-import { BlueprintDetail } from "@/pages/blueprint-detail";
-import { GeneratedServerDetail } from "@/pages/generated-server-detail";
 import { Observability } from "@/pages/observability";
 import { TraceDetail } from "@/pages/trace-detail";
 import { Evaluations } from "@/pages/evaluations";
@@ -48,10 +42,7 @@ function Router() {
         <Route path="/" component={Dashboard} />
         <Route path="/chat" component={Chat} />
         <Route path="/linked-accounts" component={LinkedAccounts} />
-        <Route path="/build-mcp" component={BuildMcp} />
-        <Route path="/adapters" component={Adapters} />
-        <Route path="/adapters/:id" component={AdapterDetail} />
-        <Route path="/capabilities" component={Capabilities} />
+        <Route path="/servers" component={Servers} />
         <Route path="/intents" component={Intents} />
         <Route path="/intents/:id" component={IntentDetail} />
         <Route path="/runs" component={Runs} />
@@ -65,9 +56,6 @@ function Router() {
         <Route path="/model-endpoints" component={ModelEndpoints} />
         <Route path="/api-keys" component={ApiKeys} />
         <Route path="/remote-access" component={RemoteAccess} />
-        <Route path="/integrations" component={Integrations} />
-        <Route path="/integrations/blueprints/:id" component={BlueprintDetail} />
-        <Route path="/integrations/servers/:id" component={GeneratedServerDetail} />
         <Route path="/observability" component={Observability} />
         <Route path="/observability/traces/:id" component={TraceDetail} />
         <Route path="/evaluations" component={Evaluations} />

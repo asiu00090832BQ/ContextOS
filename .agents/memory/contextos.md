@@ -146,8 +146,8 @@ is the pattern for generated stable secrets. Also: provider tool-name de-dup mus
 Constructed adapters carry no top-level "who made this" column; origin is tracked via
 `metadataJson.createdVia` = `"agent"` (set by the bot tools in `lib/mcpServer.ts`) or `"ui"`
 (set by the UI create route in `routes/constructedServers.ts`). Surfaced through
-`serializeAdapter` → OpenAPI `Adapter.createdVia` → web badge "Built by bot" (Build MCP + Adapters
-lists). **Why:** no migration needed and consistent with how authType/allowPrivateNetwork already
+`serializeAdapter` → OpenAPI `Adapter.createdVia` → web badge "Built by bot" (the consolidated
+"MCP Servers" page, route `/servers`). **Why:** no migration needed and consistent with how authType/allowPrivateNetwork already
 live in metadataJson. **How to apply:** any NEW constructed-adapter insert path must set
 `createdVia` or its servers render unflagged (legacy rows have null → treated as manual).
 
@@ -176,8 +176,8 @@ breaks every imported tool. **How to apply:** keep the safe-action allowlist clo
 auto-invocation must reuse this gate so untrusted-driven imports can't trigger side effects.
 The outcome is ALSO persisted on the adapter at `metadataJson.lastImportSmokeTest`
 (`{...SmokeTestOutcome, hint, ranAt}`) and surfaced via `serializeAdapter` → OpenAPI
-`Adapter.lastImportSmokeTest` (nullable JsonObject) → "Import Health" card on the adapter-detail
-web page. BOTH import paths write it now (merge existing metadata, don't clobber
+`Adapter.lastImportSmokeTest` (nullable JsonObject) → "Import Health" card in the expanded server
+panel on the "MCP Servers" page. BOTH import paths write it now (merge existing metadata, don't clobber
 authType/allowPrivateNetwork/createdVia/sourceTitle): the bot's `import_openapi_tools` and the
 UI route `POST /constructed-servers/:id/import-openapi` in `routes/constructedServers.ts`
 (the UI route captures `.returning()` rows from the insert/update to feed smokeTestImportedTools).
@@ -185,7 +185,7 @@ UI route `POST /constructed-servers/:id/import-openapi` in `routes/constructedSe
 The gate is now the single `isSafeSmokeCapability` predicate shared by `pickSmokeTestCapability`
 (one tool) and `pickSafeSmokeCandidates`/`retestServerTools` (ALL safe tools). The whole-server
 on-demand re-test is exposed on BOTH surfaces: REST `POST /constructed-servers/:id/retest` (UI
-"Re-test" button in build-mcp) and the `retest_web_server` MCP agent tool — any new auto-invoke
+"Re-test" button in the expanded server panel on the "MCP Servers" page) and the `retest_web_server` MCP agent tool — any new auto-invoke
 path must go through `pickSafeSmokeCandidates`, never re-filter inline.
 
 ## Standalone esbuild test bundling quirk (api-server)
