@@ -48,6 +48,7 @@ import {
   normalizeMemory,
 } from "./contextBroker";
 import { logger } from "./logger";
+import { StateGraph, Annotation, START, END } from "@langchain/langgraph";
 
 /**
  * Resolve the configured model for an agent: its model policy plus the primary
@@ -128,369 +129,496 @@ async function logEvent(
 }
 
 /**
- * Execute a run deterministically: assemble context, plan a task graph,
- * dispatch agent sub-runs, propose actions (gating risky ones behind
- * approvals), and record a full trace tree. Runs in the background.
+ * The run lifecycle, expressed as a LangGraph `StateGraph` for readability:
+ *
+ *   START -> loadRun --(abort?)--> END
+ *                   \--> assembleContext -> orchestrateAgents -> proposeActions
+ *                          --(pendingApproval?)--> pauseForApproval -> END
+ *                          \--------------------> finalize ---------> END
+ *
+ * Each node wraps the existing logic (context broker, agent runs, MCP tools,
+ * policy bundles, DB writes) unchanged — the graph only makes the lifecycle
+ * explicit. State flows through the typed channels below.
+ *
+ * Durability note: a run is started fire-and-forget in the background and may
+ * be resumed by a *separate* HTTP request minutes later (possibly after a
+ * process restart). The durable checkpoint is therefore the database itself
+ * (the run's `waiting_approval` status plus its already-created actions and
+ * approval requests), NOT an in-memory LangGraph checkpointer that would be
+ * lost on restart. Resuming is modelled as a distinct graph re-entry
+ * (`resumeGraph`) that reconstructs what it needs from the DB and finalizes.
  */
-export async function executeRun(tenantId: string, runId: string): Promise<void> {
-  const started = Date.now();
-  try {
-    const [run] = await db
-      .select()
-      .from(runsTable)
-      .where(and(eq(runsTable.id, runId), eq(runsTable.tenantId, tenantId)));
-    if (!run) return;
+const RunState = Annotation.Root({
+  tenantId: Annotation<string>,
+  runId: Annotation<string>,
+  started: Annotation<number>,
+  run: Annotation<Run | null>,
+  intent: Annotation<Intent | null>,
+  traceId: Annotation<string>,
+  rootObs: Annotation<string>,
+  totalTokens: Annotation<number>,
+  totalCost: Annotation<number>,
+  obsCount: Annotation<number>,
+  pendingApproval: Annotation<boolean>,
+  abort: Annotation<boolean>,
+});
+type RunStateT = typeof RunState.State;
 
-    const [intent] = await db
-      .select()
-      .from(intentsTable)
-      .where(eq(intentsTable.id, run.intentId));
-    if (!intent) return;
+/**
+ * Node 1 — load the run + intent, start the trace, mark the run running, and
+ * record the root observation. A missing run/intent aborts silently (no status
+ * change), mirroring the original early-return behavior.
+ */
+async function loadRunNode(state: RunStateT): Promise<Partial<RunStateT>> {
+  const { tenantId, runId } = state;
+  const [run] = await db
+    .select()
+    .from(runsTable)
+    .where(and(eq(runsTable.id, runId), eq(runsTable.tenantId, tenantId)));
+  if (!run) return { abort: true };
 
-    const trace = await startTrace({
+  const [intent] = await db
+    .select()
+    .from(intentsTable)
+    .where(eq(intentsTable.id, run.intentId));
+  if (!intent) return { abort: true };
+
+  const trace = await startTrace({
+    tenantId,
+    name: `Run: ${intent.title}`,
+    rootType: "run",
+    runId,
+    riskTier: intent.riskTier,
+    initiatedBy: "owner",
+  });
+
+  await db
+    .update(runsTable)
+    .set({ status: "running", startedAt: new Date(), traceId: trace.id })
+    .where(eq(runsTable.id, runId));
+
+  const rootObs = await recordObservation({
+    tenantId,
+    traceId: trace.id,
+    type: "run",
+    name: `Run ${intent.title}`,
+    layer: "orchestration",
+    input: { goal: intent.goal },
+  });
+
+  await logEvent(tenantId, runId, "run.started", `Run started for intent "${intent.title}"`);
+
+  return {
+    run,
+    intent,
+    traceId: trace.id,
+    rootObs,
+    totalTokens: 0,
+    totalCost: 0,
+    obsCount: 1,
+  };
+}
+
+/**
+ * Node 2 — assemble the context pack from the intent's fragments, record the
+ * assembly observation, and seed working memory with the objective.
+ */
+async function assembleContextNode(state: RunStateT): Promise<Partial<RunStateT>> {
+  const { tenantId, runId, traceId, rootObs } = state;
+  const intent = state.intent!;
+
+  const fragments = buildFragments(intent);
+  const fragmentRows = await db
+    .insert(contextFragmentsTable)
+    .values(fragments.map((f) => ({ tenantId, runId, traceId, ...f })))
+    .returning();
+  const selected = fragmentRows.filter((f) => f.selected);
+  const packTokens = selected.reduce((s, f) => s + f.tokens, 0);
+  await db.insert(contextPacksTable).values({
+    tenantId,
+    runId,
+    traceId,
+    name: "Primary context pack",
+    fragmentIds: selected.map((f) => f.id),
+    totalTokens: packTokens,
+    strategy: "relevance",
+    summary: `Assembled ${selected.length} of ${fragmentRows.length} fragments (${packTokens} tokens) by relevance.`,
+  });
+  await recordObservation({
+    tenantId,
+    traceId,
+    parentObservationId: rootObs,
+    type: "context_assembly",
+    name: "Assemble context pack",
+    layer: "context",
+    output: { selected: selected.length, total: fragmentRows.length, tokens: packTokens },
+    durationMs: 60,
+    metrics: { latencyMs: 60, totalTokens: packTokens },
+  });
+  await logEvent(tenantId, runId, "context.assembled", `Context pack assembled: ${selected.length} fragments, ${packTokens} tokens`);
+
+  // Working memory: persist the objective so it is available to downstream
+  // agents and visible in the run's memory provenance.
+  await db.insert(workingMemoriesTable).values({
+    tenantId,
+    runId,
+    type: "working",
+    key: "objective",
+    value: intent.goal,
+    sensitivity: "internal",
+    tags: ["intent", intent.riskTier],
+    metadataJson: { source: "context_assembly", fragmentsSelected: selected.length },
+  });
+
+  return { obsCount: state.obsCount + 1 };
+}
+
+/**
+ * Node 3 — multi-agent orchestration: a lead agent plans and coordinates, then
+ * delegates sub-tasks to up to two worker agents. Each `runAgent` call enforces
+ * context isolation through the broker (the single fail-closed chokepoint).
+ */
+async function orchestrateAgentsNode(state: RunStateT): Promise<Partial<RunStateT>> {
+  const { tenantId, runId, traceId, rootObs } = state;
+  const intent = state.intent!;
+  let totalTokens = state.totalTokens;
+  let totalCost = state.totalCost;
+  let obsCount = state.obsCount;
+
+  const agents = await db
+    .select()
+    .from(agentsTable)
+    .where(and(eq(agentsTable.tenantId, tenantId), eq(agentsTable.isActive, true)))
+    .orderBy(agentsTable.createdAt, agentsTable.id);
+  const lead = agents.find((a) => a.role === "lead") ?? agents[0];
+
+  if (lead) {
+    await db.update(runsTable).set({ leadAgentId: lead.id }).where(eq(runsTable.id, runId));
+    const leadResult = await runAgent({
       tenantId,
-      name: `Run: ${intent.title}`,
-      rootType: "run",
       runId,
-      riskTier: intent.riskTier,
-      initiatedBy: "owner",
+      traceId,
+      parentObsId: rootObs,
+      agentId: lead.id,
+      agentName: lead.name,
+      role: lead.role,
+      task: `Plan and coordinate: ${intent.goal}`,
+      systemPrompt: lead.systemPrompt,
+      contextPolicy: lead.contextPolicy,
+      canBuildIntegrations: lead.canBuildIntegrations,
+      actorUserId: intent.createdBy ?? "",
     });
-
-    await db
-      .update(runsTable)
-      .set({ status: "running", startedAt: new Date(), traceId: trace.id })
-      .where(eq(runsTable.id, runId));
-
-    const rootObs = await recordObservation({
-      tenantId,
-      traceId: trace.id,
-      type: "run",
-      name: `Run ${intent.title}`,
-      layer: "orchestration",
-      input: { goal: intent.goal },
-    });
-
-    await logEvent(tenantId, runId, "run.started", `Run started for intent "${intent.title}"`);
-
-    let totalTokens = 0;
-    let totalCost = 0;
-    let obsCount = 1;
-
-    // 1. Context assembly
-    const fragments = buildFragments(intent);
-    const fragmentRows = await db
-      .insert(contextFragmentsTable)
-      .values(
-        fragments.map((f) => ({ tenantId, runId, traceId: trace.id, ...f })),
-      )
-      .returning();
-    const selected = fragmentRows.filter((f) => f.selected);
-    const packTokens = selected.reduce((s, f) => s + f.tokens, 0);
-    await db.insert(contextPacksTable).values({
-      tenantId,
-      runId,
-      traceId: trace.id,
-      name: "Primary context pack",
-      fragmentIds: selected.map((f) => f.id),
-      totalTokens: packTokens,
-      strategy: "relevance",
-      summary: `Assembled ${selected.length} of ${fragmentRows.length} fragments (${packTokens} tokens) by relevance.`,
-    });
-    await recordObservation({
-      tenantId,
-      traceId: trace.id,
-      parentObservationId: rootObs,
-      type: "context_assembly",
-      name: "Assemble context pack",
-      layer: "context",
-      output: { selected: selected.length, total: fragmentRows.length, tokens: packTokens },
-      durationMs: 60,
-      metrics: { latencyMs: 60, totalTokens: packTokens },
-    });
+    totalTokens += leadResult.tokensUsed;
+    totalCost += leadResult.costUsdMicros;
     obsCount++;
-    await logEvent(tenantId, runId, "context.assembled", `Context pack assembled: ${selected.length} fragments, ${packTokens} tokens`);
 
-    // Working memory: persist the objective so it is available to downstream
-    // agents and visible in the run's memory provenance.
+    // Working memory: record the lead agent's coordination plan as episodic
+    // memory for this run.
     await db.insert(workingMemoriesTable).values({
       tenantId,
       runId,
-      type: "working",
-      key: "objective",
-      value: intent.goal,
+      type: "episodic",
+      key: "lead.plan",
+      value: `Lead agent "${lead.name}" produced a coordination plan for "${intent.title}".`,
       sensitivity: "internal",
-      tags: ["intent", intent.riskTier],
-      metadataJson: { source: "context_assembly", fragmentsSelected: selected.length },
+      tags: ["plan", lead.role],
+      metadataJson: { agentId: lead.id, agentRunId: leadResult.agentRunId },
     });
 
-    // 2. Lead agent + workers (multi-agent orchestration)
-    const agents = await db
-      .select()
-      .from(agentsTable)
-      .where(and(eq(agentsTable.tenantId, tenantId), eq(agentsTable.isActive, true)))
-      .orderBy(agentsTable.createdAt, agentsTable.id);
-    const lead = agents.find((a) => a.role === "lead") ?? agents[0];
-
-    if (lead) {
-      await db.update(runsTable).set({ leadAgentId: lead.id }).where(eq(runsTable.id, runId));
-      const leadResult = await runAgent({
+    const workers = agents.filter((a) => a.id !== lead.id).slice(0, 2);
+    for (const w of workers) {
+      const wr = await runAgent({
         tenantId,
         runId,
-        traceId: trace.id,
+        traceId,
         parentObsId: rootObs,
-        agentId: lead.id,
-        agentName: lead.name,
-        role: lead.role,
-        task: `Plan and coordinate: ${intent.goal}`,
-        systemPrompt: lead.systemPrompt,
-        contextPolicy: lead.contextPolicy,
-        canBuildIntegrations: lead.canBuildIntegrations,
+        agentId: w.id,
+        agentName: w.name,
+        role: w.role,
+        task: `Execute sub-task for: ${intent.goal}`,
+        systemPrompt: w.systemPrompt,
+        contextPolicy: w.contextPolicy,
+        parentAgentRunId: leadResult.agentRunId,
+        canBuildIntegrations: w.canBuildIntegrations,
         actorUserId: intent.createdBy ?? "",
       });
-      totalTokens += leadResult.tokensUsed;
-      totalCost += leadResult.costUsdMicros;
+      totalTokens += wr.tokensUsed;
+      totalCost += wr.costUsdMicros;
       obsCount++;
-
-      // Working memory: record the lead agent's coordination plan as episodic
-      // memory for this run.
-      await db.insert(workingMemoriesTable).values({
+      await db.insert(agentMessagesTable).values({
         tenantId,
         runId,
-        type: "episodic",
-        key: "lead.plan",
-        value: `Lead agent "${lead.name}" produced a coordination plan for "${intent.title}".`,
-        sensitivity: "internal",
-        tags: ["plan", lead.role],
-        metadataJson: { agentId: lead.id, agentRunId: leadResult.agentRunId },
+        fromAgentId: lead.id,
+        toAgentId: w.id,
+        fromAgentRunId: leadResult.agentRunId,
+        toAgentRunId: wr.agentRunId,
+        messageType: "delegation",
+        content: `Delegating sub-task to ${w.name}: ${intent.goal}`,
       });
+      await logEvent(tenantId, runId, "agent.message", `${lead.name} delegated to ${w.name}`, "info", { agentId: lead.id });
+    }
+  }
 
-      const workers = agents.filter((a) => a.id !== lead.id).slice(0, 2);
-      for (const w of workers) {
-        const wr = await runAgent({
-          tenantId,
-          runId,
-          traceId: trace.id,
-          parentObsId: rootObs,
-          agentId: w.id,
-          agentName: w.name,
-          role: w.role,
-          task: `Execute sub-task for: ${intent.goal}`,
-          systemPrompt: w.systemPrompt,
-          contextPolicy: w.contextPolicy,
-          parentAgentRunId: leadResult.agentRunId,
-          canBuildIntegrations: w.canBuildIntegrations,
-          actorUserId: intent.createdBy ?? "",
-        });
-        totalTokens += wr.tokensUsed;
-        totalCost += wr.costUsdMicros;
-        obsCount++;
-        await db.insert(agentMessagesTable).values({
-          tenantId,
-          runId,
-          fromAgentId: lead.id,
-          toAgentId: w.id,
-          fromAgentRunId: leadResult.agentRunId,
-          toAgentRunId: wr.agentRunId,
-          messageType: "delegation",
-          content: `Delegating sub-task to ${w.name}: ${intent.goal}`,
-        });
-        await logEvent(tenantId, runId, "agent.message", `${lead.name} delegated to ${w.name}`, "info", { agentId: lead.id });
+  return { totalTokens, totalCost, obsCount };
+}
+
+/**
+ * Node 4 — propose actions for the run's capabilities. A policy bundle gives
+ * each decision explicit provenance; capabilities at/above the approval
+ * threshold (or flagged for human review) are gated behind an approval request,
+ * while non-gated capabilities carrying an executable recipe are really invoked.
+ * Sets `pendingApproval` so the graph can branch to pause vs. finalize.
+ */
+async function proposeActionsNode(state: RunStateT): Promise<Partial<RunStateT>> {
+  const { tenantId, runId, traceId, rootObs } = state;
+  const intent = state.intent!;
+  let obsCount = state.obsCount;
+
+  const caps = await db
+    .select()
+    .from(capabilitiesTable)
+    .where(eq(capabilitiesTable.tenantId, tenantId))
+    .limit(4);
+
+  // Policy bundle: assemble the effective policy for this run so its approval
+  // decisions have explicit, queryable provenance. Capabilities at or above
+  // the approval threshold (or flagged for human review) require sign-off.
+  const RISK_RANK = { L1: 1, L2: 2, L3: 3, L4: 4 } as const;
+  const [policyBundle] = await db
+    .insert(policyBundlesTable)
+    .values({
+      tenantId,
+      runId,
+      name: `Policy bundle for "${intent.title}"`,
+      rulesJson: {
+        requireApprovalAtOrAbove: "L3",
+        deniedSystems: intent.deniedSystems ?? [],
+      },
+      allowedCapabilities: caps.map((c) => c.name),
+      deniedCapabilities: [],
+      approvalThreshold: "L3",
+    })
+    .returning();
+  await logEvent(tenantId, runId, "policy.bundle.assembled", `Policy bundle assembled (approval required at or above ${policyBundle.approvalThreshold})`);
+
+  const adapterCache = new Map<string, Adapter | undefined>();
+  const loadAdapter = async (
+    adapterId: string,
+  ): Promise<Adapter | undefined> => {
+    if (adapterCache.has(adapterId)) return adapterCache.get(adapterId);
+    const [a] = await db
+      .select()
+      .from(adaptersTable)
+      .where(eq(adaptersTable.id, adapterId));
+    adapterCache.set(adapterId, a);
+    return a;
+  };
+
+  let pendingApproval = false;
+  for (const cap of caps) {
+    const needsApproval =
+      cap.humanReviewRequired ||
+      RISK_RANK[cap.riskTier] >= RISK_RANK[policyBundle.approvalThreshold];
+
+    // Real execution: a non-gated capability that carries an executable recipe
+    // is actually invoked against its web service. Everything else (gated, or
+    // discovery-only) stays simulated.
+    const recipe = needsApproval ? null : parseRecipe(cap.executionJson);
+    const actionInput = { query: intent.goal.slice(0, 80) };
+    let executed = false;
+    let execOutput: Record<string, unknown> = { ok: true, simulated: true };
+    let execOk = true;
+    let execDuration = 45;
+    if (recipe) {
+      const adapter = await loadAdapter(cap.adapterId);
+      if (adapter) {
+        const result = await executeCapabilityRow(cap, adapter, {});
+        executed = true;
+        execOk = result.ok;
+        execDuration = result.durationMs;
+        execOutput = {
+          ok: result.ok,
+          status: result.status ?? null,
+          extracted: result.extracted ?? null,
+          body: result.body ?? null,
+          error: result.error ?? null,
+        };
       }
     }
 
-    // 3. Actions (some gated behind approval)
-    const caps = await db
-      .select()
-      .from(capabilitiesTable)
-      .where(eq(capabilitiesTable.tenantId, tenantId))
-      .limit(4);
-
-    // Policy bundle: assemble the effective policy for this run so its approval
-    // decisions have explicit, queryable provenance. Capabilities at or above
-    // the approval threshold (or flagged for human review) require sign-off.
-    const RISK_RANK = { L1: 1, L2: 2, L3: 3, L4: 4 } as const;
-    const [policyBundle] = await db
-      .insert(policyBundlesTable)
+    const [action] = await db
+      .insert(actionsTable)
       .values({
         tenantId,
         runId,
-        name: `Policy bundle for "${intent.title}"`,
-        rulesJson: {
-          requireApprovalAtOrAbove: "L3",
-          deniedSystems: intent.deniedSystems ?? [],
+        capabilityId: cap.id,
+        traceId,
+        name: cap.name,
+        kind: cap.actionKind,
+        riskTier: cap.riskTier,
+        status: needsApproval
+          ? "awaiting_approval"
+          : execOk
+            ? "completed"
+            : "failed",
+        inputJson: actionInput,
+        outputJson: needsApproval ? null : execOutput,
+        policyDecisionJson: {
+          decision: needsApproval ? "require_approval" : "allow",
+          riskTier: cap.riskTier,
         },
-        allowedCapabilities: caps.map((c) => c.name),
-        deniedCapabilities: [],
-        approvalThreshold: "L3",
+        completedAt: needsApproval ? null : new Date(),
       })
       .returning();
-    await logEvent(tenantId, runId, "policy.bundle.assembled", `Policy bundle assembled (approval required at or above ${policyBundle.approvalThreshold})`);
-
-    const adapterCache = new Map<string, Adapter | undefined>();
-    const loadAdapter = async (
-      adapterId: string,
-    ): Promise<Adapter | undefined> => {
-      if (adapterCache.has(adapterId)) return adapterCache.get(adapterId);
-      const [a] = await db
-        .select()
-        .from(adaptersTable)
-        .where(eq(adaptersTable.id, adapterId));
-      adapterCache.set(adapterId, a);
-      return a;
-    };
-
-    let pendingApproval = false;
-    for (const cap of caps) {
-      const needsApproval =
-        cap.humanReviewRequired ||
-        RISK_RANK[cap.riskTier] >= RISK_RANK[policyBundle.approvalThreshold];
-
-      // Real execution: a non-gated capability that carries an executable recipe
-      // is actually invoked against its web service. Everything else (gated, or
-      // discovery-only) stays simulated.
-      const recipe = needsApproval ? null : parseRecipe(cap.executionJson);
-      const actionInput = { query: intent.goal.slice(0, 80) };
-      let executed = false;
-      let execOutput: Record<string, unknown> = { ok: true, simulated: true };
-      let execOk = true;
-      let execDuration = 45;
-      if (recipe) {
-        const adapter = await loadAdapter(cap.adapterId);
-        if (adapter) {
-          const result = await executeCapabilityRow(cap, adapter, {});
-          executed = true;
-          execOk = result.ok;
-          execDuration = result.durationMs;
-          execOutput = {
-            ok: result.ok,
-            status: result.status ?? null,
-            extracted: result.extracted ?? null,
-            body: result.body ?? null,
-            error: result.error ?? null,
-          };
-        }
-      }
-
-      const [action] = await db
-        .insert(actionsTable)
-        .values({
-          tenantId,
-          runId,
-          capabilityId: cap.id,
-          traceId: trace.id,
-          name: cap.name,
-          kind: cap.actionKind,
-          riskTier: cap.riskTier,
-          status: needsApproval
-            ? "awaiting_approval"
-            : execOk
-              ? "completed"
-              : "failed",
-          inputJson: actionInput,
-          outputJson: needsApproval ? null : execOutput,
-          policyDecisionJson: {
-            decision: needsApproval ? "require_approval" : "allow",
-            riskTier: cap.riskTier,
-          },
-          completedAt: needsApproval ? null : new Date(),
-        })
-        .returning();
-      const toolObs = await recordObservation({
-        tenantId,
-        traceId: trace.id,
-        parentObservationId: rootObs,
-        type: "tool_call",
-        name: cap.name,
-        layer: "tools",
-        capabilityId: cap.id,
-        status: needsApproval ? "blocked" : execOk ? "ok" : "error",
-        input: actionInput,
-        output: needsApproval
-          ? { gated: true }
-          : { ok: execOk, executed },
-        durationMs: execDuration,
-        metrics: { latencyMs: execDuration },
-      });
-      obsCount++;
-      await recordObservation({
-        tenantId,
-        traceId: trace.id,
-        parentObservationId: toolObs,
-        type: "policy_check",
-        name: `Policy: ${cap.name}`,
-        layer: "policy",
-        status: "ok",
-        output: { decision: needsApproval ? "require_approval" : "allow" },
-        durationMs: 5,
-        metrics: { latencyMs: 5 },
-      });
-      obsCount++;
-      if (needsApproval) {
-        pendingApproval = true;
-        await db.insert(approvalRequestsTable).values({
-          tenantId,
-          runId,
-          actionId: action.id,
-          traceId: trace.id,
-          riskTier: cap.riskTier,
-          status: "pending",
-          reason: `Action "${cap.name}" is ${cap.riskTier} and requires human approval.`,
-        });
-        await logEvent(tenantId, runId, "approval.requested", `Approval required for "${cap.name}" (${cap.riskTier})`, "warn");
-      } else {
-        await logEvent(tenantId, runId, "action.succeeded", `Executed "${cap.name}"`);
-      }
-    }
-
-    // 4. Finalize (or pause for approval)
-    if (pendingApproval) {
-      await db
-        .update(runsTable)
-        .set({
-          status: "waiting_approval",
-          tokensUsed: totalTokens,
-          costUsdMicros: totalCost,
-        })
-        .where(eq(runsTable.id, runId));
-      await finalizeTrace(trace.id, "ok", { tokens: totalTokens, costUsdMicros: totalCost, durationMs: Date.now() - started }, obsCount);
-      await logEvent(tenantId, runId, "run.waiting", "Run paused awaiting human approval");
-      return;
-    }
-
-    await db.insert(artifactsTable).values({
+    const toolObs = await recordObservation({
       tenantId,
-      runId,
-      traceId: trace.id,
-      name: `${intent.title} — result`,
-      type: "document",
-      contentType: "text/markdown",
-      content: `# ${intent.title}\n\n${intent.goal}\n\nCompleted deterministically across ${obsCount} observations.`,
-      sizeBytes: 256,
-      sensitivity: "internal",
+      traceId,
+      parentObservationId: rootObs,
+      type: "tool_call",
+      name: cap.name,
+      layer: "tools",
+      capabilityId: cap.id,
+      status: needsApproval ? "blocked" : execOk ? "ok" : "error",
+      input: actionInput,
+      output: needsApproval
+        ? { gated: true }
+        : { ok: execOk, executed },
+      durationMs: execDuration,
+      metrics: { latencyMs: execDuration },
     });
-
-    await db
-      .update(runsTable)
-      .set({
-        status: "completed",
-        summary: `Completed "${intent.title}" using ${totalTokens} tokens.`,
-        tokensUsed: totalTokens,
-        costUsdMicros: totalCost,
-        completedAt: new Date(),
-      })
-      .where(eq(runsTable.id, runId));
-    await db.insert(auditRecordsTable).values({
+    obsCount++;
+    await recordObservation({
       tenantId,
-      runId,
-      actorType: "agent",
-      action: "run.completed",
-      resourceType: "run",
-      resourceId: runId,
-      summary: `Run completed for intent "${intent.title}"`,
-      riskTier: intent.riskTier,
+      traceId,
+      parentObservationId: toolObs,
+      type: "policy_check",
+      name: `Policy: ${cap.name}`,
+      layer: "policy",
+      status: "ok",
+      output: { decision: needsApproval ? "require_approval" : "allow" },
+      durationMs: 5,
+      metrics: { latencyMs: 5 },
     });
-    await finalizeTrace(trace.id, "ok", { tokens: totalTokens, costUsdMicros: totalCost, durationMs: Date.now() - started }, obsCount);
-    await logEvent(tenantId, runId, "run.completed", `Run completed (${totalTokens} tokens)`);
+    obsCount++;
+    if (needsApproval) {
+      pendingApproval = true;
+      await db.insert(approvalRequestsTable).values({
+        tenantId,
+        runId,
+        actionId: action.id,
+        traceId,
+        riskTier: cap.riskTier,
+        status: "pending",
+        reason: `Action "${cap.name}" is ${cap.riskTier} and requires human approval.`,
+      });
+      await logEvent(tenantId, runId, "approval.requested", `Approval required for "${cap.name}" (${cap.riskTier})`, "warn");
+    } else {
+      await logEvent(tenantId, runId, "action.succeeded", `Executed "${cap.name}"`);
+    }
+  }
+
+  return { obsCount, pendingApproval };
+}
+
+/**
+ * Terminal node — finalize a run with no outstanding approvals: emit the result
+ * artifact, mark the run completed, write the audit record, and close the trace.
+ */
+async function finalizeNode(state: RunStateT): Promise<Partial<RunStateT>> {
+  const { tenantId, runId, traceId, started, totalTokens, totalCost, obsCount } = state;
+  const intent = state.intent!;
+
+  await db.insert(artifactsTable).values({
+    tenantId,
+    runId,
+    traceId,
+    name: `${intent.title} — result`,
+    type: "document",
+    contentType: "text/markdown",
+    content: `# ${intent.title}\n\n${intent.goal}\n\nCompleted deterministically across ${obsCount} observations.`,
+    sizeBytes: 256,
+    sensitivity: "internal",
+  });
+
+  await db
+    .update(runsTable)
+    .set({
+      status: "completed",
+      summary: `Completed "${intent.title}" using ${totalTokens} tokens.`,
+      tokensUsed: totalTokens,
+      costUsdMicros: totalCost,
+      completedAt: new Date(),
+    })
+    .where(eq(runsTable.id, runId));
+  await db.insert(auditRecordsTable).values({
+    tenantId,
+    runId,
+    actorType: "agent",
+    action: "run.completed",
+    resourceType: "run",
+    resourceId: runId,
+    summary: `Run completed for intent "${intent.title}"`,
+    riskTier: intent.riskTier,
+  });
+  await finalizeTrace(traceId, "ok", { tokens: totalTokens, costUsdMicros: totalCost, durationMs: Date.now() - started }, obsCount);
+  await logEvent(tenantId, runId, "run.completed", `Run completed (${totalTokens} tokens)`);
+  return {};
+}
+
+/**
+ * Terminal node — pause a run that has at least one gated action: persist the
+ * `waiting_approval` status (the durable checkpoint) and close the trace. The
+ * run is later continued by `resumeRun` once every approval is granted.
+ */
+async function pauseForApprovalNode(state: RunStateT): Promise<Partial<RunStateT>> {
+  const { tenantId, runId, traceId, started, totalTokens, totalCost, obsCount } = state;
+  await db
+    .update(runsTable)
+    .set({
+      status: "waiting_approval",
+      tokensUsed: totalTokens,
+      costUsdMicros: totalCost,
+    })
+    .where(eq(runsTable.id, runId));
+  await finalizeTrace(traceId, "ok", { tokens: totalTokens, costUsdMicros: totalCost, durationMs: Date.now() - started }, obsCount);
+  await logEvent(tenantId, runId, "run.waiting", "Run paused awaiting human approval");
+  return {};
+}
+
+/** Compiled run-lifecycle graph (see the diagram on `RunState`). */
+const runGraph = new StateGraph(RunState)
+  .addNode("loadRun", loadRunNode)
+  .addNode("assembleContext", assembleContextNode)
+  .addNode("orchestrateAgents", orchestrateAgentsNode)
+  .addNode("proposeActions", proposeActionsNode)
+  .addNode("finalize", finalizeNode)
+  .addNode("pauseForApproval", pauseForApprovalNode)
+  .addEdge(START, "loadRun")
+  .addConditionalEdges(
+    "loadRun",
+    (s: RunStateT) => (s.abort ? END : "assembleContext"),
+    { [END]: END, assembleContext: "assembleContext" },
+  )
+  .addEdge("assembleContext", "orchestrateAgents")
+  .addEdge("orchestrateAgents", "proposeActions")
+  .addConditionalEdges(
+    "proposeActions",
+    (s: RunStateT) => (s.pendingApproval ? "pauseForApproval" : "finalize"),
+    { pauseForApproval: "pauseForApproval", finalize: "finalize" },
+  )
+  .addEdge("finalize", END)
+  .addEdge("pauseForApproval", END)
+  .compile();
+
+/**
+ * Execute a run deterministically by driving the run-lifecycle graph: assemble
+ * context, plan a task graph, dispatch agent sub-runs, propose actions (gating
+ * risky ones behind approvals), and record a full trace tree. Runs in the
+ * background. Any uncaught failure marks the run failed.
+ */
+export async function executeRun(tenantId: string, runId: string): Promise<void> {
+  try {
+    await runGraph.invoke({ tenantId, runId, started: Date.now() });
   } catch (err) {
     logger.error({ err, runId }, "Run execution failed");
     await db
@@ -502,90 +630,141 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
 }
 
 /**
+ * Resume graph state. Resume reconstructs everything it needs from the DB, so
+ * its only inputs are the identifiers plus the resume start time.
+ */
+const ResumeState = Annotation.Root({
+  tenantId: Annotation<string>,
+  runId: Annotation<string>,
+  startedResume: Annotation<number>,
+  run: Annotation<Run | null>,
+  intent: Annotation<Intent | null>,
+  intentTitle: Annotation<string>,
+  claimed: Annotation<boolean>,
+});
+type ResumeStateT = typeof ResumeState.State;
+
+/**
+ * Resume guard node — only finalize a still-paused run with no remaining
+ * pending approvals, and claim it via a conditional update so concurrent
+ * approve callbacks race on a single winner (idempotent: never duplicates
+ * artifacts/audit records). `claimed` drives the branch to finalize vs. END.
+ */
+async function resumeGuardNode(state: ResumeStateT): Promise<Partial<ResumeStateT>> {
+  const { tenantId, runId } = state;
+  const [run] = await db
+    .select()
+    .from(runsTable)
+    .where(and(eq(runsTable.id, runId), eq(runsTable.tenantId, tenantId)));
+  if (!run || run.status !== "waiting_approval") return { claimed: false };
+
+  // Guard: only finalize when there are no remaining pending approvals.
+  const stillPending = await db
+    .select({ id: approvalRequestsTable.id })
+    .from(approvalRequestsTable)
+    .where(and(eq(approvalRequestsTable.runId, runId), eq(approvalRequestsTable.status, "pending")));
+  if (stillPending.length > 0) return { claimed: false };
+
+  const [intent] = await db
+    .select()
+    .from(intentsTable)
+    .where(eq(intentsTable.id, run.intentId));
+  const intentTitle = intent?.title ?? "Run";
+
+  // Transition the run out of waiting_approval first, conditionally on it
+  // still being paused. This makes resume idempotent: concurrent approve
+  // callbacks race on this single update and only the winner finalizes,
+  // so we never create duplicate artifacts/audit records.
+  const [claimed] = await db
+    .update(runsTable)
+    .set({
+      status: "completed",
+      summary: `Completed "${intentTitle}" after human approval using ${run.tokensUsed} tokens.`,
+      completedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(runsTable.id, runId),
+        eq(runsTable.tenantId, tenantId),
+        eq(runsTable.status, "waiting_approval"),
+      ),
+    )
+    .returning();
+  if (!claimed) return { claimed: false };
+
+  return { claimed: true, run, intent: intent ?? null, intentTitle };
+}
+
+/**
+ * Resume finalize node — emit the result artifact, write the audit record, and
+ * close the trace for a run that was completed after approval. Uses the
+ * pre-claim `run` row for the token/cost/trace provenance.
+ */
+async function resumeFinalizeNode(state: ResumeStateT): Promise<Partial<ResumeStateT>> {
+  const { tenantId, runId, intent, intentTitle, startedResume } = state;
+  const run = state.run!;
+
+  await db.insert(artifactsTable).values({
+    tenantId,
+    runId,
+    traceId: run.traceId,
+    name: `${intentTitle} — result`,
+    type: "document",
+    contentType: "text/markdown",
+    content: `# ${intentTitle}\n\n${intent?.goal ?? ""}\n\nCompleted after all required approvals were granted.`,
+    sizeBytes: 256,
+    sensitivity: "internal",
+  });
+
+  await db.insert(auditRecordsTable).values({
+    tenantId,
+    runId,
+    actorType: "agent",
+    action: "run.completed",
+    resourceType: "run",
+    resourceId: runId,
+    summary: `Run completed for intent "${intentTitle}" after approval`,
+    riskTier: intent?.riskTier ?? "L1",
+  });
+
+  if (run.traceId) {
+    const obs = await db
+      .select({ id: observationsTable.id })
+      .from(observationsTable)
+      .where(eq(observationsTable.traceId, run.traceId));
+    await finalizeTrace(
+      run.traceId,
+      "ok",
+      { tokens: run.tokensUsed, costUsdMicros: run.costUsdMicros, durationMs: Date.now() - startedResume },
+      obs.length,
+    );
+  }
+  await logEvent(tenantId, runId, "run.completed", `Run completed after approval (${run.tokensUsed} tokens)`);
+  return {};
+}
+
+/** Compiled resume graph: guard/claim, then finalize-only (never re-runs the lifecycle). */
+const resumeGraph = new StateGraph(ResumeState)
+  .addNode("resumeGuard", resumeGuardNode)
+  .addNode("resumeFinalize", resumeFinalizeNode)
+  .addEdge(START, "resumeGuard")
+  .addConditionalEdges(
+    "resumeGuard",
+    (s: ResumeStateT) => (s.claimed ? "resumeFinalize" : END),
+    { resumeFinalize: "resumeFinalize", [END]: END },
+  )
+  .addEdge("resumeFinalize", END)
+  .compile();
+
+/**
  * Resume a run that was paused at `waiting_approval` once all of its approvals
  * have been granted. This continues from the paused point — it finalizes the
  * already-processed actions into a completed run and does NOT re-run the
  * lifecycle or recreate any actions/approvals.
  */
 export async function resumeRun(tenantId: string, runId: string): Promise<void> {
-  const startedResume = Date.now();
   try {
-    const [run] = await db
-      .select()
-      .from(runsTable)
-      .where(and(eq(runsTable.id, runId), eq(runsTable.tenantId, tenantId)));
-    if (!run || run.status !== "waiting_approval") return;
-
-    // Guard: only finalize when there are no remaining pending approvals.
-    const stillPending = await db
-      .select({ id: approvalRequestsTable.id })
-      .from(approvalRequestsTable)
-      .where(and(eq(approvalRequestsTable.runId, runId), eq(approvalRequestsTable.status, "pending")));
-    if (stillPending.length > 0) return;
-
-    const [intent] = await db
-      .select()
-      .from(intentsTable)
-      .where(eq(intentsTable.id, run.intentId));
-    const intentTitle = intent?.title ?? "Run";
-
-    // Transition the run out of waiting_approval first, conditionally on it
-    // still being paused. This makes resume idempotent: concurrent approve
-    // callbacks race on this single update and only the winner finalizes,
-    // so we never create duplicate artifacts/audit records.
-    const [claimed] = await db
-      .update(runsTable)
-      .set({
-        status: "completed",
-        summary: `Completed "${intentTitle}" after human approval using ${run.tokensUsed} tokens.`,
-        completedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(runsTable.id, runId),
-          eq(runsTable.tenantId, tenantId),
-          eq(runsTable.status, "waiting_approval"),
-        ),
-      )
-      .returning();
-    if (!claimed) return;
-
-    await db.insert(artifactsTable).values({
-      tenantId,
-      runId,
-      traceId: run.traceId,
-      name: `${intentTitle} — result`,
-      type: "document",
-      contentType: "text/markdown",
-      content: `# ${intentTitle}\n\n${intent?.goal ?? ""}\n\nCompleted after all required approvals were granted.`,
-      sizeBytes: 256,
-      sensitivity: "internal",
-    });
-
-    await db.insert(auditRecordsTable).values({
-      tenantId,
-      runId,
-      actorType: "agent",
-      action: "run.completed",
-      resourceType: "run",
-      resourceId: runId,
-      summary: `Run completed for intent "${intentTitle}" after approval`,
-      riskTier: intent?.riskTier ?? "L1",
-    });
-
-    if (run.traceId) {
-      const obs = await db
-        .select({ id: observationsTable.id })
-        .from(observationsTable)
-        .where(eq(observationsTable.traceId, run.traceId));
-      await finalizeTrace(
-        run.traceId,
-        "ok",
-        { tokens: run.tokensUsed, costUsdMicros: run.costUsdMicros, durationMs: Date.now() - startedResume },
-        obs.length,
-      );
-    }
-    await logEvent(tenantId, runId, "run.completed", `Run completed after approval (${run.tokensUsed} tokens)`);
+    await resumeGraph.invoke({ tenantId, runId, startedResume: Date.now() });
   } catch (err) {
     logger.error({ err, runId }, "Run resume failed");
     await db
