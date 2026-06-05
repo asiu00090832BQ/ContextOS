@@ -7,7 +7,10 @@ import {
   adaptersTable,
   capabilitiesTable,
   workingMemoriesTable,
+  modelEndpointsTable,
+  agentModelPoliciesTable,
   type Adapter,
+  type Agent,
   type Capability,
 } from "@workspace/db";
 import { parse as parseYaml } from "yaml";
@@ -31,7 +34,7 @@ import {
   type ExecutionResult,
   type HttpRecipe,
 } from "./webTools";
-import { putSecret } from "./secretStore";
+import { putSecret, resolveSecret } from "./secretStore";
 
 type RiskTier = "L1" | "L2" | "L3" | "L4";
 type OrchestrationMode = "static_graph" | "dynamic_delegation";
@@ -82,6 +85,8 @@ const BOT_ALLOWED_TOOLS = new Set<string>([
   "list_runs",
   "list_adapters",
   "list_capabilities",
+  "list_model_endpoints",
+  "set_agent_model",
   "remember",
   "recall_memories",
 ]);
@@ -179,6 +184,43 @@ export const TOOLS: McpTool[] = [
     description:
       "List the tools/resources/prompts discovered across all connected adapters.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "list_model_endpoints",
+    description:
+      "List the LLM model endpoints configured in this workspace (e.g. OpenRouter, Anthropic), with each endpoint's id, provider, model and whether it is live (has a usable key). Use this to discover endpoint ids before assigning one with set_agent_model.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "set_agent_model",
+    description:
+      "Set which model endpoint an agent uses. Assigns a primary (and optional fallback) LLM endpoint to an agent so its chat replies and runs use that model. Agent and endpoint may be given by id or by name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: {
+          type: "string",
+          description: "Agent id or exact name to configure.",
+        },
+        endpoint: {
+          type: "string",
+          description: "Primary model endpoint id or exact name.",
+        },
+        fallback: {
+          type: "string",
+          description: "Optional fallback model endpoint id or name.",
+        },
+        temperature: {
+          type: "number",
+          description: "Sampling temperature 0..1 (default 0.7).",
+        },
+        maxTokens: {
+          type: "number",
+          description: "Max output tokens (default 2048).",
+        },
+      },
+      required: ["agent", "endpoint"],
+    },
   },
   {
     name: "register_mcp_server",
@@ -428,6 +470,57 @@ async function loadConstructedAdapter(tenantId: string, id: string) {
 
 export class McpToolError extends Error {}
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Resolve an agent by id (when the ref is a UUID) or by exact name. */
+async function resolveAgentRef(
+  tenantId: string,
+  ref: string,
+): Promise<Agent | null> {
+  if (UUID_RE.test(ref)) {
+    const [byId] = await db
+      .select()
+      .from(agentsTable)
+      .where(and(eq(agentsTable.id, ref), eq(agentsTable.tenantId, tenantId)));
+    if (byId) return byId;
+  }
+  const [byName] = await db
+    .select()
+    .from(agentsTable)
+    .where(and(eq(agentsTable.name, ref), eq(agentsTable.tenantId, tenantId)));
+  return byName ?? null;
+}
+
+/** Resolve a model endpoint by id (when the ref is a UUID) or by exact name. */
+async function resolveEndpointRef(
+  tenantId: string,
+  ref: string,
+): Promise<{ id: string; name: string } | null> {
+  if (UUID_RE.test(ref)) {
+    const [byId] = await db
+      .select({ id: modelEndpointsTable.id, name: modelEndpointsTable.name })
+      .from(modelEndpointsTable)
+      .where(
+        and(
+          eq(modelEndpointsTable.id, ref),
+          eq(modelEndpointsTable.tenantId, tenantId),
+        ),
+      );
+    if (byId) return byId;
+  }
+  const [byName] = await db
+    .select({ id: modelEndpointsTable.id, name: modelEndpointsTable.name })
+    .from(modelEndpointsTable)
+    .where(
+      and(
+        eq(modelEndpointsTable.name, ref),
+        eq(modelEndpointsTable.tenantId, tenantId),
+      ),
+    );
+  return byName ?? null;
+}
+
 /**
  * Execute a single tool by name. All reads/writes are scoped to `tenantId`.
  * Returns a JSON-serializable result that the caller wraps as tool output.
@@ -488,6 +581,91 @@ export async function callTool(
           status: i.status,
           riskTier: i.riskTier,
         })),
+      };
+    }
+    case "list_model_endpoints": {
+      const rows = await db
+        .select()
+        .from(modelEndpointsTable)
+        .where(eq(modelEndpointsTable.tenantId, tenantId))
+        .orderBy(desc(modelEndpointsTable.createdAt));
+      return {
+        endpoints: rows.map((e) => {
+          const managed = (e.apiKeyRef ?? "").startsWith("managed://");
+          const live = managed || !!resolveSecret(e.apiKeyRef);
+          return {
+            id: e.id,
+            name: e.name,
+            providerType: e.providerType,
+            model: e.modelName,
+            isDefault: e.isDefault,
+            live,
+          };
+        }),
+      };
+    }
+    case "set_agent_model": {
+      const agentRef = asString(args.agent);
+      const endpointRef = asString(args.endpoint);
+      if (!agentRef) throw new McpToolError("`agent` is required.");
+      if (!endpointRef) throw new McpToolError("`endpoint` is required.");
+      const agent = await resolveAgentRef(tenantId, agentRef);
+      if (!agent) throw new McpToolError(`Agent not found: ${agentRef}`);
+      const primary = await resolveEndpointRef(tenantId, endpointRef);
+      if (!primary)
+        throw new McpToolError(`Model endpoint not found: ${endpointRef}`);
+      let fallbackId: string | null = null;
+      const fbRef = asString(args.fallback);
+      if (fbRef) {
+        const fb = await resolveEndpointRef(tenantId, fbRef);
+        if (!fb)
+          throw new McpToolError(`Fallback endpoint not found: ${fbRef}`);
+        fallbackId = fb.id;
+      }
+      const temperature =
+        typeof args.temperature === "number"
+          ? Math.round(Math.max(0, Math.min(1, args.temperature)) * 100)
+          : undefined;
+      const maxTokens =
+        typeof args.maxTokens === "number"
+          ? Math.max(1, Math.round(args.maxTokens))
+          : undefined;
+      const [existing] = await db
+        .select()
+        .from(agentModelPoliciesTable)
+        .where(
+          and(
+            eq(agentModelPoliciesTable.tenantId, tenantId),
+            eq(agentModelPoliciesTable.agentId, agent.id),
+          ),
+        );
+      const values = {
+        tenantId,
+        agentId: agent.id,
+        primaryEndpointId: primary.id,
+        fallbackEndpointId: fallbackId,
+        ...(temperature !== undefined ? { temperature } : {}),
+        ...(maxTokens !== undefined ? { maxTokens } : {}),
+        updatedAt: new Date(),
+      };
+      const [row] = existing
+        ? await db
+            .update(agentModelPoliciesTable)
+            .set(values)
+            .where(eq(agentModelPoliciesTable.id, existing.id))
+            .returning()
+        : await db
+            .insert(agentModelPoliciesTable)
+            .values(values)
+            .returning();
+      return {
+        agentId: agent.id,
+        agentName: agent.name,
+        primaryEndpointId: row.primaryEndpointId,
+        primaryEndpointName: primary.name,
+        fallbackEndpointId: row.fallbackEndpointId,
+        temperature: row.temperature / 100,
+        maxTokens: row.maxTokens,
       };
     }
     case "create_intent": {

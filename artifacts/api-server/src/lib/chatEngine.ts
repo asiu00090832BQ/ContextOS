@@ -13,6 +13,7 @@ import { resolveAgentModel, executeRun } from "./runEngine";
 import { resolveSecret } from "./secretStore";
 import { runEvents, conversationEvents } from "./events";
 import { serializeConversationMessage } from "./serialize";
+import { getContext } from "./context";
 import { logger } from "./logger";
 
 const DEFAULT_SYSTEM_PROMPT =
@@ -80,7 +81,11 @@ async function resolveConversationAgent(
       .where(and(eq(agentsTable.id, agentId), eq(agentsTable.tenantId, tenantId)));
     if (a) return a;
   }
+  // No explicit agent: the in-app Chat tab IS the ContextOS assistant, so route
+  // to the bot agent (whose model policy / system prompt define the assistant).
   // Fall back to a lead agent, then any active agent for the tenant.
+  const { botAgent } = await getContext();
+  if (botAgent && botAgent.tenantId === tenantId) return botAgent;
   const [lead] = await db
     .select()
     .from(agentsTable)
