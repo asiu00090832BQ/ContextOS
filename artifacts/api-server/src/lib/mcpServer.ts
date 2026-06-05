@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, isNull } from "drizzle-orm";
+import { eq, and, or, asc, desc, isNull } from "drizzle-orm";
 import {
   db,
   agentsTable,
@@ -54,6 +54,37 @@ export interface McpTool {
   description: string;
   inputSchema: JsonSchema;
 }
+
+/**
+ * Who is invoking a tool. The ContextOS bot (`kind: "bot"`) is restricted to
+ * orchestration + its own memory on EVERY surface (Telegram, web Chat, /mcp):
+ * it can never execute work itself, only command agents via intents. Agents
+ * running inside a run (`kind: "agent"`, or an undefined caller) get the full
+ * tool catalog, including action/constructed tools.
+ */
+export type ToolCaller =
+  | { kind: "bot"; agentId: string }
+  | { kind: "agent"; agentId?: string };
+
+/**
+ * The only tools the ContextOS bot may call. Everything else (build/import/
+ * register/test web tools, plus any constructed capability handled by the
+ * `default` dispatch case) is blocked for the bot — it must create an intent
+ * and command an agent instead.
+ */
+const BOT_ALLOWED_TOOLS = new Set<string>([
+  "list_agents",
+  "list_intents",
+  "create_intent",
+  "run_intent",
+  "run_command",
+  "get_run",
+  "list_runs",
+  "list_adapters",
+  "list_capabilities",
+  "remember",
+  "recall_memories",
+]);
 
 /**
  * Tools exposed to any MCP-compatible AI client that connects with an API key.
@@ -406,7 +437,26 @@ export async function callTool(
   userId: string,
   name: string,
   args: Record<string, unknown>,
+  caller?: ToolCaller,
 ): Promise<unknown> {
+  if (caller?.kind === "bot" && !BOT_ALLOWED_TOOLS.has(name)) {
+    throw new McpToolError(
+      `The ContextOS bot can't run "${name}" itself — it only commands agents. ` +
+        `Create an intent and start a run (create_intent / run_command / run_intent), ` +
+        `and an agent will perform this action for you.`,
+    );
+  }
+  // The bot's memory tools key off its agent id; if it couldn't be resolved we
+  // fail clearly instead of attempting an insert/select with an empty UUID.
+  if (
+    caller?.kind === "bot" &&
+    !caller.agentId &&
+    (name === "remember" || name === "recall_memories")
+  ) {
+    throw new McpToolError(
+      "The ContextOS bot agent isn't available for this tenant, so bot memory is unavailable.",
+    );
+  }
   switch (name) {
     case "list_agents": {
       const rows = await db
@@ -1049,26 +1099,43 @@ export async function callTool(
         .insert(workingMemoriesTable)
         .values({
           tenantId,
+          agentId: caller?.kind === "bot" ? caller.agentId : null,
           type,
           key,
           value,
-          tags: ["long_term", "telegram"],
-          metadataJson: { source: "telegram_bot", savedBy: userId || null },
+          tags: ["long_term"],
+          metadataJson: {
+            source: caller?.kind === "bot" ? "contextos_bot" : "agent",
+            savedBy: userId || null,
+          },
         })
         .returning();
       return { remembered: true, id: row.id, key, type };
     }
     case "recall_memories": {
-      const rows = await db
-        .select()
-        .from(workingMemoriesTable)
-        .where(
-          and(
-            eq(workingMemoriesTable.tenantId, tenantId),
-            isNull(workingMemoriesTable.runId),
-          ),
-        )
-        .orderBy(desc(workingMemoriesTable.createdAt));
+      let rows;
+      if (caller?.kind === "bot") {
+        const [bot] = await db
+          .select({ policy: agentsTable.contextPolicy })
+          .from(agentsTable)
+          .where(eq(agentsTable.id, caller.agentId));
+        rows = await loadOwnedLongTermMemories(
+          tenantId,
+          caller.agentId,
+          (bot?.policy ?? "isolated") !== "isolated",
+        );
+      } else {
+        rows = await db
+          .select()
+          .from(workingMemoriesTable)
+          .where(
+            and(
+              eq(workingMemoriesTable.tenantId, tenantId),
+              isNull(workingMemoriesTable.runId),
+            ),
+          )
+          .orderBy(desc(workingMemoriesTable.createdAt));
+      }
       return {
         memories: rows.map((m) => ({
           id: m.id,
@@ -1111,12 +1178,70 @@ function toJsonSchema(raw: unknown): JsonSchema {
 }
 
 /**
+ * Resolve the reserved "ContextOS Bot" agent id for a tenant. The /mcp surface
+ * is treated as the bot, so external clients get the same command-only
+ * restriction and memory partition. Returns null if no bot agent exists.
+ */
+export async function getBotAgentId(tenantId: string): Promise<string | null> {
+  const [bot] = await db
+    .select({ id: agentsTable.id })
+    .from(agentsTable)
+    .where(
+      and(
+        eq(agentsTable.tenantId, tenantId),
+        eq(agentsTable.name, "ContextOS Bot"),
+      ),
+    )
+    .limit(1);
+  return bot?.id ?? null;
+}
+
+/**
+ * Load an agent's OWN durable long-term memories (runId IS NULL). When
+ * `includeShared` is true (the agent's context policy is not "isolated") the
+ * tenant-shared pool (agentId IS NULL) is merged in too. This is the single
+ * source of truth for the bot's memory partition, reused by `recall_memories`
+ * and the Telegram/web long-term injection block.
+ */
+export async function loadOwnedLongTermMemories(
+  tenantId: string,
+  agentId: string,
+  includeShared: boolean,
+  limit = 50,
+): Promise<(typeof workingMemoriesTable.$inferSelect)[]> {
+  const ownership = includeShared
+    ? or(
+        eq(workingMemoriesTable.agentId, agentId),
+        isNull(workingMemoriesTable.agentId),
+      )
+    : eq(workingMemoriesTable.agentId, agentId);
+  return db
+    .select()
+    .from(workingMemoriesTable)
+    .where(
+      and(
+        eq(workingMemoriesTable.tenantId, tenantId),
+        isNull(workingMemoriesTable.runId),
+        ownership,
+      ),
+    )
+    .orderBy(desc(workingMemoriesTable.createdAt))
+    .limit(limit);
+}
+
+/**
  * The full tool catalog visible to an MCP client: the built-in ContextOS tools
  * plus every constructed (executable) capability registered in this tenant.
+ * When the caller is the ContextOS bot, only orchestration + own-memory tools
+ * are advertised — no action tools and no constructed capabilities.
  */
 export async function listToolsForTenant(
   tenantId: string,
+  caller?: ToolCaller,
 ): Promise<McpTool[]> {
+  if (caller?.kind === "bot") {
+    return TOOLS.filter((t) => BOT_ALLOWED_TOOLS.has(t.name));
+  }
   const constructed = await listExecutableCapabilities(tenantId);
   const seen = new Set(TOOLS.map((t) => t.name));
   const dynamic: McpTool[] = [];

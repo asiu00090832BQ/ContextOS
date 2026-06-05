@@ -305,6 +305,7 @@ export const workingMemoriesTable = pgTable(
     runId: uuid("run_id").references(() => runsTable.id, {
       onDelete: "cascade",
     }),
+    agentId: uuid("agent_id"),
     type: memoryTypeEnum("type").notNull().default("working"),
     key: text("key").notNull(),
     value: text("value").notNull(),

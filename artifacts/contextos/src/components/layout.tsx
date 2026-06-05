@@ -19,6 +19,7 @@ import {
   Settings,
   BrainCircuit,
   Brain,
+  Bot,
   CheckSquare,
   ScrollText,
   Gauge,
@@ -64,6 +65,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/artifacts", label: "Artifacts", icon: Database },
       { href: "/memory", label: "Memory", icon: Brain },
+      { href: "/bot", label: "Bot", icon: Bot },
     ],
   },
   {

@@ -591,6 +591,27 @@ export interface AgentUpdate {
   canBuildIntegrations?: boolean;
 }
 
+export interface BotPolicyInput {
+  contextPolicy?: string;
+  systemPrompt?: string;
+}
+
+export interface BotMemoryInput {
+  /** @minLength 1 */
+  key: string;
+  /** @minLength 1 */
+  value: string;
+  type?: string;
+}
+
+export interface BotMemoryUpdate {
+  /** @minLength 1 */
+  key?: string;
+  /** @minLength 1 */
+  value?: string;
+  type?: string;
+}
+
 export interface AgentModelPolicyInput {
   primaryEndpointId?: string;
   fallbackEndpointId?: string;

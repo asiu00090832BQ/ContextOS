@@ -826,6 +826,104 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentModelPolicy"
 
+  /bot:
+    get:
+      operationId: getBot
+      tags: [bot]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+  /bot/policy:
+    put:
+      operationId: updateBotPolicy
+      tags: [bot]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotPolicyInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+  /bot/memories:
+    get:
+      operationId: listBotMemories
+      tags: [bot]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkingMemory"
+    post:
+      operationId: createBotMemory
+      tags: [bot]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotMemoryInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkingMemory"
+  /bot/memories/{id}:
+    put:
+      operationId: updateBotMemory
+      tags: [bot]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotMemoryUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkingMemory"
+    delete:
+      operationId: deleteBotMemory
+      tags: [bot]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted
+  /bot/short-term:
+    get:
+      operationId: listBotShortTerm
+      tags: [bot]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConversationMessage"
+
   /model-endpoints:
     get:
       operationId: listModelEndpoints
@@ -2334,6 +2432,25 @@ components:
         isActive: { type: boolean }
         exposeAsCapabilityProvider: { type: boolean }
         canBuildIntegrations: { type: boolean }
+
+    BotPolicyInput:
+      type: object
+      properties:
+        contextPolicy: { type: string }
+        systemPrompt: { type: string }
+    BotMemoryInput:
+      type: object
+      required: [key, value]
+      properties:
+        key: { type: string, minLength: 1 }
+        value: { type: string, minLength: 1 }
+        type: { type: string }
+    BotMemoryUpdate:
+      type: object
+      properties:
+        key: { type: string, minLength: 1 }
+        value: { type: string, minLength: 1 }
+        type: { type: string }
 
     AgentModelPolicy:
       type: object

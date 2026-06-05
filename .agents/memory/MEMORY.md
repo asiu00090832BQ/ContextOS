@@ -1,3 +1,4 @@
 - [ContextOS conventions](contextos.md) — stack, enum-drift trap, route mounting, build/restart quirks, seed script location.
 - [Constructed MCP SSRF hardening](constructed-mcp-ssrf.md) — all constructed-tool fetches use safeFetch: per-hop redirect + DNS-pinned + browser page.route; opt-in allowPrivateNetwork relaxes it.
+- [ContextOS bot as first-class agent](contextos-bot-agent.md) — bot is a restricted agent (fail-closed BOT_ALLOWED_TOOLS by caller kind) with its own agentId memory partition; clearContextCache() after any bot-agent write.
 - [LLM call paths](llm-call-paths.md) — two independent provider dispatch paths (bot runToolChat vs agent llm.ts complete); endpoint/provider routing changes must hit BOTH.

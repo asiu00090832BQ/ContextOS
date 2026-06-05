@@ -1263,6 +1263,125 @@ export const SetAgentModelPolicyResponse = zod.object({
 })
 
 
+export const GetBotResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "role": zod.string(),
+  "description": zod.string().nullish(),
+  "systemPrompt": zod.string().nullish(),
+  "capabilityScope": zod.array(zod.string()).nullish(),
+  "contextPolicy": zod.string(),
+  "exposeAsCapabilityProvider": zod.boolean().optional(),
+  "canBuildIntegrations": zod.boolean().optional(),
+  "isActive": zod.boolean(),
+  "modelPolicy": zod.object({
+  "id": zod.string(),
+  "agentId": zod.string(),
+  "primaryEndpointId": zod.string().nullish(),
+  "fallbackEndpointId": zod.string().nullish(),
+  "temperature": zod.number().optional(),
+  "maxTokens": zod.number().optional()
+}).optional(),
+  "createdAt": zod.coerce.date()
+})
+
+
+export const UpdateBotPolicyBody = zod.object({
+  "contextPolicy": zod.string().optional(),
+  "systemPrompt": zod.string().optional()
+})
+
+export const UpdateBotPolicyResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "role": zod.string(),
+  "description": zod.string().nullish(),
+  "systemPrompt": zod.string().nullish(),
+  "capabilityScope": zod.array(zod.string()).nullish(),
+  "contextPolicy": zod.string(),
+  "exposeAsCapabilityProvider": zod.boolean().optional(),
+  "canBuildIntegrations": zod.boolean().optional(),
+  "isActive": zod.boolean(),
+  "modelPolicy": zod.object({
+  "id": zod.string(),
+  "agentId": zod.string(),
+  "primaryEndpointId": zod.string().nullish(),
+  "fallbackEndpointId": zod.string().nullish(),
+  "temperature": zod.number().optional(),
+  "maxTokens": zod.number().optional()
+}).optional(),
+  "createdAt": zod.coerce.date()
+})
+
+
+export const ListBotMemoriesResponseItem = zod.object({
+  "id": zod.string(),
+  "runId": zod.string().nullish(),
+  "type": zod.string(),
+  "key": zod.string(),
+  "value": zod.string(),
+  "sensitivity": zod.string(),
+  "tags": zod.array(zod.string()).nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListBotMemoriesResponse = zod.array(ListBotMemoriesResponseItem)
+
+
+
+
+
+
+export const CreateBotMemoryBody = zod.object({
+  "key": zod.string().min(1),
+  "value": zod.string().min(1),
+  "type": zod.string().optional()
+})
+
+
+export const UpdateBotMemoryParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+
+export const UpdateBotMemoryBody = zod.object({
+  "key": zod.string().min(1).optional(),
+  "value": zod.string().min(1).optional(),
+  "type": zod.string().optional()
+})
+
+export const UpdateBotMemoryResponse = zod.object({
+  "id": zod.string(),
+  "runId": zod.string().nullish(),
+  "type": zod.string(),
+  "key": zod.string(),
+  "value": zod.string(),
+  "sensitivity": zod.string(),
+  "tags": zod.array(zod.string()).nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+export const DeleteBotMemoryParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+export const ListBotShortTermResponseItem = zod.object({
+  "id": zod.string(),
+  "conversationId": zod.string(),
+  "role": zod.string(),
+  "content": zod.string(),
+  "usedStub": zod.boolean().nullish(),
+  "runId": zod.string().nullish(),
+  "metadata": zod.record(zod.string(), zod.unknown()).optional(),
+  "createdAt": zod.coerce.date()
+})
+export const ListBotShortTermResponse = zod.array(ListBotShortTermResponseItem)
+
+
 export const ListModelEndpointsResponseItem = zod.object({
   "id": zod.string(),
   "name": zod.string(),

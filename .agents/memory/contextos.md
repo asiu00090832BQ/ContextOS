@@ -209,3 +209,12 @@ In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dia
 `split(`→`splln`, `limit(`→`limln`). The `read` tool returns correct content. **How to apply:**
 use `read` for exact strings before editing; don't trust rg/bash output for verbatim identifiers.
 No test runner is configured — bundle standalone checks with esbuild (`scripts/verify-isolation.ts`).
+
+## Composite project ref — stale .d.ts after schema change
+lib/db is a `composite` project that emits declarations to `dist` (emitDeclarationOnly); api-server
+references it. After editing `lib/db/src/schema/*`, a plain `tsc --noEmit` in api-server reads the
+STALE `dist/*.d.ts` and reports phantom "property does not exist" / insert-overload errors even
+though the source is correct. `tsc -b --noEmit` fails too (TS6310: referenced project may not
+disable emit). **Fix:** run `pnpm --filter @workspace/api-server exec tsc -b` (real emit) to refresh
+the referenced declarations, THEN typecheck. **Why:** project references read emitted .d.ts, not
+source, and `--noEmit` never rebuilds refs.

@@ -2,8 +2,10 @@ import { Router, type IRouter } from "express";
 import {
   listToolsForTenant,
   callTool,
+  getBotAgentId,
   MCP_PROTOCOL_VERSION,
   MCP_SERVER_INFO,
+  type ToolCaller,
 } from "../lib/mcpServer";
 import { requireApiKey } from "../middlewares/tenant";
 
@@ -38,6 +40,15 @@ function fail(
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
+// The /mcp surface is the ContextOS bot to external clients: it may only
+// orchestrate (command agents) + manage its own memory, never execute work.
+// Fail closed — if the bot agent can't be resolved we still mark the caller as
+// a bot (with an empty id) so the command-only restriction always applies.
+async function resolveBotCaller(tenantId: string): Promise<ToolCaller> {
+  const agentId = (await getBotAgentId(tenantId)) ?? "";
+  return { kind: "bot", agentId };
+}
+
 async function dispatch(
   tenantId: string,
   userId: string,
@@ -58,15 +69,18 @@ async function dispatch(
         });
       case "ping":
         return ok(id, {});
-      case "tools/list":
-        return ok(id, { tools: await listToolsForTenant(tenantId) });
+      case "tools/list": {
+        const caller = await resolveBotCaller(tenantId);
+        return ok(id, { tools: await listToolsForTenant(tenantId, caller) });
+      }
       case "tools/call": {
         const params = msg.params ?? {};
         const name = typeof params.name === "string" ? params.name : "";
         const args =
           (params.arguments as Record<string, unknown> | undefined) ?? {};
         try {
-          const result = await callTool(tenantId, userId, name, args);
+          const caller = await resolveBotCaller(tenantId);
+          const result = await callTool(tenantId, userId, name, args, caller);
           return ok(id, {
             content: [
               { type: "text", text: JSON.stringify(result, null, 2) },

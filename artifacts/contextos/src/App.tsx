@@ -15,6 +15,7 @@ import { Chat } from "@/pages/chat";
 import { Approvals } from "@/pages/approvals";
 import { Artifacts } from "@/pages/artifacts";
 import { Memory } from "@/pages/memory";
+import { Bot } from "@/pages/bot";
 import { Audit } from "@/pages/audit";
 import { Agents } from "@/pages/agents";
 import { AgentDetail } from "@/pages/agent-detail";
@@ -50,6 +51,7 @@ function Router() {
         <Route path="/approvals" component={Approvals} />
         <Route path="/artifacts" component={Artifacts} />
         <Route path="/memory" component={Memory} />
+        <Route path="/bot" component={Bot} />
         <Route path="/audit" component={Audit} />
         <Route path="/agents" component={Agents} />
         <Route path="/agents/:id" component={AgentDetail} />

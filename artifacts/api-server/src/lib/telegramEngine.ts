@@ -6,11 +6,16 @@ import {
   telegramChatsTable,
   modelEndpointsTable,
   tenantsTable,
-  workingMemoriesTable,
+  type Agent,
   type ModelEndpoint,
 } from "@workspace/db";
 import { getContext } from "./context";
-import { listToolsForTenant, callTool, McpToolError } from "./mcpServer";
+import {
+  listToolsForTenant,
+  callTool,
+  McpToolError,
+  loadOwnedLongTermMemories,
+} from "./mcpServer";
 import { resolveSecret } from "./secretStore";
 import { runToolChat, type ToolChatMessage, type ToolSpec } from "./toolChat";
 import { logger } from "./logger";
@@ -46,18 +51,18 @@ const SYSTEM_PROMPT =
  * and render them as a prompt block so the bot retains operational rules and
  * larger tasks even after the rolling 48h chat history has been pruned.
  */
-async function buildLongTermMemoryBlock(tenantId: string): Promise<string> {
-  const rows = await db
-    .select()
-    .from(workingMemoriesTable)
-    .where(
-      and(
-        eq(workingMemoriesTable.tenantId, tenantId),
-        isNull(workingMemoriesTable.runId),
-      ),
-    )
-    .orderBy(desc(workingMemoriesTable.createdAt))
-    .limit(LONG_TERM_INJECT_LIMIT);
+async function buildLongTermMemoryBlock(
+  tenantId: string,
+  botAgent: Agent,
+): Promise<string> {
+  // The bot reads only its OWN memory partition; when its context policy is not
+  // "isolated" the tenant-shared pool (agentId IS NULL) is merged in too.
+  const rows = await loadOwnedLongTermMemories(
+    tenantId,
+    botAgent.id,
+    botAgent.contextPolicy !== "isolated",
+    LONG_TERM_INJECT_LIMIT,
+  );
   if (rows.length === 0) return "";
   const lines = rows.map((m) => `- [${m.type}] ${m.key}: ${m.value}`);
   return `\n\nLong-term memory (durable rules/tasks/preferences the user set; persists beyond the 48h chat window):\n${lines.join("\n")}`;
@@ -260,7 +265,11 @@ export async function handleTelegramMessage(
 
   const history = await loadHistory(conversationId);
 
-  const catalog = await listToolsForTenant(tenantId);
+  // The Telegram surface IS the ContextOS bot: orchestration + own memory only.
+  const { botAgent } = await getContext();
+  const caller = { kind: "bot" as const, agentId: botAgent.id };
+
+  const catalog = await listToolsForTenant(tenantId, caller);
   const tools: ToolSpec[] = catalog.map((t) => ({
     name: t.name,
     description: t.description,
@@ -272,7 +281,8 @@ export async function handleTelegramMessage(
 
   const endpoint = await resolveTelegramEndpoint(tenantId);
   const apiKey = endpoint ? resolveSecret(endpoint.apiKeyRef) : null;
-  const system = SYSTEM_PROMPT + (await buildLongTermMemoryBlock(tenantId));
+  const system =
+    SYSTEM_PROMPT + (await buildLongTermMemoryBlock(tenantId, botAgent));
 
   let replyText = "";
   try {
@@ -286,7 +296,7 @@ export async function handleTelegramMessage(
       maxIterations: MAX_TOOL_ITERATIONS,
       executeTool: async (name, args) => {
         try {
-          const out = await callTool(tenantId, userId ?? "", name, args);
+          const out = await callTool(tenantId, userId ?? "", name, args, caller);
           return { content: JSON.stringify(out), isError: false };
         } catch (err) {
           const message =
