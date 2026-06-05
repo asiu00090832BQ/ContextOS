@@ -308,7 +308,20 @@ router.post(
         executionJson: recipe as unknown as Record<string, unknown>,
       })
       .returning();
-    res.status(201).json(serializeCapability(row));
+    // Auto dry-run the new tool when it is a safe read/list operation, so a
+    // broken base URL/auth/recipe is caught immediately instead of on the
+    // user's first real call — the same check the import paths run. Reuses the
+    // shared smoke-test path + safe allowlist gate (read/list, riskTier L1,
+    // GET/HEAD, !humanReviewRequired); create/update/destructive tools are
+    // never auto-invoked. The outcome is recorded on the capability's lastTest
+    // via recordCapabilityTest so the tool shows verified/failed immediately.
+    await smokeTestImportedTools(adapter, [row]);
+    // Re-read so the response reflects any lastTest the smoke test recorded.
+    const [refreshed] = await db
+      .select()
+      .from(capabilitiesTable)
+      .where(eq(capabilitiesTable.id, row.id));
+    res.status(201).json(serializeCapability(refreshed ?? row));
   },
 );
 
