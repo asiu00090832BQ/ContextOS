@@ -29,6 +29,10 @@ import {
 } from "lucide-react";
 
 type ChatRole = "user" | "agent" | "system";
+type MessageMetadata = {
+  modelEndpointName?: string | null;
+  configuredEndpointName?: string | null;
+} | null;
 type ChatMessage = {
   id: string;
   role: ChatRole;
@@ -37,25 +41,38 @@ type ChatMessage = {
   runId?: string | null;
   createdAt?: string;
   streaming?: boolean;
+  metadata?: MessageMetadata;
 };
 
 const TERMINAL = ["completed", "failed", "cancelled"];
 
-function StubLiveBadge({ usedStub }: { usedStub: boolean }) {
+function StubLiveBadge({
+  usedStub,
+  endpointName,
+  configuredEndpointName,
+}: {
+  usedStub: boolean;
+  endpointName?: string | null;
+  configuredEndpointName?: string | null;
+}) {
+  const liveLabel = endpointName ? `Live · ${endpointName}` : "Live";
+  const stubLabel = "Simulated";
+  const liveTitle = endpointName
+    ? `This reply came from the live model endpoint "${endpointName}".`
+    : "This reply came from a real configured model endpoint.";
+  const stubTitle = configuredEndpointName
+    ? `No live model endpoint was reached — the configured endpoint "${configuredEndpointName}" did not respond, so this is a deterministic simulated reply.`
+    : "No model endpoint is configured for this agent, so this reply came from the deterministic simulated stub.";
   return (
     <span
-      className={`text-[10px] font-mono px-2 rounded uppercase tracking-wide ${
+      className={`text-[10px] font-mono px-2 rounded tracking-wide ${
         usedStub
           ? "bg-amber-500/10 text-amber-500 border border-amber-500/30"
           : "bg-green-500/10 text-green-500 border border-green-500/30"
       }`}
-      title={
-        usedStub
-          ? "This reply came from the deterministic simulated stub (no live model endpoint was reached)."
-          : "This reply came from a real configured model endpoint."
-      }
+      title={usedStub ? stubTitle : liveTitle}
     >
-      {usedStub ? "Stub" : "Live"}
+      {usedStub ? stubLabel : liveLabel}
     </span>
   );
 }
@@ -393,7 +410,11 @@ export function Chat() {
                     </div>
                     {m.role === "agent" && (m.usedStub === true || m.usedStub === false) && (
                       <div className="mt-1 px-1">
-                        <StubLiveBadge usedStub={m.usedStub} />
+                        <StubLiveBadge
+                          usedStub={m.usedStub}
+                          endpointName={m.metadata?.modelEndpointName}
+                          configuredEndpointName={m.metadata?.configuredEndpointName}
+                        />
                       </div>
                     )}
                     {showRunCard && m.runId && <RunCard runId={m.runId} />}

@@ -268,24 +268,35 @@ export async function generateAgentReply(
     // stub when no live endpoint is configured or the call fails.
     let content: string;
     let usedStub = true;
+    // Endpoint actually used to produce a live reply (null when stubbed), and
+    // the endpoint configured for the agent (so the UI can show what was
+    // attempted even when the live call fell through to the stub).
+    let usedEndpointName: string | null = null;
+    let configuredEndpointName: string | null = null;
     const llmReq = { messages: llmMessages, temperature: undefined as number | undefined, maxTokens: undefined as number | undefined };
     if (agent) {
       const { primary, fallback, temperature, maxTokens } = await resolveAgentModel(
         tenantId,
         agent.id,
       );
+      configuredEndpointName = primary?.name ?? null;
       llmReq.temperature = temperature;
       llmReq.maxTokens = maxTokens;
       if (primary) {
         let result = await complete(primary, resolveSecret(primary.apiKeyRef), llmReq);
+        let endpoint = primary;
         if (result.usedStub && fallback) {
           const fb = await complete(fallback, resolveSecret(fallback.apiKeyRef), llmReq);
-          if (!fb.usedStub) result = fb;
+          if (!fb.usedStub) {
+            result = fb;
+            endpoint = fallback;
+          }
         }
         content = result.usedStub
           ? chatStubReply(userContent, agentName, actionable)
           : result.content;
         usedStub = result.usedStub;
+        if (!usedStub) usedEndpointName = endpoint.name;
       } else {
         content = chatStubReply(userContent, agentName, actionable);
         usedStub = true;
@@ -295,6 +306,13 @@ export async function generateAgentReply(
       usedStub = true;
     }
 
+    // Record endpoint info on the message so the Chat UI can show which model
+    // endpoint produced the reply (or that none was reached).
+    const metadataJson: Record<string, unknown> | undefined =
+      usedEndpointName || configuredEndpointName
+        ? { modelEndpointName: usedEndpointName, configuredEndpointName }
+        : undefined;
+
     if (actionable && runId) {
       content = `${content.trim()}\n\nI've started a run to handle this — you can track its progress and approve any required steps on the card below.`;
     }
@@ -302,7 +320,7 @@ export async function generateAgentReply(
     // Persist the reply (source of truth) then stream it to live listeners.
     const [row] = await db
       .insert(conversationMessagesTable)
-      .values({ tenantId, conversationId, role: "agent", content, usedStub, runId })
+      .values({ tenantId, conversationId, role: "agent", content, usedStub, runId, metadataJson })
       .returning();
     await db
       .update(conversationsTable)
