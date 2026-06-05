@@ -39,6 +39,23 @@ import { putSecret, resolveSecret } from "./secretStore";
 type RiskTier = "L1" | "L2" | "L3" | "L4";
 type OrchestrationMode = "static_graph" | "dynamic_delegation";
 
+const AGENT_ROLES = new Set<string>([
+  "lead",
+  "specialist",
+  "verifier",
+  "executor",
+  "summarizer",
+  "router",
+  "memory_manager",
+]);
+const CONTEXT_POLICIES = new Set<string>([
+  "isolated",
+  "shared_summary",
+  "shared_readonly",
+  "shared_full",
+  "brokered",
+]);
+
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
 export const MCP_SERVER_INFO = {
   name: "contextos",
@@ -77,6 +94,7 @@ export type ToolCaller =
  */
 const BOT_ALLOWED_TOOLS = new Set<string>([
   "list_agents",
+  "create_agent",
   "list_intents",
   "create_intent",
   "run_intent",
@@ -102,6 +120,61 @@ export const TOOLS: McpTool[] = [
     name: "list_agents",
     description: "List the agents configured in this ContextOS tenant.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "create_agent",
+    description:
+      "Create a new agent in this ContextOS tenant. Use this to spin up a specialist, verifier, executor, etc. Returns the new agent's id. After creating, you can assign it a model with set_agent_model.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Display name for the agent." },
+        role: {
+          type: "string",
+          enum: [
+            "lead",
+            "specialist",
+            "verifier",
+            "executor",
+            "summarizer",
+            "router",
+            "memory_manager",
+          ],
+          description: "The agent's role. Defaults to 'specialist'.",
+        },
+        description: {
+          type: "string",
+          description: "Short description of what this agent is for.",
+        },
+        systemPrompt: {
+          type: "string",
+          description: "System prompt that defines the agent's behavior.",
+        },
+        contextPolicy: {
+          type: "string",
+          enum: [
+            "isolated",
+            "shared_summary",
+            "shared_readonly",
+            "shared_full",
+            "brokered",
+          ],
+          description:
+            "How this agent shares context with others. Defaults to 'isolated'.",
+        },
+        exposeAsCapabilityProvider: {
+          type: "boolean",
+          description:
+            "Whether other agents can call this agent as a capability. Defaults to false.",
+        },
+        canBuildIntegrations: {
+          type: "boolean",
+          description:
+            "Whether this agent may build new MCP integrations. Defaults to false.",
+        },
+      },
+      required: ["name"],
+    },
   },
   {
     name: "list_intents",
@@ -666,6 +739,62 @@ export async function callTool(
         fallbackEndpointId: row.fallbackEndpointId,
         temperature: row.temperature / 100,
         maxTokens: row.maxTokens,
+      };
+    }
+    case "create_agent": {
+      const agentName = asString(args.name);
+      if (!agentName) throw new McpToolError("`name` is required.");
+      const roleArg = asString(args.role) ?? "specialist";
+      if (!AGENT_ROLES.has(roleArg)) {
+        throw new McpToolError(
+          `Invalid role "${roleArg}". Valid roles: ${[...AGENT_ROLES].join(", ")}.`,
+        );
+      }
+      const policyArg = asString(args.contextPolicy) ?? "isolated";
+      if (!CONTEXT_POLICIES.has(policyArg)) {
+        throw new McpToolError(
+          `Invalid contextPolicy "${policyArg}". Valid values: ${[...CONTEXT_POLICIES].join(", ")}.`,
+        );
+      }
+      const [existing] = await db
+        .select({ id: agentsTable.id })
+        .from(agentsTable)
+        .where(
+          and(
+            eq(agentsTable.tenantId, tenantId),
+            eq(agentsTable.name, agentName),
+          ),
+        );
+      if (existing) {
+        throw new McpToolError(
+          `An agent named "${agentName}" already exists in this tenant.`,
+        );
+      }
+      const [row] = await db
+        .insert(agentsTable)
+        .values({
+          tenantId,
+          name: agentName,
+          role: roleArg as Agent["role"],
+          description: asString(args.description) ?? null,
+          systemPrompt: asString(args.systemPrompt) ?? null,
+          contextPolicy: policyArg as Agent["contextPolicy"],
+          exposeAsCapabilityProvider:
+            typeof args.exposeAsCapabilityProvider === "boolean"
+              ? args.exposeAsCapabilityProvider
+              : false,
+          canBuildIntegrations:
+            typeof args.canBuildIntegrations === "boolean"
+              ? args.canBuildIntegrations
+              : false,
+        })
+        .returning();
+      return {
+        agentId: row.id,
+        name: row.name,
+        role: row.role,
+        contextPolicy: row.contextPolicy,
+        isActive: row.isActive,
       };
     }
     case "create_intent": {
