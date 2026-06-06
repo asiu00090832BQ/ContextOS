@@ -8,5 +8,6 @@
 - [Bot tool-calling failures](contextos-bot-tool-calling.md) — "narrates but does nothing" = stale deploy (tool-calling is recent), not the model; "working on it then silence" = delegated runs have no run→Telegram result callback.
 - [api-server testing](contextos-testing.md) — vitest is firewall-blocked (breaks pnpm install); tests run on node:test + mock.module + a .ts resolve hook.
 - [Model-key deploy gap](contextos-model-key-deploy.md) — endpoint keys in local gitignored file store don't deploy → prod 401; resolve via resolveEndpointApiKey (file→per-provider env secret).
+- [Dev→prod config sync](contextos-dev-to-prod-sync.md) — no auto data sync; on-demand HTTP-to-HTTP helper (scripts push-prod) upserts agents/policies/bot by name, never copies secrets, default dry-run.
 - [Bot/telegram model selection](contextos-bot-model-selection.md) — model lives in DB (not carried by publish); weak deepseek-chat-v3 ignores injected live-state snapshot; use managed Claude.
 - [Bot live-state freshness](contextos-bot-freshness.md) — "data is all wrong" = prompt directive won't force re-fetch; inject a live workspace snapshot per-turn into BOTH bot paths.

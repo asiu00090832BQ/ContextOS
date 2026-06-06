@@ -7,6 +7,7 @@
     "hello": "tsx ./src/hello.ts",
     "seed": "tsx ./src/seed.ts",
     "clear": "tsx ./src/clear.ts",
+    "push-prod": "tsx ./src/push-dev-to-prod.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
