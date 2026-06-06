@@ -15,7 +15,7 @@ import {
   callTool,
   McpToolError,
   loadOwnedLongTermMemories,
-  buildWorkspaceStateBlock,
+  getWorkspaceStateBlock,
 } from "./mcpServer";
 import { resolveEndpointApiKey } from "./secretStore";
 import { runToolChat, type ToolChatMessage, type ToolSpec } from "./toolChat";
@@ -274,7 +274,7 @@ export async function handleTelegramMessage(
   const endpoint = await resolveTelegramEndpoint(tenantId);
   const apiKey = resolveEndpointApiKey(endpoint);
   const [stateBlock, memoryBlock] = await Promise.all([
-    buildWorkspaceStateBlock(tenantId),
+    getWorkspaceStateBlock(tenantId, { forceRefresh: true }),
     buildLongTermMemoryBlock(tenantId, botAgent),
   ]);
   const system =

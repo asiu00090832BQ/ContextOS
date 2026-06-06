@@ -18,7 +18,7 @@ import {
   listToolsForTenant,
   callTool,
   McpToolError,
-  buildWorkspaceStateBlock,
+  getWorkspaceStateBlock,
 } from "./mcpServer";
 import { runToolChat, type ToolChatMessage, type ToolSpec } from "./toolChat";
 import { composeBotSystemPrompt } from "./botPrompt";
@@ -435,7 +435,7 @@ async function generateBotToolReply(
   // bot always reflects current state instead of answering from its weak stored
   // prompt or stale earlier-in-conversation assumptions.
   const [stateBlock, memoryBlock] = await Promise.all([
-    buildWorkspaceStateBlock(tenantId),
+    getWorkspaceStateBlock(tenantId, { forceRefresh: true }),
     buildLongTermMemoryBlock(tenantId, botAgent),
   ]);
   const system =

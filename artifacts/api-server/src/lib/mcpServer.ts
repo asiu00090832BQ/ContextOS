@@ -36,6 +36,7 @@ import {
 } from "./webTools";
 import { putSecret, resolveEndpointApiKey } from "./secretStore";
 import { BOT_AGENT_NAME } from "./context";
+import { logger } from "./logger";
 
 type RiskTier = "L1" | "L2" | "L3" | "L4";
 type OrchestrationMode = "static_graph" | "dynamic_delegation";
@@ -1698,6 +1699,85 @@ export async function buildWorkspaceStateBlock(
     "turn — this is the ground truth; prefer it over anything said earlier in " +
     "the conversation, and call the read tools only when you need more detail):\n" +
     sections.join("\n")
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live workspace-state cache + background polling.
+//
+// The bot injects a fresh snapshot on every message (the per-message path passes
+// forceRefresh), but we ALSO keep a per-tenant cache warm on a short interval so
+// the system continuously re-checks the latest state between messages — not only
+// at message time. Tenants are registered on first access and evicted once idle,
+// so the poller only does work for tenants actually using the bot.
+// ---------------------------------------------------------------------------
+export const WORKSPACE_STATE_POLL_INTERVAL_MS = 5000;
+// Stop polling (and drop the cache for) a tenant that hasn't been used in a while.
+const WORKSPACE_STATE_IDLE_TTL_MS = 10 * 60 * 1000;
+
+interface WorkspaceStateCacheEntry {
+  block: string;
+  builtAt: number;
+  lastAccess: number;
+}
+
+const workspaceStateCache = new Map<string, WorkspaceStateCacheEntry>();
+
+/**
+ * Get the tenant's live workspace-state block. Registers the tenant for
+ * background polling and, when `forceRefresh` is set (the per-message path) or
+ * the cache is missing/older than the poll interval, rebuilds the snapshot
+ * synchronously so the caller always gets current data.
+ */
+export async function getWorkspaceStateBlock(
+  tenantId: string,
+  { forceRefresh = false }: { forceRefresh?: boolean } = {},
+): Promise<string> {
+  const now = Date.now();
+  const cached = workspaceStateCache.get(tenantId);
+  if (
+    !forceRefresh &&
+    cached &&
+    now - cached.builtAt < WORKSPACE_STATE_POLL_INTERVAL_MS
+  ) {
+    cached.lastAccess = now;
+    return cached.block;
+  }
+  const block = await buildWorkspaceStateBlock(tenantId);
+  workspaceStateCache.set(tenantId, {
+    block,
+    builtAt: Date.now(),
+    lastAccess: now,
+  });
+  return block;
+}
+
+/**
+ * Refresh the cached snapshot for every tenant that has used the bot recently,
+ * and evict tenants idle beyond the TTL. Called on a fixed interval by the
+ * server so workspace state is re-checked every few seconds, not just on
+ * message. Per-tenant failures are isolated so one bad tenant can't stall the
+ * sweep.
+ */
+export async function refreshActiveWorkspaceState(): Promise<void> {
+  const now = Date.now();
+  await Promise.all(
+    [...workspaceStateCache.entries()].map(async ([tenantId, entry]) => {
+      if (now - entry.lastAccess > WORKSPACE_STATE_IDLE_TTL_MS) {
+        workspaceStateCache.delete(tenantId);
+        return;
+      }
+      try {
+        const block = await buildWorkspaceStateBlock(tenantId);
+        const current = workspaceStateCache.get(tenantId);
+        if (current) {
+          current.block = block;
+          current.builtAt = Date.now();
+        }
+      } catch (err) {
+        logger.error({ err, tenantId }, "Workspace state poll refresh failed");
+      }
+    }),
   );
 }
 
