@@ -1100,12 +1100,14 @@ export const ListMemoryQueryParams = zod.object({
 export const ListMemoryResponseItem = zod.object({
   "id": zod.string(),
   "runId": zod.string().nullish(),
+  "agentId": zod.string().nullish(),
   "type": zod.string(),
   "key": zod.string(),
   "value": zod.string(),
   "sensitivity": zod.string(),
   "tags": zod.array(zod.string()).nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date().nullish()
 })
 export const ListMemoryResponse = zod.array(ListMemoryResponseItem)
 
@@ -1263,6 +1265,39 @@ export const SetAgentModelPolicyResponse = zod.object({
 })
 
 
+export const GetAgentMemoriesParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetAgentMemoriesResponse = zod.object({
+  "contextPolicy": zod.string(),
+  "longTerm": zod.array(zod.object({
+  "id": zod.string(),
+  "runId": zod.string().nullish(),
+  "agentId": zod.string().nullish(),
+  "type": zod.string(),
+  "key": zod.string(),
+  "value": zod.string(),
+  "sensitivity": zod.string(),
+  "tags": zod.array(zod.string()).nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date().nullish()
+})),
+  "shortTerm": zod.array(zod.object({
+  "id": zod.string(),
+  "runId": zod.string().nullish(),
+  "agentId": zod.string().nullish(),
+  "type": zod.string(),
+  "key": zod.string(),
+  "value": zod.string(),
+  "sensitivity": zod.string(),
+  "tags": zod.array(zod.string()).nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date().nullish()
+}))
+})
+
+
 export const GetBotResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
@@ -1317,12 +1352,14 @@ export const UpdateBotPolicyResponse = zod.object({
 export const ListBotMemoriesResponseItem = zod.object({
   "id": zod.string(),
   "runId": zod.string().nullish(),
+  "agentId": zod.string().nullish(),
   "type": zod.string(),
   "key": zod.string(),
   "value": zod.string(),
   "sensitivity": zod.string(),
   "tags": zod.array(zod.string()).nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date().nullish()
 })
 export const ListBotMemoriesResponse = zod.array(ListBotMemoriesResponseItem)
 
@@ -1355,12 +1392,14 @@ export const UpdateBotMemoryBody = zod.object({
 export const UpdateBotMemoryResponse = zod.object({
   "id": zod.string(),
   "runId": zod.string().nullish(),
+  "agentId": zod.string().nullish(),
   "type": zod.string(),
   "key": zod.string(),
   "value": zod.string(),
   "sensitivity": zod.string(),
   "tags": zod.array(zod.string()).nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date().nullish()
 })
 
 

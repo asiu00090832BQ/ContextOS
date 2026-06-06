@@ -27,6 +27,7 @@ import type {
   AdapterUpdate,
   Agent,
   AgentInput,
+  AgentMemories,
   AgentModelPolicy,
   AgentModelPolicyInput,
   AgentUpdate,
@@ -3640,6 +3641,77 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getSetAgentModelPolicyMutationOptions(options));
     }
+
+export const getGetAgentMemoriesUrl = (id: string,) => {
+
+
+
+
+  return `/api/agents/${id}/memories`
+}
+
+export const getAgentMemories = async (id: string, options?: RequestInit): Promise<AgentMemories> => {
+
+  return customFetch<AgentMemories>(getGetAgentMemoriesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAgentMemoriesQueryKey = (id: string,) => {
+    return [
+    `/api/agents/${id}/memories`
+    ] as const;
+    }
+
+
+export const getGetAgentMemoriesQueryOptions = <TData = Awaited<ReturnType<typeof getAgentMemories>>, TError = ErrorType<unknown>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgentMemories>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAgentMemoriesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgentMemories>>> = ({ signal }) => getAgentMemories(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAgentMemories>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAgentMemoriesQueryResult = NonNullable<Awaited<ReturnType<typeof getAgentMemories>>>
+export type GetAgentMemoriesQueryError = ErrorType<unknown>
+
+
+
+export function useGetAgentMemories<TData = Awaited<ReturnType<typeof getAgentMemories>>, TError = ErrorType<unknown>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgentMemories>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAgentMemoriesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getGetBotUrl = () => {
 

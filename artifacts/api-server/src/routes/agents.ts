@@ -5,11 +5,14 @@ import {
   agentsTable,
   agentModelPoliciesTable,
   modelEndpointsTable,
+  workingMemoriesTable,
 } from "@workspace/db";
 import {
   ListAgentsResponse,
   CreateAgentBody,
   GetAgentParams,
+  GetAgentMemoriesParams,
+  GetAgentMemoriesResponse,
   GetAgentResponse,
   UpdateAgentParams,
   UpdateAgentBody,
@@ -35,6 +38,7 @@ import {
   serializeAgent,
   serializeModelPolicy,
   serializeModelEndpoint,
+  serializeMemory,
 } from "../lib/serialize";
 import { testEndpoint, listModels, describeProviderError } from "../lib/llm";
 import { putSecret, deleteSecret, resolveSecret, isSecretRef } from "../lib/secretStore";
@@ -119,6 +123,41 @@ router.get("/agents/:id", async (req, res): Promise<void> => {
     return;
   }
   res.json(GetAgentResponse.parse(serializeAgent(row, await loadPolicy(row.id))));
+});
+
+router.get("/agents/:id/memories", async (req, res): Promise<void> => {
+  const params = GetAgentMemoriesParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [agent] = await db
+    .select()
+    .from(agentsTable)
+    .where(and(eq(agentsTable.id, params.data.id), eq(agentsTable.tenantId, req.tenantId)));
+  if (!agent) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  const rows = await db
+    .select()
+    .from(workingMemoriesTable)
+    .where(
+      and(
+        eq(workingMemoriesTable.tenantId, req.tenantId),
+        eq(workingMemoriesTable.agentId, agent.id),
+      ),
+    )
+    .orderBy(desc(workingMemoriesTable.createdAt));
+  const longTerm = rows.filter((r) => r.runId === null).map(serializeMemory);
+  const shortTerm = rows.filter((r) => r.runId !== null).map(serializeMemory);
+  res.json(
+    GetAgentMemoriesResponse.parse({
+      contextPolicy: agent.contextPolicy,
+      longTerm,
+      shortTerm,
+    }),
+  );
 });
 
 router.patch("/agents/:id", async (req, res): Promise<void> => {

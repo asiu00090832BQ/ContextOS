@@ -529,6 +529,8 @@ export interface WorkingMemory {
   id: string;
   /** @nullable */
   runId?: string | null;
+  /** @nullable */
+  agentId?: string | null;
   type: string;
   key: string;
   value: string;
@@ -536,6 +538,14 @@ export interface WorkingMemory {
   /** @nullable */
   tags?: string[] | null;
   createdAt: string;
+  /** @nullable */
+  updatedAt?: string | null;
+}
+
+export interface AgentMemories {
+  contextPolicy: string;
+  longTerm: WorkingMemory[];
+  shortTerm: WorkingMemory[];
 }
 
 export interface AgentModelPolicy {

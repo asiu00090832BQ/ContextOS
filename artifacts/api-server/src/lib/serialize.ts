@@ -258,12 +258,14 @@ export function serializeMemory(m: WorkingMemory): Record<string, unknown> {
   return {
     id: m.id,
     runId: m.runId,
+    agentId: m.agentId,
     type: m.type,
     key: m.key,
     value: m.value,
     sensitivity: m.sensitivity,
     tags: m.tags ?? null,
     createdAt: m.createdAt,
+    updatedAt: m.updatedAt ?? null,
   };
 }
 

@@ -825,6 +825,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AgentModelPolicy"
+  /agents/{id}/memories:
+    get:
+      operationId: getAgentMemories
+      tags: [agents]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentMemories"
 
   /bot:
     get:
@@ -2326,12 +2339,28 @@ components:
       properties:
         id: { type: string }
         runId: { type: ["string", "null"] }
+        agentId: { type: ["string", "null"] }
         type: { type: string }
         key: { type: string }
         value: { type: string }
         sensitivity: { type: string }
         tags: { type: ["array", "null"], items: { type: string } }
         createdAt: { type: string, format: date-time }
+        updatedAt: { type: ["string", "null"], format: date-time }
+
+    AgentMemories:
+      type: object
+      required: [contextPolicy, longTerm, shortTerm]
+      properties:
+        contextPolicy: { type: string }
+        longTerm:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkingMemory"
+        shortTerm:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkingMemory"
 
     EventLog:
       type: object

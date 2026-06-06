@@ -3,13 +3,24 @@ import { useRoute } from "wouter";
 import {
   useGetAgent,
   getGetAgentQueryKey,
+  useGetAgentMemories,
+  getGetAgentMemoriesQueryKey,
   useListModelEndpoints,
   getListModelEndpointsQueryKey,
   useSetAgentModelPolicy,
 } from "@workspace/api-client-react";
+import type { WorkingMemory } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Cpu, ServerCog, Shield, Settings2 } from "lucide-react";
+import {
+  Cpu,
+  ServerCog,
+  Shield,
+  Settings2,
+  Brain,
+  Clock,
+  RefreshCw,
+} from "lucide-react";
 import { Link } from "wouter";
 import {
   Dialog,
@@ -31,6 +42,15 @@ export function AgentDetail() {
   });
   const { data: endpoints } = useListModelEndpoints({
     query: { queryKey: getListModelEndpointsQueryKey() },
+  });
+  const {
+    data: memories,
+    isLoading: memoriesLoading,
+    isFetching: memoriesFetching,
+    isError: memoriesError,
+    refetch: refetchMemories,
+  } = useGetAgentMemories(id, {
+    query: { enabled: !!id, queryKey: getGetAgentMemoriesQueryKey(id) },
   });
 
   const setPolicyMutation = useSetAgentModelPolicy();
@@ -257,6 +277,109 @@ export function AgentDetail() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      <Card className="bg-card">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Brain className="w-5 h-5 text-muted-foreground" /> Memory
+          </CardTitle>
+          <button
+            onClick={() => refetchMemories()}
+            disabled={memoriesFetching}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-60"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${memoriesFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex flex-wrap gap-2 text-xs font-mono">
+            <span className="px-2 py-1 rounded bg-muted/40 text-muted-foreground uppercase">
+              Context Policy: {memories?.contextPolicy ?? agent.contextPolicy}
+            </span>
+            <span className="px-2 py-1 rounded bg-muted/40 text-muted-foreground">
+              Long-term: {memories?.longTerm.length ?? 0}
+            </span>
+            <span className="px-2 py-1 rounded bg-muted/40 text-muted-foreground">
+              Short-term: {memories?.shortTerm.length ?? 0}
+            </span>
+          </div>
+
+          {memoriesLoading ? (
+            <Skeleton className="w-full h-32" />
+          ) : memoriesError ? (
+            <div className="text-sm text-destructive p-4 bg-destructive/10 rounded">
+              Failed to load memories. Click Refresh to try again.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm font-mono uppercase text-muted-foreground">
+                  <Brain className="w-4 h-4" /> Long-term
+                  <span className="text-xs text-muted-foreground/60">(persists across runs)</span>
+                </div>
+                {memories && memories.longTerm.length > 0 ? (
+                  memories.longTerm.map((m) => <MemoryItem key={m.id} memory={m} />)
+                ) : (
+                  <div className="text-sm text-muted-foreground italic p-4 bg-muted/10 rounded">
+                    No long-term memories.
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm font-mono uppercase text-muted-foreground">
+                  <Clock className="w-4 h-4" /> Short-term
+                  <span className="text-xs text-muted-foreground/60">(run-scoped, pruned)</span>
+                </div>
+                {memories && memories.shortTerm.length > 0 ? (
+                  memories.shortTerm.map((m) => <MemoryItem key={m.id} memory={m} showRun />)
+                ) : (
+                  <div className="text-sm text-muted-foreground italic p-4 bg-muted/10 rounded">
+                    No short-term memories.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function MemoryItem({
+  memory,
+  showRun = false,
+}: {
+  memory: WorkingMemory;
+  showRun?: boolean;
+}) {
+  return (
+    <div className="rounded border border-border/50 bg-muted/20 p-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="px-1.5 py-0.5 rounded bg-primary/15 text-primary text-[10px] font-mono uppercase">
+          {memory.type}
+        </span>
+        <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[10px] font-mono uppercase">
+          {memory.sensitivity}
+        </span>
+        <span className="font-mono text-sm font-medium break-all">{memory.key}</span>
+      </div>
+      <div className="text-sm font-mono whitespace-pre-wrap break-words text-muted-foreground">
+        {memory.value}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono text-muted-foreground/70">
+        {memory.tags?.map((t) => (
+          <span key={t} className="px-1.5 py-0.5 rounded bg-muted/50">
+            #{t}
+          </span>
+        ))}
+        {showRun && memory.runId && (
+          <span className="px-1.5 py-0.5 rounded bg-muted/50">run: {memory.runId.slice(0, 8)}</span>
+        )}
+        <span className="ml-auto">{new Date(memory.createdAt).toLocaleString()}</span>
       </div>
     </div>
   );

@@ -13,6 +13,7 @@ export * from './adapterInput';
 export * from './adapterUpdate';
 export * from './agent';
 export * from './agentInput';
+export * from './agentMemories';
 export * from './agentMessage';
 export * from './agentModelPolicy';
 export * from './agentModelPolicyInput';

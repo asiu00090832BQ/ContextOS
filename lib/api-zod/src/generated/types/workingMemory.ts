@@ -10,6 +10,8 @@ export interface WorkingMemory {
   id: string;
   /** @nullable */
   runId?: string | null;
+  /** @nullable */
+  agentId?: string | null;
   type: string;
   key: string;
   value: string;
@@ -17,4 +19,6 @@ export interface WorkingMemory {
   /** @nullable */
   tags?: string[] | null;
   createdAt: Date;
+  /** @nullable */
+  updatedAt?: Date | null;
 }
