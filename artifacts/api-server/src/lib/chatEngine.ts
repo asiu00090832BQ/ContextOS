@@ -10,7 +10,7 @@ import {
 } from "@workspace/db";
 import { complete, type LlmMessage } from "./llm";
 import { resolveAgentModel, executeRun } from "./runEngine";
-import { resolveSecret } from "./secretStore";
+import { resolveEndpointApiKey } from "./secretStore";
 import { runEvents, conversationEvents } from "./events";
 import { serializeConversationMessage } from "./serialize";
 import { getContext } from "./context";
@@ -302,7 +302,7 @@ async function generateBotToolReply(
     tenantId,
     botAgent.id,
   );
-  const apiKey = primary ? resolveSecret(primary.apiKeyRef) : null;
+  const apiKey = resolveEndpointApiKey(primary);
   const system = botAgent.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
 
   // The first run started by a tool call is linked to the reply for the inline
@@ -477,10 +477,10 @@ export async function generateAgentReply(
       llmReq.temperature = temperature;
       llmReq.maxTokens = maxTokens;
       if (primary) {
-        let result = await complete(primary, resolveSecret(primary.apiKeyRef), llmReq);
+        let result = await complete(primary, resolveEndpointApiKey(primary), llmReq);
         let endpoint = primary;
         if (result.usedStub && fallback) {
-          const fb = await complete(fallback, resolveSecret(fallback.apiKeyRef), llmReq);
+          const fb = await complete(fallback, resolveEndpointApiKey(fallback), llmReq);
           if (!fb.usedStub) {
             result = fb;
             endpoint = fallback;

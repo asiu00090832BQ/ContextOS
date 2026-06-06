@@ -81,6 +81,45 @@ export function resolveSecret(ref: string | null | undefined): string | null {
   return map[ref as string] ?? null;
 }
 
+/**
+ * Per-provider environment-variable fallback for model-endpoint API keys.
+ * The file-based secret store (above) is a LOCAL, gitignored file that never
+ * ships to a deployment, so in production an endpoint's `secret://` ref cannot
+ * be resolved. To keep deployments working, a provider's key may instead be
+ * supplied as a (shared) environment secret named here — e.g. set
+ * `OPENROUTER_API_KEY` and every OpenRouter endpoint resolves its key from it.
+ */
+const PROVIDER_ENV_FALLBACK: Record<string, string> = {
+  openrouter: "OPENROUTER_API_KEY",
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  google: "GEMINI_API_KEY",
+  azure_openai: "AZURE_OPENAI_API_KEY",
+  openai_compatible: "OPENAI_COMPATIBLE_API_KEY",
+};
+
+/**
+ * Resolve a model endpoint's raw API key: the file-based secret store first
+ * (dev), then a provider-specific environment secret (deployments). Returns
+ * null when neither yields a usable value.
+ */
+export function resolveEndpointApiKey(
+  endpoint:
+    | { apiKeyRef: string | null; providerType: string }
+    | null
+    | undefined,
+): string | null {
+  if (!endpoint) return null;
+  const stored = resolveSecret(endpoint.apiKeyRef);
+  if (stored) return stored;
+  const envName = PROVIDER_ENV_FALLBACK[endpoint.providerType];
+  if (envName) {
+    const fromEnv = process.env[envName];
+    if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  }
+  return null;
+}
+
 /** Delete a stored secret by reference (no-op for non-references). */
 export function deleteSecret(ref: string | null | undefined): void {
   if (!isSecretRef(ref)) return;

@@ -34,7 +34,7 @@ import {
   type ExecutionResult,
   type HttpRecipe,
 } from "./webTools";
-import { putSecret, resolveSecret } from "./secretStore";
+import { putSecret, resolveEndpointApiKey } from "./secretStore";
 
 type RiskTier = "L1" | "L2" | "L3" | "L4";
 type OrchestrationMode = "static_graph" | "dynamic_delegation";
@@ -665,7 +665,7 @@ export async function callTool(
       return {
         endpoints: rows.map((e) => {
           const managed = (e.apiKeyRef ?? "").startsWith("managed://");
-          const live = managed || !!resolveSecret(e.apiKeyRef);
+          const live = managed || !!resolveEndpointApiKey(e);
           return {
             id: e.id,
             name: e.name,

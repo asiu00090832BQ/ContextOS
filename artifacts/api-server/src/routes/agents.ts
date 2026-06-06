@@ -41,7 +41,12 @@ import {
   serializeMemory,
 } from "../lib/serialize";
 import { testEndpoint, listModels, describeProviderError } from "../lib/llm";
-import { putSecret, deleteSecret, resolveSecret, isSecretRef } from "../lib/secretStore";
+import {
+  putSecret,
+  deleteSecret,
+  resolveEndpointApiKey,
+  isSecretRef,
+} from "../lib/secretStore";
 
 type AgentRole =
   | "lead"
@@ -456,7 +461,7 @@ router.post("/model-endpoints/list-models", async (req, res): Promise<void> => {
       baseUrl = baseUrl ?? ep.baseUrl;
       host = host ?? ep.host;
       port = port ?? ep.port;
-      apiKey = apiKey ?? resolveSecret(ep.apiKeyRef);
+      apiKey = apiKey ?? resolveEndpointApiKey(ep);
     }
   }
   try {
@@ -481,7 +486,7 @@ router.post("/model-endpoints/:id/test", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Model endpoint not found" });
     return;
   }
-  const result = await testEndpoint(row, resolveSecret(row.apiKeyRef));
+  const result = await testEndpoint(row, resolveEndpointApiKey(row));
   const usedStub = result.mode !== "live";
   await db
     .update(modelEndpointsTable)

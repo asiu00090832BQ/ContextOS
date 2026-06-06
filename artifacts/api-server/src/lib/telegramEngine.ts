@@ -16,7 +16,7 @@ import {
   McpToolError,
   loadOwnedLongTermMemories,
 } from "./mcpServer";
-import { resolveSecret } from "./secretStore";
+import { resolveEndpointApiKey } from "./secretStore";
 import { runToolChat, type ToolChatMessage, type ToolSpec } from "./toolChat";
 import { logger } from "./logger";
 
@@ -297,7 +297,7 @@ export async function handleTelegramMessage(
   }));
 
   const endpoint = await resolveTelegramEndpoint(tenantId);
-  const apiKey = endpoint ? resolveSecret(endpoint.apiKeyRef) : null;
+  const apiKey = resolveEndpointApiKey(endpoint);
   const system =
     SYSTEM_PROMPT + (await buildLongTermMemoryBlock(tenantId, botAgent));
 

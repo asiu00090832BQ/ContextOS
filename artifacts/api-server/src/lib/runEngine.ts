@@ -31,7 +31,7 @@ import {
   finalizeTrace,
 } from "./observability";
 import { complete, stubComplete, type LlmResult } from "./llm";
-import { resolveSecret } from "./secretStore";
+import { resolveEndpointApiKey } from "./secretStore";
 import { parseRecipe } from "./webTools";
 import { executeCapabilityRow } from "./capabilityExec";
 import {
@@ -1299,8 +1299,8 @@ async function runAgent(args: RunAgentArgs): Promise<{
   llmReq.temperature = temperature;
   llmReq.maxTokens = maxTokens;
 
-  const primaryKey = primary ? resolveSecret(primary.apiKeyRef) : null;
-  const fallbackKey = fallback ? resolveSecret(fallback.apiKeyRef) : null;
+  const primaryKey = resolveEndpointApiKey(primary);
+  const fallbackKey = resolveEndpointApiKey(fallback);
 
   // Builder agents with a live (non-stub) model run an agentic tool-calling
   // loop so they can actually construct & verify MCP servers/tools during the
