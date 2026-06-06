@@ -5,3 +5,4 @@
 - [ContextOS bot as first-class agent](contextos-bot-agent.md) — restricted agent, fail-closed BOT_ALLOWED_TOOLS allow-list by caller kind; own agentId memory partition.
 - [LLM call paths](llm-call-paths.md) — two independent provider dispatch paths (bot runToolChat vs agent llm.ts complete); endpoint/provider routing changes must hit BOTH.
 - [Telegram webhook](contextos-telegram-webhook.md) — bot "stops working" = stale dev-domain webhook 404; re-register via POST /api/telegram/set-webhook; secret is HMAC(token).
+- [Model-key deploy gap](contextos-model-key-deploy.md) — endpoint keys in local gitignored file store don't deploy → prod 401; resolve via resolveEndpointApiKey (file→per-provider env secret).
