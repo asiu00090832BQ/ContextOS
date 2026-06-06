@@ -38,6 +38,19 @@ worker selection in `runEngine` must keep `isSystemBot` agents out of the
 workforce; verify with `agent_runs` (bot must never appear) + `runs.lead_agent_id`
 (never the bot id) after a delegated run.
 
+## Deleting an agent: protect the bot + clear non-cascading memories
+`delete_agent` (tool) and any agent-deletion path must (1) refuse to delete the
+system bot — guard on `metadataJson.isSystemBot === true` (rename-proof), with
+name === "ContextOS Bot" only as a legacy fallback; and (2) explicitly delete
+`working_memories` rows for `(tenantId, agentId)` BEFORE deleting the agent.
+**Why:** `working_memories.agent_id` has NO FK cascade, so a bare
+`DELETE FROM agents` orphans the agent's memories; FK-linked rows
+(agent_model_policies, run participation, shared_context_grants) DO cascade.
+**How to apply:** `delete_agent` lives in both `TOOLS` and `BOT_ALLOWED_TOOLS`
+(bot + all agents can create/delete agents); the bare REST `DELETE /agents/:id`
+does NOT clear memories or guard the bot — prefer the tool path or replicate both
+steps if hardening the route.
+
 ## Memory partition keyed on agentId
 `working_memories.agent_id` (nullable FK) partitions memory. `remember` writes
 `agentId=botId` for bot callers; tenant-shared memory is `agentId IS NULL`.

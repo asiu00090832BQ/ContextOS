@@ -35,6 +35,7 @@ import {
   type HttpRecipe,
 } from "./webTools";
 import { putSecret, resolveEndpointApiKey } from "./secretStore";
+import { BOT_AGENT_NAME } from "./context";
 
 type RiskTier = "L1" | "L2" | "L3" | "L4";
 type OrchestrationMode = "static_graph" | "dynamic_delegation";
@@ -95,6 +96,7 @@ export type ToolCaller =
 const BOT_ALLOWED_TOOLS = new Set<string>([
   "list_agents",
   "create_agent",
+  "delete_agent",
   "list_intents",
   "create_intent",
   "run_intent",
@@ -174,6 +176,21 @@ export const TOOLS: McpTool[] = [
         },
       },
       required: ["name"],
+    },
+  },
+  {
+    name: "delete_agent",
+    description:
+      "Permanently delete an agent from this ContextOS tenant by its id. Use list_agents first to find the agent's id. This also removes the agent's model policy, run participation and memories. The system ContextOS bot agent cannot be deleted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agentId: {
+          type: "string",
+          description: "The id of the agent to delete.",
+        },
+      },
+      required: ["agentId"],
     },
   },
   {
@@ -796,6 +813,43 @@ export async function callTool(
         contextPolicy: row.contextPolicy,
         isActive: row.isActive,
       };
+    }
+    case "delete_agent": {
+      const agentId = asString(args.agentId);
+      if (!agentId) throw new McpToolError("`agentId` is required.");
+      const [target] = await db
+        .select()
+        .from(agentsTable)
+        .where(
+          and(eq(agentsTable.id, agentId), eq(agentsTable.tenantId, tenantId)),
+        );
+      if (!target) throw new McpToolError("Agent not found.");
+      const isSystemBot =
+        (target.metadataJson as { isSystemBot?: boolean } | null)
+          ?.isSystemBot === true || target.name === BOT_AGENT_NAME;
+      if (isSystemBot) {
+        throw new McpToolError(
+          `The system "${BOT_AGENT_NAME}" agent is the ContextOS concierge and cannot be deleted.`,
+        );
+      }
+      // working_memories.agentId has no FK cascade, so clear the agent's
+      // memories explicitly before removing the agent (keeps the delete
+      // truthful and avoids orphaned rows). FK-linked rows (model policy,
+      // run participation, shared-context grants) cascade automatically.
+      await db
+        .delete(workingMemoriesTable)
+        .where(
+          and(
+            eq(workingMemoriesTable.tenantId, tenantId),
+            eq(workingMemoriesTable.agentId, agentId),
+          ),
+        );
+      await db
+        .delete(agentsTable)
+        .where(
+          and(eq(agentsTable.id, agentId), eq(agentsTable.tenantId, tenantId)),
+        );
+      return { deleted: true, agentId, name: target.name };
     }
     case "create_intent": {
       const goal = asString(args.goal);

@@ -22,7 +22,7 @@ let cached: OwnerContext | null = null;
 
 const OWNER_EMAIL = "owner@contextos.local";
 const DEFAULT_TENANT_SLUG = "default";
-const BOT_AGENT_NAME = "ContextOS Bot";
+export const BOT_AGENT_NAME = "ContextOS Bot";
 const BOT_SYSTEM_PROMPT =
   "You are the ContextOS bot. You never execute work yourself. " +
   "Your job is to understand the user's goal, manage your own long-term memory, " +
