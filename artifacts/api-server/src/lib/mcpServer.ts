@@ -84,7 +84,7 @@ export interface McpTool {
  * tool catalog, including action/constructed tools.
  */
 export type ToolCaller =
-  | { kind: "bot"; agentId: string }
+  | { kind: "bot"; agentId: string; telegramChatId?: string }
   | { kind: "agent"; agentId?: string };
 
 /**
@@ -888,6 +888,8 @@ export async function callTool(
             (asString(args.orchestrationMode) as OrchestrationMode) ??
             "static_graph",
           leadAgentId: asString(args.leadAgentId) ?? null,
+          telegramChatId:
+            caller?.kind === "bot" ? caller.telegramChatId ?? null : null,
         })
         .returning();
       void executeRun(tenantId, run.id);
@@ -918,6 +920,8 @@ export async function callTool(
             (asString(args.orchestrationMode) as OrchestrationMode) ??
             "static_graph",
           leadAgentId: asString(args.leadAgentId) ?? null,
+          telegramChatId:
+            caller?.kind === "bot" ? caller.telegramChatId ?? null : null,
         })
         .returning();
       void executeRun(tenantId, run.id);

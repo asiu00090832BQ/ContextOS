@@ -249,6 +249,7 @@ export const runsTable = pgTable(
       .notNull()
       .default("static_graph"),
     leadAgentId: uuid("lead_agent_id"),
+    telegramChatId: text("telegram_chat_id"),
     taskGraphJson: jsonb("task_graph_json").$type<Record<string, unknown>>(),
     summary: text("summary"),
     error: text("error"),

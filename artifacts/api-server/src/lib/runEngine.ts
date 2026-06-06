@@ -33,6 +33,7 @@ import {
 import { complete, stubComplete, type LlmResult } from "./llm";
 import { resolveEndpointApiKey } from "./secretStore";
 import { parseRecipe } from "./webTools";
+import { sendMessage } from "./telegram";
 import { executeCapabilityRow } from "./capabilityExec";
 import {
   runToolChat,
@@ -728,6 +729,53 @@ export async function executeRun(tenantId: string, runId: string): Promise<void>
       .where(eq(runsTable.id, runId));
     await logEvent(tenantId, runId, "run.failed", `Run failed: ${String(err)}`, "error");
   }
+  // If this run originated from a Telegram chat (the bot delegated it), report
+  // the terminal outcome back to that chat so delegated work never goes silent.
+  await notifyTelegramOfRunOutcome(tenantId, runId);
+}
+
+/**
+ * Push a run's terminal outcome back to its originating Telegram chat, if any.
+ * Runs created via the bot (`run_command` / `run_intent`) carry `telegramChatId`;
+ * runs started from the web UI have it null and are skipped. Best-effort: a
+ * delivery failure must never fail or re-fail the run.
+ */
+export async function notifyTelegramOfRunOutcome(
+  tenantId: string,
+  runId: string,
+): Promise<void> {
+  try {
+    const [run] = await db
+      .select()
+      .from(runsTable)
+      .where(and(eq(runsTable.id, runId), eq(runsTable.tenantId, tenantId)));
+    if (!run?.telegramChatId) return;
+
+    const [intent] = await db
+      .select({ title: intentsTable.title })
+      .from(intentsTable)
+      .where(eq(intentsTable.id, run.intentId));
+    const title = intent?.title ?? "your task";
+
+    let text: string;
+    if (run.status === "completed") {
+      text = `Done with "${title}".\n${run.summary ?? "The delegated run finished."}`;
+    } else if (run.status === "failed") {
+      text = `The delegated task "${title}" failed.${run.error ? `\n${run.error}` : ""}`;
+    } else if (run.status === "waiting_approval") {
+      text = `The task "${title}" is paused and needs your approval before it can continue. Open ContextOS to review and approve it.`;
+    } else if (run.status === "cancelled") {
+      text = `The delegated task "${title}" was cancelled.`;
+    } else {
+      return;
+    }
+    await sendMessage(run.telegramChatId, text);
+  } catch (err) {
+    logger.error(
+      { err, runId },
+      "Failed to notify Telegram of run outcome",
+    );
+  }
 }
 
 /**
@@ -841,6 +889,7 @@ async function resumeFinalizeNode(state: ResumeStateT): Promise<Partial<ResumeSt
     );
   }
   await logEvent(tenantId, runId, "run.completed", `Run completed after approval (${run.tokensUsed} tokens)`);
+  await notifyTelegramOfRunOutcome(tenantId, runId);
   return {};
 }
 
@@ -874,6 +923,7 @@ export async function resumeRun(tenantId: string, runId: string): Promise<void> 
       .where(eq(runsTable.id, runId));
     await logEvent(tenantId, runId, "run.failed", `Run resume failed: ${String(err)}`, "error");
   }
+  await notifyTelegramOfRunOutcome(tenantId, runId);
 }
 
 function buildFragments(intent: Intent) {

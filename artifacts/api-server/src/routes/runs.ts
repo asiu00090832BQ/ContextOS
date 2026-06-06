@@ -63,7 +63,7 @@ import {
   serializeAgentMessage,
 } from "../lib/serialize";
 import { runEvents } from "../lib/events";
-import { resumeRun } from "../lib/runEngine";
+import { resumeRun, notifyTelegramOfRunOutcome } from "../lib/runEngine";
 
 type RunStatus =
   | "pending"
@@ -222,6 +222,7 @@ router.post("/runs/:id/cancel", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Run not found" });
     return;
   }
+  await notifyTelegramOfRunOutcome(req.tenantId, row.id);
   res.json(CancelRunResponse.parse(serializeRun(row)));
 });
 
@@ -382,6 +383,7 @@ router.post("/approvals/:id/deny", async (req, res): Promise<void> => {
     .update(runsTable)
     .set({ status: "failed", error: "Action denied by reviewer", completedAt: new Date() })
     .where(eq(runsTable.id, row.runId));
+  await notifyTelegramOfRunOutcome(req.tenantId, row.runId);
   res.json(DenyApprovalResponse.parse(serializeApproval(row)));
 });
 

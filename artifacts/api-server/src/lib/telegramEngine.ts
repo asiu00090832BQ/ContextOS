@@ -284,7 +284,11 @@ export async function handleTelegramMessage(
 
   // The Telegram surface IS the ContextOS bot: orchestration + own memory only.
   const { botAgent } = await getContext();
-  const caller = { kind: "bot" as const, agentId: botAgent.id };
+  const caller = {
+    kind: "bot" as const,
+    agentId: botAgent.id,
+    telegramChatId: chatId,
+  };
 
   const catalog = await listToolsForTenant(tenantId, caller);
   const tools: ToolSpec[] = catalog.map((t) => ({
