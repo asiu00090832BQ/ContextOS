@@ -1562,6 +1562,146 @@ function toJsonSchema(raw: unknown): JsonSchema {
 }
 
 /**
+ * Render a compact, always-fresh snapshot of the tenant's live workspace state
+ * (agents, intents, runs, model endpoints, adapters, capabilities) for injection
+ * into the bot's system prompt on EVERY turn. This is a deterministic freshness
+ * guarantee: even if the model declines to re-call the read tools, it answers
+ * from current data rather than stale earlier-in-conversation assumptions. The
+ * queries mirror the corresponding list_* tool handlers; counts are bounded so
+ * the block stays small.
+ */
+export async function buildWorkspaceStateBlock(
+  tenantId: string,
+): Promise<string> {
+  const RUN_LIMIT = 15;
+  const [agents, intents, runs, endpoints, adapters, capabilities] =
+    await Promise.all([
+      db
+        .select({
+          name: agentsTable.name,
+          role: agentsTable.role,
+          isActive: agentsTable.isActive,
+        })
+        .from(agentsTable)
+        .where(eq(agentsTable.tenantId, tenantId))
+        .orderBy(desc(agentsTable.createdAt)),
+      db
+        .select({
+          title: intentsTable.title,
+          status: intentsTable.status,
+          riskTier: intentsTable.riskTier,
+        })
+        .from(intentsTable)
+        .where(eq(intentsTable.tenantId, tenantId))
+        .orderBy(desc(intentsTable.createdAt)),
+      db
+        .select({
+          id: runsTable.id,
+          status: runsTable.status,
+          summary: runsTable.summary,
+        })
+        .from(runsTable)
+        .where(eq(runsTable.tenantId, tenantId))
+        .orderBy(desc(runsTable.createdAt))
+        .limit(RUN_LIMIT),
+      db
+        .select({
+          name: modelEndpointsTable.name,
+          providerType: modelEndpointsTable.providerType,
+          model: modelEndpointsTable.modelName,
+          isDefault: modelEndpointsTable.isDefault,
+        })
+        .from(modelEndpointsTable)
+        .where(eq(modelEndpointsTable.tenantId, tenantId))
+        .orderBy(desc(modelEndpointsTable.createdAt)),
+      db
+        .select({
+          name: adaptersTable.name,
+          status: adaptersTable.status,
+          transport: adaptersTable.transport,
+        })
+        .from(adaptersTable)
+        .where(eq(adaptersTable.tenantId, tenantId))
+        .orderBy(desc(adaptersTable.createdAt)),
+      db
+        .select({
+          name: capabilitiesTable.name,
+          type: capabilitiesTable.type,
+          riskTier: capabilitiesTable.riskTier,
+        })
+        .from(capabilitiesTable)
+        .where(eq(capabilitiesTable.tenantId, tenantId))
+        .orderBy(desc(capabilitiesTable.createdAt)),
+    ]);
+
+  const runCount = await db
+    .select({ id: runsTable.id })
+    .from(runsTable)
+    .where(eq(runsTable.tenantId, tenantId));
+
+  // Cap how many items each section renders so the per-turn prompt stays
+  // bounded for large tenants; the true total is always shown in the header and
+  // any overflow is summarized as "(+N more …)".
+  const SECTION_LIMIT = 40;
+  const renderSection = <T>(
+    label: string,
+    rows: T[],
+    render: (row: T) => string,
+    total = rows.length,
+  ): string => {
+    if (rows.length === 0) return `${label} (${total}):\n  (none)`;
+    const shown = rows.slice(0, SECTION_LIMIT);
+    const lines = shown.map((r) => `  - ${render(r)}`);
+    const overflow = total - shown.length;
+    if (overflow > 0) lines.push(`  - (+${overflow} more — use the read tool)`);
+    return `${label} (${total}):\n${lines.join("\n")}`;
+  };
+
+  const sections: string[] = [
+    renderSection(
+      "Agents",
+      agents,
+      (a) => `${a.name} [${a.role}]${a.isActive ? "" : " (inactive)"}`,
+    ),
+    renderSection(
+      "Intents",
+      intents,
+      (i) => `${i.title} [${i.status}, ${i.riskTier} risk]`,
+    ),
+    renderSection(
+      "Runs",
+      runs,
+      (r) =>
+        `${r.id.slice(0, 8)} [${r.status}]${r.summary ? ` ${r.summary.slice(0, 80)}` : ""}`,
+      runCount.length,
+    ),
+    renderSection(
+      "Model endpoints",
+      endpoints,
+      (e) =>
+        `${e.name} [${e.providerType}/${e.model}]${e.isDefault ? " (default)" : ""}`,
+    ),
+    renderSection(
+      "Adapters",
+      adapters,
+      (a) => `${a.name} [${a.transport}, ${a.status}]`,
+    ),
+    renderSection(
+      "Capabilities",
+      capabilities,
+      (c) => `${c.name} [${c.type}, ${c.riskTier} risk]`,
+    ),
+  ];
+
+  return (
+    "\n\nLIVE WORKSPACE STATE (snapshot taken just now, at the start of this " +
+    "turn — this is the ground truth; prefer it over anything said earlier in " +
+    "the conversation, and call the read tools only when you need more detail):\n" +
+    sections.join("\n")
+  );
+}
+
+/**
  * Resolve the reserved "ContextOS Bot" agent id for a tenant. The /mcp surface
  * is treated as the bot, so external clients get the same command-only
  * restriction and memory partition. Returns null if no bot agent exists.
