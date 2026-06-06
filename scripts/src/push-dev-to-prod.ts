@@ -11,6 +11,7 @@
  *   - Agents            (create if missing, update if present)
  *   - Agent model policy (which model endpoint each agent uses, temp, maxTokens)
  *   - The reserved "ContextOS Bot" agent (context policy + system prompt + model)
+ *   - The bot's long-term memory (curated partition; matched by key, upserted)
  *   - Model endpoints    (optional: create shells for any missing in prod)
  *
  * What it does NOT do (by design / platform limits):
@@ -71,6 +72,12 @@ interface ModelEndpoint {
   requestTimeoutMs?: number | null;
   maxRetries?: number | null;
   isDefault?: boolean;
+}
+interface BotMemory {
+  id: string;
+  type: string;
+  key: string;
+  value: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +156,20 @@ function assertNoDuplicateNames(items: { name: string }[], label: string) {
   }
 }
 
+// Memory identity is the `key` (case-sensitive). Duplicate keys would make the
+// upsert ambiguous, so stop loudly rather than guess which row to update.
+function assertNoDuplicateMemoryKeys(items: { key: string }[], label: string) {
+  const seen = new Map<string, number>();
+  for (const it of items) seen.set(it.key, (seen.get(it.key) ?? 0) + 1);
+  const dups = [...seen.entries()].filter(([, n]) => n > 1).map(([k]) => k);
+  if (dups.length) {
+    throw new Error(
+      `Duplicate ${label} keys make matching ambiguous: ${dups.join(", ")}. ` +
+        `De-duplicate, then re-run.`,
+    );
+  }
+}
+
 async function preflight(base: string, label: string) {
   try {
     await http(base, "GET", "/api/healthz");
@@ -174,6 +195,13 @@ async function loadAgentsWithPolicies(base: string): Promise<Agent[]> {
     full.push(detail);
   }
   return full;
+}
+
+// The bot's curated long-term memory partition (agentId = bot, runId IS NULL).
+// Run-scoped short-term memories are deliberately NOT synced: they belong to a
+// specific run that does not exist in the other environment.
+async function loadBotMemories(base: string): Promise<BotMemory[]> {
+  return http<BotMemory[]>(base, "GET", "/api/bot/memories");
 }
 
 // ---------------------------------------------------------------------------
@@ -383,11 +411,60 @@ async function main() {
     }
   }
 
+  // --- 3. Bot long-term memory (upsert by key) ---------------------------
+  // Keys are the stable identity here: prod row ids differ, so we match dev
+  // memories to prod ones by `key` and create/update accordingly. Never delete.
+  let memoriesCreated = 0;
+  let memoriesUpdated = 0;
+  const prodHasBot = prodAgentByName.has(BOT_AGENT_NAME.toLowerCase());
+  if (!ONLY || ONLY.has(BOT_AGENT_NAME.toLowerCase())) {
+    if (!prodHasBot) {
+      warn(`Skipping bot memory sync — prod has no "${BOT_AGENT_NAME}" yet.`);
+    } else {
+      const [devMems, prodMems] = await Promise.all([
+        loadBotMemories(DEV_BASE),
+        loadBotMemories(PROD_BASE),
+      ]);
+      assertNoDuplicateMemoryKeys(devMems, "dev bot memory");
+      assertNoDuplicateMemoryKeys(prodMems, "prod bot memory");
+      const prodMemByKey = new Map(prodMems.map((m) => [m.key, m]));
+      log(`\n-- Bot long-term memory (dev: ${devMems.length}, prod: ${prodMems.length}) --`);
+      for (const m of devMems) {
+        const existing = prodMemByKey.get(m.key);
+        if (!existing) {
+          log(`  + create memory "${m.key}" (${m.type})`);
+          if (APPLY) {
+            await http(PROD_BASE, "POST", "/api/bot/memories", {
+              type: m.type,
+              key: m.key,
+              value: m.value,
+            });
+          }
+          memoriesCreated++;
+        } else if (existing.value !== m.value || existing.type !== m.type) {
+          log(`  ~ update memory "${m.key}" (${m.type})`);
+          if (APPLY) {
+            await http(PROD_BASE, "PUT", `/api/bot/memories/${existing.id}`, {
+              type: m.type,
+              key: m.key,
+              value: m.value,
+            });
+          }
+          memoriesUpdated++;
+        } else {
+          log(`  = memory "${m.key}" already up to date`);
+        }
+      }
+    }
+  }
+
   // --- Summary ----------------------------------------------------------
   log(`\n=== Summary [${tag}] ===`);
   log(`  agents created: ${created}`);
   log(`  agents updated: ${updated}`);
   log(`  model policies set: ${policiesSet}`);
+  log(`  bot memories created: ${memoriesCreated}`);
+  log(`  bot memories updated: ${memoriesUpdated}`);
   log(`  skipped: ${skipped}`);
   log(`  warnings: ${warnings.length}`);
   const prodOnly = prodAgents

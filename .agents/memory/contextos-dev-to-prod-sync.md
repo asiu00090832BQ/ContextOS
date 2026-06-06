@@ -28,3 +28,29 @@ writable path.
 
 **Gotcha:** the agent *list* endpoint omits `modelPolicy`; you must fetch each
 agent by id to read its model assignment.
+
+**Bot long-term memory IS syncable; match by `key`** (row ids differ). Only the
+bot's curated long-term partition has read+write routes; upsert by key, never
+delete. Run-scoped short-term memories are deliberately excluded (they belong to a
+run that doesn't exist in the other env).
+
+**What CANNOT be synced via the API (would need new endpoints + a republish):**
+- **Conversation history.** Posting a message *generates a live LLM reply* and only
+  accepts `role:"user"` — so importing history would re-run the model, cost tokens,
+  and fabricate different assistant turns. There is no faithful bulk-import path.
+- **Agent-level (non-bot) working memories.** No write endpoint exists; only the bot
+  has memory POST/PUT.
+
+**Managed Claude does not work in a deployment out of the box.** Its endpoint key is
+a sentinel `managed://replit-anthropic` set only by *seeding* (not settable via the
+API — the create/patch `apiKey` field is always wrapped into a `secret://` ref), and
+it relies on Replit's AI integration which isn't wired into the deployment. Verify
+prod endpoints with `POST /api/model-endpoints/:id/test`. OpenRouter works in prod
+via the `OPENROUTER_API_KEY` env-secret fallback; anthropic's fallback is
+`ANTHROPIC_API_KEY` (not set).
+
+**Intentional bot-model divergence (footgun):** the dev bot may be on Claude while
+the **prod bot must stay on OpenRouter** (Claude can't run in the deployment). The
+helper *mirrors* dev→prod, so a plain `push-prod --apply` will re-point the prod bot
+at Claude and silently break it. After any full sync, re-set the prod bot's
+model-policy to the OpenRouter endpoint (or sync with `--only` excluding the bot).
