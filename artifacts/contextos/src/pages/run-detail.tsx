@@ -2,6 +2,7 @@ import { useRoute } from "wouter";
 import { useGetRun, getGetRunQueryKey, usePauseRun, useResumeRun, useCancelRun, useListRunEvents } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ProvenanceBadge } from "@/pages/runs";
 import { Activity, Pause, Play, Square, FileText, Cpu, CheckSquare } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
@@ -38,6 +39,7 @@ export function RunDetail() {
         <div>
           <h1 className="text-2xl font-bold font-mono flex items-center gap-2">
             <Activity className="h-6 w-6 text-primary" /> Run: {run.id.slice(0,8)}
+            <ProvenanceBadge live={run.liveCallCount} stub={run.stubCallCount} />
           </h1>
           <div className="text-sm text-muted-foreground mt-1">Intent: {run.intentTitle || run.intentId}</div>
         </div>

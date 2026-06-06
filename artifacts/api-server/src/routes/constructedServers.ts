@@ -14,6 +14,8 @@ import {
   InvokeCapabilityParams,
   InvokeCapabilityBody,
   InvokeCapabilityResponse,
+  TestCapabilityParams,
+  TestCapabilityResponse,
   GetAdapterResponse,
   RetestConstructedServerResponse,
 } from "@workspace/api-zod";
@@ -28,6 +30,8 @@ import {
   executeCapabilityRow,
   retestServerTools,
   smokeTestImportedTools,
+  pickSafeSmokeCandidates,
+  recordCapabilityTest,
 } from "../lib/capabilityExec";
 import { putSecret, deleteSecret } from "../lib/secretStore";
 
@@ -469,5 +473,56 @@ router.post(
     res.json(RetestConstructedServerResponse.parse(outcome));
   },
 );
+
+// Re-test a single constructed tool on demand: dry-run it (safe read/list only)
+// and persist the outcome via recordCapabilityTest so its verified/failed badge
+// updates immediately. Mutating tools are never auto-invoked.
+router.post("/capabilities/:id/test", async (req, res): Promise<void> => {
+  const params = TestCapabilityParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [cap] = await db
+    .select()
+    .from(capabilitiesTable)
+    .where(
+      and(
+        eq(capabilitiesTable.id, params.data.id),
+        eq(capabilitiesTable.tenantId, req.tenantId),
+      ),
+    );
+  if (!cap) {
+    res.status(404).json({ error: "Capability not found" });
+    return;
+  }
+  const [adapter] = await db
+    .select()
+    .from(adaptersTable)
+    .where(eq(adaptersTable.id, cap.adapterId));
+  if (!adapter) {
+    res.status(404).json({ error: "Owning server not found" });
+    return;
+  }
+  const candidates = pickSafeSmokeCandidates([cap]);
+  if (candidates.length === 0) {
+    res.status(422).json({
+      error:
+        "This tool isn't a safe read/list operation, so it can't be auto-tested. Use the invoke tester with explicit arguments instead.",
+    });
+    return;
+  }
+  const { capability, args } = candidates[0];
+  const result = await executeCapabilityRow(capability, adapter, args);
+  const record = await recordCapabilityTest(capability.id, result);
+  res.json(
+    TestCapabilityResponse.parse({
+      ok: record.ok,
+      status: record.status,
+      testedAt: record.testedAt,
+      error: record.error,
+    }),
+  );
+});
 
 export default router;

@@ -1123,29 +1123,48 @@ export async function callTool(
         args.inputSchema && typeof args.inputSchema === "object"
           ? (args.inputSchema as Record<string, unknown>)
           : { type: "object", properties: {} };
-      const [cap] = await db
-        .insert(capabilitiesTable)
-        .values({
-          tenantId,
-          adapterId: adapter.id,
-          type: "tool",
-          name: toolName,
-          description: asString(args.description) ?? null,
-          riskTier: (asString(args.riskTier) as RiskTier | undefined) ?? "L2",
-          actionKind:
-            (asString(args.actionKind) as
-              | "read"
-              | "list"
-              | "create"
-              | "update"
-              | "destructive"
-              | "custom"
-              | undefined) ?? "custom",
-          humanReviewRequired: false,
-          inputSchemaJson: inputSchema,
-          executionJson: recipe as unknown as Record<string, unknown>,
-        })
-        .returning();
+      const capValues = {
+        type: "tool" as const,
+        name: toolName,
+        description: asString(args.description) ?? null,
+        riskTier: (asString(args.riskTier) as RiskTier | undefined) ?? "L2",
+        actionKind:
+          (asString(args.actionKind) as
+            | "read"
+            | "list"
+            | "create"
+            | "update"
+            | "destructive"
+            | "custom"
+            | undefined) ?? "custom",
+        humanReviewRequired: false,
+        inputSchemaJson: inputSchema,
+        executionJson: recipe as unknown as Record<string, unknown>,
+      };
+      const [existing] = await db
+        .select()
+        .from(capabilitiesTable)
+        .where(
+          and(
+            eq(capabilitiesTable.tenantId, tenantId),
+            eq(capabilitiesTable.adapterId, adapter.id),
+            eq(capabilitiesTable.name, toolName),
+          ),
+        );
+      // Re-adding a tool with an existing name edits its recipe. That
+      // invalidates any prior verification, so clear lastTestJson — the tool
+      // shows unverified until the smoke test below (or a manual test)
+      // re-verifies it. This also avoids duplicate same-named capabilities.
+      const [cap] = existing
+        ? await db
+            .update(capabilitiesTable)
+            .set({ ...capValues, lastTestJson: null })
+            .where(eq(capabilitiesTable.id, existing.id))
+            .returning()
+        : await db
+            .insert(capabilitiesTable)
+            .values({ tenantId, adapterId: adapter.id, ...capValues })
+            .returning();
       // Auto dry-run the new tool when it is a safe read/list operation so a
       // broken base URL/auth/recipe is caught now instead of on the first real
       // call. Reuses the shared smoke-test path + safe allowlist gate (read/list,

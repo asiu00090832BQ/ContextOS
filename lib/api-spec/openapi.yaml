@@ -396,6 +396,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InvokeCapabilityResult"
+  /capabilities/{id}/test:
+    post:
+      operationId: testCapability
+      tags: [capabilities]
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapabilityTestResult"
 
   /intents:
     get:
@@ -1092,173 +1105,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RunCommandResult"
-
-  /integration-blueprints:
-    get:
-      operationId: listBlueprints
-      tags: [integrations]
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/IntegrationBlueprint"
-    post:
-      operationId: createBlueprint
-      tags: [integrations]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/BlueprintInput"
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IntegrationBlueprint"
-  /integration-blueprints/{id}:
-    get:
-      operationId: getBlueprint
-      tags: [integrations]
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IntegrationBlueprint"
-  /integration-blueprints/{id}/analyze:
-    post:
-      operationId: analyzeBlueprint
-      tags: [integrations]
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IntegrationBlueprint"
-  /integration-blueprints/{id}/synthesize:
-    post:
-      operationId: synthesizeServer
-      tags: [integrations]
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GeneratedMcpServer"
-
-  /generated-mcp-servers:
-    get:
-      operationId: listGeneratedServers
-      tags: [integrations]
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/GeneratedMcpServer"
-  /generated-mcp-servers/{id}:
-    get:
-      operationId: getGeneratedServer
-      tags: [integrations]
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GeneratedServerDetail"
-  /generated-mcp-servers/{id}/test:
-    post:
-      operationId: testGeneratedServer
-      tags: [integrations]
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GeneratedServerDetail"
-  /generated-mcp-servers/{id}/approve:
-    post:
-      operationId: approveGeneratedServer
-      tags: [integrations]
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GeneratedServerDetail"
-  /generated-mcp-servers/{id}/deploy:
-    post:
-      operationId: deployGeneratedServer
-      tags: [integrations]
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GeneratedServerDetail"
-  /generated-mcp-servers/{id}/register:
-    post:
-      operationId: registerGeneratedServer
-      tags: [integrations]
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GeneratedServerDetail"
-  /generated-mcp-servers/{id}/regenerate:
-    post:
-      operationId: regenerateGeneratedServer
-      tags: [integrations]
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RegenerateInput"
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GeneratedMcpServer"
 
   /traces:
     get:
@@ -2246,6 +2092,8 @@ components:
         startedAt: { type: ["string", "null"], format: date-time }
         completedAt: { type: ["string", "null"], format: date-time }
         createdAt: { type: string, format: date-time }
+        liveCallCount: { type: ["integer", "null"] }
+        stubCallCount: { type: ["integer", "null"] }
     RunDetail:
       allOf:
         - $ref: "#/components/schemas/Run"
@@ -2694,94 +2542,6 @@ components:
         intentId: { type: string }
         runId: { type: string }
         status: { type: string }
-
-    IntegrationBlueprint:
-      type: object
-      required: [id, name, serviceName, sourceType, analyzed, createdAt]
-      properties:
-        id: { type: string }
-        name: { type: string }
-        serviceName: { type: string }
-        sourceType: { type: string }
-        sourceUrl: { type: ["string", "null"] }
-        operationCount: { type: integer }
-        generationConfidenceScore: { type: integer }
-        humanReviewRequired: { type: boolean }
-        analyzed: { type: boolean }
-        normalized: { $ref: "#/components/schemas/JsonObject" }
-        createdAt: { type: string, format: date-time }
-    BlueprintInput:
-      type: object
-      required: [name, serviceName]
-      properties:
-        name: { type: string, minLength: 1 }
-        serviceName: { type: string, minLength: 1 }
-        sourceType: { type: string }
-        sourceUrl: { type: string }
-        sourceSpec: { type: string }
-
-    GeneratedMcpServer:
-      type: object
-      required: [id, blueprintId, name, version, status, createdAt]
-      properties:
-        id: { type: string }
-        blueprintId: { type: string }
-        name: { type: string }
-        version: { type: string }
-        status: { type: string }
-        capabilityCount: { type: integer }
-        testsPassed: { type: integer }
-        testsFailed: { type: integer }
-        humanReviewRequired: { type: boolean }
-        approved: { type: boolean }
-        deploymentStatus: { type: string }
-        registeredAdapterId: { type: ["string", "null"] }
-        regenerationReason: { type: ["string", "null"] }
-        createdAt: { type: string, format: date-time }
-    GeneratedServerDetail:
-      allOf:
-        - $ref: "#/components/schemas/GeneratedMcpServer"
-        - type: object
-          properties:
-            serverCode: { type: ["string", "null"] }
-            securityReview: { $ref: "#/components/schemas/JsonObject" }
-            capabilities:
-              type: array
-              items: { $ref: "#/components/schemas/SynthesizedCapability" }
-            tests:
-              type: array
-              items: { $ref: "#/components/schemas/IntegrationTest" }
-    RegenerateInput:
-      type: object
-      properties:
-        reason: { type: string }
-
-    SynthesizedCapability:
-      type: object
-      required: [id, type, name, actionKind, riskTier, createdAt]
-      properties:
-        id: { type: string }
-        type: { type: string }
-        name: { type: string }
-        description: { type: ["string", "null"] }
-        sourceOperation: { type: ["string", "null"] }
-        httpMethod: { type: ["string", "null"] }
-        actionKind: { type: string }
-        riskTier: { type: string }
-        humanReviewRequired: { type: boolean }
-        createdAt: { type: string, format: date-time }
-
-    IntegrationTest:
-      type: object
-      required: [id, name, status, createdAt]
-      properties:
-        id: { type: string }
-        name: { type: string }
-        status: { type: string }
-        assertion: { type: ["string", "null"] }
-        durationMs: { type: integer }
-        output: { type: ["string", "null"] }
-        createdAt: { type: string, format: date-time }
 
     DeploymentTarget:
       type: object

@@ -188,6 +188,16 @@ router.get("/observability/metrics", async (req, res): Promise<void> => {
     successRate: g.count ? (g.count - g.errors) / g.count : 1,
   }));
 
+  let liveModelCalls = 0;
+  let stubModelCalls = 0;
+  for (const o of obs) {
+    if (o.type !== "model_call") continue;
+    const m = metricMap.get(o.id);
+    if (!m || m.usedStub == null) continue;
+    if (m.usedStub) stubModelCalls += 1;
+    else liveModelCalls += 1;
+  }
+
   res.json(
     GetObservabilityMetricsResponse.parse({
       level,
@@ -196,6 +206,8 @@ router.get("/observability/metrics", async (req, res): Promise<void> => {
         observations: obs.length,
         tokens: rows.reduce((s, r) => s + r.tokens, 0),
         costUsdMicros: rows.reduce((s, r) => s + r.costUsdMicros, 0),
+        liveModelCalls,
+        stubModelCalls,
       },
     }),
   );

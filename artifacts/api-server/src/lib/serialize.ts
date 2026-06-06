@@ -20,10 +20,6 @@ import type {
   Conversation,
   ConversationMessage,
   ModelEndpoint,
-  IntegrationBlueprint,
-  GeneratedMcpServer,
-  SynthesizedCapability,
-  IntegrationTest,
   DeploymentTarget,
   Trace,
   Observation,
@@ -129,6 +125,7 @@ export function serializeIntent(
 export function serializeRun(
   r: Run,
   intentTitle?: string | null,
+  extra?: { liveCallCount?: number; stubCallCount?: number },
 ): Record<string, unknown> {
   return {
     id: r.id,
@@ -145,6 +142,8 @@ export function serializeRun(
     startedAt: r.startedAt ?? null,
     completedAt: r.completedAt ?? null,
     createdAt: r.createdAt,
+    liveCallCount: extra?.liveCallCount ?? null,
+    stubCallCount: extra?.stubCallCount ?? null,
   };
 }
 
@@ -427,90 +426,6 @@ export function serializeModelEndpoint(
     lastTestedAt: e.lastTestedAt ?? null,
     lastTestResult: j(e.lastTestResultJson),
     createdAt: e.createdAt,
-  };
-}
-
-export function serializeBlueprint(
-  b: IntegrationBlueprint,
-): Record<string, unknown> {
-  return {
-    id: b.id,
-    name: b.name,
-    serviceName: b.serviceName,
-    sourceType: b.sourceType,
-    sourceUrl: b.sourceUrl,
-    operationCount: b.operationCount,
-    generationConfidenceScore: b.generationConfidenceScore,
-    humanReviewRequired: b.humanReviewRequired,
-    analyzed: b.analyzed,
-    normalized: j(b.normalizedJson),
-    createdAt: b.createdAt,
-  };
-}
-
-export function serializeGeneratedServer(
-  s: GeneratedMcpServer,
-): Record<string, unknown> {
-  return {
-    id: s.id,
-    blueprintId: s.blueprintId,
-    name: s.name,
-    version: s.version,
-    status: s.status,
-    capabilityCount: s.capabilityCount,
-    testsPassed: s.testsPassed,
-    testsFailed: s.testsFailed,
-    humanReviewRequired: s.humanReviewRequired,
-    approved: s.approved,
-    deploymentStatus: s.deploymentStatus,
-    registeredAdapterId: s.registeredAdapterId,
-    regenerationReason: s.regenerationReason,
-    createdAt: s.createdAt,
-  };
-}
-
-export function serializeGeneratedServerDetail(
-  s: GeneratedMcpServer,
-  capabilities: SynthesizedCapability[],
-  tests: IntegrationTest[],
-): Record<string, unknown> {
-  return {
-    ...serializeGeneratedServer(s),
-    serverCode: s.serverCode,
-    securityReview: j(s.securityReviewJson),
-    capabilities: capabilities.map(serializeSynthCapability),
-    tests: tests.map(serializeIntegrationTest),
-  };
-}
-
-export function serializeSynthCapability(
-  c: SynthesizedCapability,
-): Record<string, unknown> {
-  return {
-    id: c.id,
-    type: c.type,
-    name: c.name,
-    description: c.description,
-    sourceOperation: c.sourceOperation,
-    httpMethod: c.httpMethod,
-    actionKind: c.actionKind,
-    riskTier: c.riskTier,
-    humanReviewRequired: c.humanReviewRequired,
-    createdAt: c.createdAt,
-  };
-}
-
-export function serializeIntegrationTest(
-  t: IntegrationTest,
-): Record<string, unknown> {
-  return {
-    id: t.id,
-    name: t.name,
-    status: t.status,
-    assertion: t.assertion,
-    durationMs: t.durationMs,
-    output: t.output,
-    createdAt: t.createdAt,
   };
 }
 

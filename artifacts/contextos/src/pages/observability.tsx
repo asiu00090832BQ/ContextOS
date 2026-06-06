@@ -8,6 +8,10 @@ export function Observability() {
   const { data: traces, isLoading: tracesLoading } = useListTraces();
   const { data: metrics, isLoading: metricsLoading } = useGetObservabilityMetrics({ level: 'models' }, { query: { queryKey: getGetObservabilityMetricsQueryKey({ level: 'models' }) } });
 
+  const totals = (metrics?.totals ?? {}) as Record<string, unknown>;
+  const liveModelCalls = Number(totals.liveModelCalls) || 0;
+  const stubModelCalls = Number(totals.stubModelCalls) || 0;
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -19,7 +23,17 @@ export function Observability() {
           <CardHeader>
              <CardTitle className="text-lg">Model Metrics</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+               <div className="flex flex-col p-3 rounded bg-muted/30 border border-border/50">
+                  <div className="text-xs font-mono text-muted-foreground truncate">Live model calls</div>
+                  <div className="text-xl font-bold mt-1 text-green-500">{liveModelCalls}</div>
+               </div>
+               <div className="flex flex-col p-3 rounded bg-muted/30 border border-border/50">
+                  <div className="text-xs font-mono text-muted-foreground truncate">Stub model calls</div>
+                  <div className="text-xl font-bold mt-1 text-amber-500">{stubModelCalls}</div>
+               </div>
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                {metrics?.rows.map((row, i) => (
                  <div key={i} className="flex flex-col p-3 rounded bg-muted/30 border border-border/50">

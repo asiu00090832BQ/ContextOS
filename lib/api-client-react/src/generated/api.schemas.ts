@@ -95,6 +95,10 @@ export interface Run {
   /** @nullable */
   completedAt?: string | null;
   createdAt: string;
+  /** @nullable */
+  liveCallCount?: number | null;
+  /** @nullable */
+  stubCallCount?: number | null;
 }
 
 export interface DashboardSummary {
@@ -801,90 +805,6 @@ export interface RunCommandResult {
   intentId: string;
   runId: string;
   status: string;
-}
-
-export interface IntegrationBlueprint {
-  id: string;
-  name: string;
-  serviceName: string;
-  sourceType: string;
-  /** @nullable */
-  sourceUrl?: string | null;
-  operationCount?: number;
-  generationConfidenceScore?: number;
-  humanReviewRequired?: boolean;
-  analyzed: boolean;
-  normalized?: JsonObject;
-  createdAt: string;
-}
-
-export interface BlueprintInput {
-  /** @minLength 1 */
-  name: string;
-  /** @minLength 1 */
-  serviceName: string;
-  sourceType?: string;
-  sourceUrl?: string;
-  sourceSpec?: string;
-}
-
-export interface GeneratedMcpServer {
-  id: string;
-  blueprintId: string;
-  name: string;
-  version: string;
-  status: string;
-  capabilityCount?: number;
-  testsPassed?: number;
-  testsFailed?: number;
-  humanReviewRequired?: boolean;
-  approved?: boolean;
-  deploymentStatus?: string;
-  /** @nullable */
-  registeredAdapterId?: string | null;
-  /** @nullable */
-  regenerationReason?: string | null;
-  createdAt: string;
-}
-
-export interface SynthesizedCapability {
-  id: string;
-  type: string;
-  name: string;
-  /** @nullable */
-  description?: string | null;
-  /** @nullable */
-  sourceOperation?: string | null;
-  /** @nullable */
-  httpMethod?: string | null;
-  actionKind: string;
-  riskTier: string;
-  humanReviewRequired?: boolean;
-  createdAt: string;
-}
-
-export interface IntegrationTest {
-  id: string;
-  name: string;
-  status: string;
-  /** @nullable */
-  assertion?: string | null;
-  durationMs?: number;
-  /** @nullable */
-  output?: string | null;
-  createdAt: string;
-}
-
-export type GeneratedServerDetail = GeneratedMcpServer & ({
-  /** @nullable */
-  serverCode?: string | null;
-  securityReview?: JsonObject;
-  capabilities?: SynthesizedCapability[];
-  tests?: IntegrationTest[];
-});
-
-export interface RegenerateInput {
-  reason?: string;
 }
 
 export interface DeploymentTarget {

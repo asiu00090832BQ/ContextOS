@@ -102,7 +102,9 @@ export const GetDashboardResponse = zod.object({
   "traceId": zod.string().nullish(),
   "startedAt": zod.coerce.date().nullish(),
   "completedAt": zod.coerce.date().nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "liveCallCount": zod.number().nullish(),
+  "stubCallCount": zod.number().nullish()
 })).optional()
 })
 
@@ -600,6 +602,18 @@ export const InvokeCapabilityResponse = zod.object({
 })
 
 
+export const TestCapabilityParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const TestCapabilityResponse = zod.object({
+  "ok": zod.boolean(),
+  "status": zod.number().nullish(),
+  "testedAt": zod.coerce.date(),
+  "error": zod.string().nullish()
+})
+
+
 export const ListIntentsQueryParams = zod.object({
   "status": zod.coerce.string().optional()
 })
@@ -731,7 +745,9 @@ export const ListRunsResponseItem = zod.object({
   "traceId": zod.string().nullish(),
   "startedAt": zod.coerce.date().nullish(),
   "completedAt": zod.coerce.date().nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "liveCallCount": zod.number().nullish(),
+  "stubCallCount": zod.number().nullish()
 })
 export const ListRunsResponse = zod.array(ListRunsResponseItem)
 
@@ -754,7 +770,9 @@ export const GetRunResponse = zod.object({
   "traceId": zod.string().nullish(),
   "startedAt": zod.coerce.date().nullish(),
   "completedAt": zod.coerce.date().nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "liveCallCount": zod.number().nullish(),
+  "stubCallCount": zod.number().nullish()
 }).and(zod.object({
   "intent": zod.object({
   "id": zod.string(),
@@ -900,7 +918,9 @@ export const PauseRunResponse = zod.object({
   "traceId": zod.string().nullish(),
   "startedAt": zod.coerce.date().nullish(),
   "completedAt": zod.coerce.date().nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "liveCallCount": zod.number().nullish(),
+  "stubCallCount": zod.number().nullish()
 })
 
 
@@ -922,7 +942,9 @@ export const ResumeRunResponse = zod.object({
   "traceId": zod.string().nullish(),
   "startedAt": zod.coerce.date().nullish(),
   "completedAt": zod.coerce.date().nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "liveCallCount": zod.number().nullish(),
+  "stubCallCount": zod.number().nullish()
 })
 
 
@@ -944,7 +966,9 @@ export const CancelRunResponse = zod.object({
   "traceId": zod.string().nullish(),
   "startedAt": zod.coerce.date().nullish(),
   "completedAt": zod.coerce.date().nullish(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "liveCallCount": zod.number().nullish(),
+  "stubCallCount": zod.number().nullish()
 })
 
 
@@ -1608,336 +1632,6 @@ export const RunCommandBody = zod.object({
   "riskTier": zod.string().optional(),
   "orchestrationMode": zod.string().optional(),
   "leadAgentId": zod.string().optional()
-})
-
-
-export const ListBlueprintsResponseItem = zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "serviceName": zod.string(),
-  "sourceType": zod.string(),
-  "sourceUrl": zod.string().nullish(),
-  "operationCount": zod.number().optional(),
-  "generationConfidenceScore": zod.number().optional(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "analyzed": zod.boolean(),
-  "normalized": zod.record(zod.string(), zod.unknown()).optional(),
-  "createdAt": zod.coerce.date()
-})
-export const ListBlueprintsResponse = zod.array(ListBlueprintsResponseItem)
-
-
-
-
-
-
-export const CreateBlueprintBody = zod.object({
-  "name": zod.string().min(1),
-  "serviceName": zod.string().min(1),
-  "sourceType": zod.string().optional(),
-  "sourceUrl": zod.string().optional(),
-  "sourceSpec": zod.string().optional()
-})
-
-
-export const GetBlueprintParams = zod.object({
-  "id": zod.coerce.string()
-})
-
-export const GetBlueprintResponse = zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "serviceName": zod.string(),
-  "sourceType": zod.string(),
-  "sourceUrl": zod.string().nullish(),
-  "operationCount": zod.number().optional(),
-  "generationConfidenceScore": zod.number().optional(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "analyzed": zod.boolean(),
-  "normalized": zod.record(zod.string(), zod.unknown()).optional(),
-  "createdAt": zod.coerce.date()
-})
-
-
-export const AnalyzeBlueprintParams = zod.object({
-  "id": zod.coerce.string()
-})
-
-export const AnalyzeBlueprintResponse = zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "serviceName": zod.string(),
-  "sourceType": zod.string(),
-  "sourceUrl": zod.string().nullish(),
-  "operationCount": zod.number().optional(),
-  "generationConfidenceScore": zod.number().optional(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "analyzed": zod.boolean(),
-  "normalized": zod.record(zod.string(), zod.unknown()).optional(),
-  "createdAt": zod.coerce.date()
-})
-
-
-export const SynthesizeServerParams = zod.object({
-  "id": zod.coerce.string()
-})
-
-
-export const ListGeneratedServersResponseItem = zod.object({
-  "id": zod.string(),
-  "blueprintId": zod.string(),
-  "name": zod.string(),
-  "version": zod.string(),
-  "status": zod.string(),
-  "capabilityCount": zod.number().optional(),
-  "testsPassed": zod.number().optional(),
-  "testsFailed": zod.number().optional(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "approved": zod.boolean().optional(),
-  "deploymentStatus": zod.string().optional(),
-  "registeredAdapterId": zod.string().nullish(),
-  "regenerationReason": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
-})
-export const ListGeneratedServersResponse = zod.array(ListGeneratedServersResponseItem)
-
-
-export const GetGeneratedServerParams = zod.object({
-  "id": zod.coerce.string()
-})
-
-export const GetGeneratedServerResponse = zod.object({
-  "id": zod.string(),
-  "blueprintId": zod.string(),
-  "name": zod.string(),
-  "version": zod.string(),
-  "status": zod.string(),
-  "capabilityCount": zod.number().optional(),
-  "testsPassed": zod.number().optional(),
-  "testsFailed": zod.number().optional(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "approved": zod.boolean().optional(),
-  "deploymentStatus": zod.string().optional(),
-  "registeredAdapterId": zod.string().nullish(),
-  "regenerationReason": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
-}).and(zod.object({
-  "serverCode": zod.string().nullish(),
-  "securityReview": zod.record(zod.string(), zod.unknown()).optional(),
-  "capabilities": zod.array(zod.object({
-  "id": zod.string(),
-  "type": zod.string(),
-  "name": zod.string(),
-  "description": zod.string().nullish(),
-  "sourceOperation": zod.string().nullish(),
-  "httpMethod": zod.string().nullish(),
-  "actionKind": zod.string(),
-  "riskTier": zod.string(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "createdAt": zod.coerce.date()
-})).optional(),
-  "tests": zod.array(zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "status": zod.string(),
-  "assertion": zod.string().nullish(),
-  "durationMs": zod.number().optional(),
-  "output": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
-})).optional()
-}))
-
-
-export const TestGeneratedServerParams = zod.object({
-  "id": zod.coerce.string()
-})
-
-export const TestGeneratedServerResponse = zod.object({
-  "id": zod.string(),
-  "blueprintId": zod.string(),
-  "name": zod.string(),
-  "version": zod.string(),
-  "status": zod.string(),
-  "capabilityCount": zod.number().optional(),
-  "testsPassed": zod.number().optional(),
-  "testsFailed": zod.number().optional(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "approved": zod.boolean().optional(),
-  "deploymentStatus": zod.string().optional(),
-  "registeredAdapterId": zod.string().nullish(),
-  "regenerationReason": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
-}).and(zod.object({
-  "serverCode": zod.string().nullish(),
-  "securityReview": zod.record(zod.string(), zod.unknown()).optional(),
-  "capabilities": zod.array(zod.object({
-  "id": zod.string(),
-  "type": zod.string(),
-  "name": zod.string(),
-  "description": zod.string().nullish(),
-  "sourceOperation": zod.string().nullish(),
-  "httpMethod": zod.string().nullish(),
-  "actionKind": zod.string(),
-  "riskTier": zod.string(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "createdAt": zod.coerce.date()
-})).optional(),
-  "tests": zod.array(zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "status": zod.string(),
-  "assertion": zod.string().nullish(),
-  "durationMs": zod.number().optional(),
-  "output": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
-})).optional()
-}))
-
-
-export const ApproveGeneratedServerParams = zod.object({
-  "id": zod.coerce.string()
-})
-
-export const ApproveGeneratedServerResponse = zod.object({
-  "id": zod.string(),
-  "blueprintId": zod.string(),
-  "name": zod.string(),
-  "version": zod.string(),
-  "status": zod.string(),
-  "capabilityCount": zod.number().optional(),
-  "testsPassed": zod.number().optional(),
-  "testsFailed": zod.number().optional(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "approved": zod.boolean().optional(),
-  "deploymentStatus": zod.string().optional(),
-  "registeredAdapterId": zod.string().nullish(),
-  "regenerationReason": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
-}).and(zod.object({
-  "serverCode": zod.string().nullish(),
-  "securityReview": zod.record(zod.string(), zod.unknown()).optional(),
-  "capabilities": zod.array(zod.object({
-  "id": zod.string(),
-  "type": zod.string(),
-  "name": zod.string(),
-  "description": zod.string().nullish(),
-  "sourceOperation": zod.string().nullish(),
-  "httpMethod": zod.string().nullish(),
-  "actionKind": zod.string(),
-  "riskTier": zod.string(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "createdAt": zod.coerce.date()
-})).optional(),
-  "tests": zod.array(zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "status": zod.string(),
-  "assertion": zod.string().nullish(),
-  "durationMs": zod.number().optional(),
-  "output": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
-})).optional()
-}))
-
-
-export const DeployGeneratedServerParams = zod.object({
-  "id": zod.coerce.string()
-})
-
-export const DeployGeneratedServerResponse = zod.object({
-  "id": zod.string(),
-  "blueprintId": zod.string(),
-  "name": zod.string(),
-  "version": zod.string(),
-  "status": zod.string(),
-  "capabilityCount": zod.number().optional(),
-  "testsPassed": zod.number().optional(),
-  "testsFailed": zod.number().optional(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "approved": zod.boolean().optional(),
-  "deploymentStatus": zod.string().optional(),
-  "registeredAdapterId": zod.string().nullish(),
-  "regenerationReason": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
-}).and(zod.object({
-  "serverCode": zod.string().nullish(),
-  "securityReview": zod.record(zod.string(), zod.unknown()).optional(),
-  "capabilities": zod.array(zod.object({
-  "id": zod.string(),
-  "type": zod.string(),
-  "name": zod.string(),
-  "description": zod.string().nullish(),
-  "sourceOperation": zod.string().nullish(),
-  "httpMethod": zod.string().nullish(),
-  "actionKind": zod.string(),
-  "riskTier": zod.string(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "createdAt": zod.coerce.date()
-})).optional(),
-  "tests": zod.array(zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "status": zod.string(),
-  "assertion": zod.string().nullish(),
-  "durationMs": zod.number().optional(),
-  "output": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
-})).optional()
-}))
-
-
-export const RegisterGeneratedServerParams = zod.object({
-  "id": zod.coerce.string()
-})
-
-export const RegisterGeneratedServerResponse = zod.object({
-  "id": zod.string(),
-  "blueprintId": zod.string(),
-  "name": zod.string(),
-  "version": zod.string(),
-  "status": zod.string(),
-  "capabilityCount": zod.number().optional(),
-  "testsPassed": zod.number().optional(),
-  "testsFailed": zod.number().optional(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "approved": zod.boolean().optional(),
-  "deploymentStatus": zod.string().optional(),
-  "registeredAdapterId": zod.string().nullish(),
-  "regenerationReason": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
-}).and(zod.object({
-  "serverCode": zod.string().nullish(),
-  "securityReview": zod.record(zod.string(), zod.unknown()).optional(),
-  "capabilities": zod.array(zod.object({
-  "id": zod.string(),
-  "type": zod.string(),
-  "name": zod.string(),
-  "description": zod.string().nullish(),
-  "sourceOperation": zod.string().nullish(),
-  "httpMethod": zod.string().nullish(),
-  "actionKind": zod.string(),
-  "riskTier": zod.string(),
-  "humanReviewRequired": zod.boolean().optional(),
-  "createdAt": zod.coerce.date()
-})).optional(),
-  "tests": zod.array(zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "status": zod.string(),
-  "assertion": zod.string().nullish(),
-  "durationMs": zod.number().optional(),
-  "output": zod.string().nullish(),
-  "createdAt": zod.coerce.date()
-})).optional()
-}))
-
-
-export const RegenerateGeneratedServerParams = zod.object({
-  "id": zod.coerce.string()
-})
-
-export const RegenerateGeneratedServerBody = zod.object({
-  "reason": zod.string().optional()
 })
 
 

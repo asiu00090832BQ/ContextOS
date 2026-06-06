@@ -6,4 +6,5 @@
 - [LLM call paths](llm-call-paths.md) — two independent provider dispatch paths (bot runToolChat vs agent llm.ts complete); endpoint/provider routing changes must hit BOTH.
 - [Telegram webhook](contextos-telegram-webhook.md) — bot "stops working" = stale dev-domain webhook 404; re-register via POST /api/telegram/set-webhook; secret is HMAC(token).
 - [Bot tool-calling failures](contextos-bot-tool-calling.md) — "narrates but does nothing" = stale deploy (tool-calling is recent), not the model; "working on it then silence" = delegated runs have no run→Telegram result callback.
+- [api-server testing](contextos-testing.md) — vitest is firewall-blocked (breaks pnpm install); tests run on node:test + mock.module + a .ts resolve hook.
 - [Model-key deploy gap](contextos-model-key-deploy.md) — endpoint keys in local gitignored file store don't deploy → prod 401; resolve via resolveEndpointApiKey (file→per-provider env secret).

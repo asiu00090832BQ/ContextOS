@@ -15,11 +15,13 @@ import {
   useRetestConstructedServer,
   useDiscoverAdapter,
   useTestAdapter,
+  useTestCapability,
 } from "@workspace/api-client-react";
 import type {
   Adapter,
   AdapterDetail,
   Capability,
+  CapabilityTestResult,
   InvokeCapabilityResult,
   RetestServerResult,
 } from "@workspace/api-client-react";
@@ -1056,7 +1058,13 @@ function ToolsList({
         <Zap className="w-3.5 h-3.5" /> Tools ({tools.length})
       </h2>
       {tools.map((tool) => (
-        <ToolRow key={tool.id} tool={tool} onDelete={handleDelete} />
+        <ToolRow
+          key={tool.id}
+          tool={tool}
+          constructed={constructed}
+          onDelete={handleDelete}
+          onTested={onDone}
+        />
       ))}
     </div>
   );
@@ -1064,15 +1072,51 @@ function ToolsList({
 
 function ToolRow({
   tool,
+  constructed,
   onDelete,
+  onTested,
 }: {
   tool: Capability;
+  constructed: boolean;
   onDelete: (id: string) => void;
+  onTested: () => void;
 }) {
   const [testOpen, setTestOpen] = useState(false);
   const [argsText, setArgsText] = useState("{}");
   const [result, setResult] = useState<InvokeCapabilityResult | null>(null);
   const invokeMutation = useInvokeCapability();
+  const testCapabilityMutation = useTestCapability();
+
+  const lastTest = tool.lastTest ?? null;
+
+  const handleTestNow = async () => {
+    try {
+      const res = (await testCapabilityMutation.mutateAsync({
+        id: tool.id,
+      })) as CapabilityTestResult;
+      if (res.ok) {
+        toast({
+          title: "Verified",
+          description: `${tool.name} responded correctly${
+            res.status != null ? ` (HTTP ${res.status})` : ""
+          }.`,
+        });
+      } else {
+        toast({
+          title: "Test failed",
+          description: res.error ?? "The tool did not respond correctly.",
+          variant: "destructive",
+        });
+      }
+      onTested();
+    } catch (error) {
+      toast({
+        title: "Test failed",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
 
   const runTest = async () => {
     let args: Record<string, unknown> = {};
@@ -1114,6 +1158,28 @@ function ToolRow({
                   {tool.executionKind}
                 </span>
               )}
+              {lastTest && (
+                <span
+                  className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded font-mono uppercase ${
+                    lastTest.ok
+                      ? "bg-green-500/15 text-green-500"
+                      : "bg-destructive/15 text-destructive"
+                  }`}
+                  title={
+                    lastTest.error ??
+                    (lastTest.testedAt
+                      ? `Tested ${new Date(lastTest.testedAt).toLocaleString()}`
+                      : undefined)
+                  }
+                >
+                  {lastTest.ok ? (
+                    <CheckCircle2 className="w-3 h-3" />
+                  ) : (
+                    <XCircle className="w-3 h-3" />
+                  )}
+                  {lastTest.ok ? "Verified" : "Failed"}
+                </span>
+              )}
             </div>
             {tool.description && (
               <p className="text-xs text-muted-foreground mt-1 truncate">
@@ -1122,6 +1188,21 @@ function ToolRow({
             )}
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            {constructed && (
+              <button
+                onClick={handleTestNow}
+                disabled={testCapabilityMutation.isPending}
+                title="Dry-run this tool to verify it responds (safe read/list tools only)"
+                className="flex items-center gap-1 px-2 py-1 text-xs rounded-md border text-muted-foreground hover:text-primary hover:border-primary/50 disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`w-3 h-3 ${
+                    testCapabilityMutation.isPending ? "animate-spin" : ""
+                  }`}
+                />
+                {testCapabilityMutation.isPending ? "Testing..." : "Test now"}
+              </button>
+            )}
             <button
               onClick={() => setTestOpen((v) => !v)}
               className="flex items-center gap-1 px-2 py-1 text-xs rounded-md border hover:border-primary/50"

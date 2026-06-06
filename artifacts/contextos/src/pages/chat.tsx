@@ -7,6 +7,7 @@ import {
   useListConversationMessages,
   getListConversationMessagesQueryKey,
   usePostConversationMessage,
+  useListAgents,
   useGetRun,
   getGetRunQueryKey,
   useApproveApproval,
@@ -185,6 +186,7 @@ function upsert(list: ChatMessage[], msg: ChatMessage): ChatMessage[] {
 export function Chat() {
   const queryClient = useQueryClient();
   const { data: conversations, isLoading: loadingList } = useListConversations();
+  const { data: agents } = useListAgents();
   const createMutation = useCreateConversation();
   const deleteMutation = useDeleteConversation();
   const postMutation = usePostConversationMessage();
@@ -193,7 +195,29 @@ export function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  // Agent chosen to answer brand-new conversations (defaults to the lead agent).
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Default the new-conversation agent to the lead agent (then any active agent).
+  useEffect(() => {
+    if (selectedAgentId || !agents || agents.length === 0) return;
+    const lead =
+      agents.find((a) => a.role === "lead" && a.isActive) ??
+      agents.find((a) => a.isActive) ??
+      agents[0];
+    if (lead) setSelectedAgentId(lead.id);
+  }, [agents, selectedAgentId]);
+
+  // The conversation currently open, and the agent that answers in it.
+  const currentConversation = useMemo(
+    () => conversations?.find((c) => c.id === selectedId) ?? null,
+    [conversations, selectedId],
+  );
+  const answeringAgentName =
+    currentConversation?.agentName ??
+    agents?.find((a) => a.id === currentConversation?.agentId)?.name ??
+    "Assistant";
 
   const { data: initialMessages, isLoading: loadingMessages } = useListConversationMessages(
     selectedId ?? "",
@@ -274,7 +298,9 @@ export function Chat() {
 
   const handleNewConversation = async () => {
     try {
-      const conv = await createMutation.mutateAsync({ data: {} });
+      const conv = await createMutation.mutateAsync({
+        data: { agentId: selectedAgentId ?? undefined },
+      });
       queryClient.invalidateQueries({ queryKey: getListConversationsQueryKey() });
       setSelectedId(conv.id);
       setMessages([]);
@@ -305,7 +331,9 @@ export function Chat() {
     let convId = selectedId;
     try {
       if (!convId) {
-        const conv = await createMutation.mutateAsync({ data: {} });
+        const conv = await createMutation.mutateAsync({
+          data: { agentId: selectedAgentId ?? undefined },
+        });
         convId = conv.id;
         setSelectedId(conv.id);
         queryClient.invalidateQueries({ queryKey: getListConversationsQueryKey() });
@@ -333,6 +361,30 @@ export function Chat() {
           >
             <Plus className="h-3.5 w-3.5" /> New
           </button>
+        </div>
+        <div className="px-3 py-2 border-b">
+          <label
+            htmlFor="chat-agent-picker"
+            className="text-[11px] uppercase tracking-wide text-muted-foreground font-mono"
+          >
+            Agent for new chats
+          </label>
+          <select
+            id="chat-agent-picker"
+            value={selectedAgentId ?? ""}
+            onChange={(e) => setSelectedAgentId(e.target.value || null)}
+            className="mt-1 w-full text-xs rounded-md border bg-background px-2 py-1.5"
+          >
+            {(!agents || agents.length === 0) && (
+              <option value="">Default assistant</option>
+            )}
+            {agents?.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+                {a.role === "lead" ? " (lead)" : ""}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {loadingList && <Skeleton className="w-full h-16" />}
@@ -375,6 +427,15 @@ export function Chat() {
           </div>
         ) : (
           <>
+            <div className="border-b px-4 py-3 flex items-center gap-2">
+              <div className="h-7 w-7 shrink-0 rounded-full bg-primary/10 flex items-center justify-center">
+                <Bot className="h-4 w-4 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-medium truncate">{answeringAgentName}</div>
+                <div className="text-[11px] text-muted-foreground">Answering agent</div>
+              </div>
+            </div>
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4">
               {loadingMessages && <Skeleton className="w-full h-24" />}
               {(() => {

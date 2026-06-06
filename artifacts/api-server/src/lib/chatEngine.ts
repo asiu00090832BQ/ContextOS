@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 import {
   db,
   agentsTable,
@@ -38,6 +38,15 @@ const ACTIONABLE_PATTERN =
   /\b(run|execute|kick ?off|start|launch|deploy|create|build|generate|fetch|sync|send|schedule|process|analy[sz]e|summari[sz]e|research|find|search|update|migrate|scrape|crawl|monitor|automate)\b/i;
 
 const QUESTION_PREFIX = /^\s*(what|who|when|where|why|how|is|are|do|does|can|could|would|should|explain|tell me)\b/i;
+
+// Canonical follow-up message text posted when a tracked run pauses for an
+// approval. Kept as a constant so the durable reconciliation sweep can match
+// already-posted messages and stay idempotent.
+const RUN_WAITING_MESSAGE =
+  "The run is paused awaiting your approval. Review and approve it on the run card above to continue.";
+
+// Terminal run states that warrant a "run completed/failed" follow-up message.
+const TERMINAL_RUN_STATUSES = ["completed", "failed"] as const;
 
 export function looksActionable(content: string): boolean {
   const trimmed = content.trim();
@@ -142,12 +151,7 @@ function trackRunForConversation(
     const evt = payload as { type?: string };
     if (!evt?.type) return;
     if (evt.type === "run.waiting") {
-      void postSystemMessage(
-        tenantId,
-        conversationId,
-        "The run is paused awaiting your approval. Review and approve it on the run card above to continue.",
-        runId,
-      );
+      void postWaitingMessage(tenantId, conversationId, runId);
       return;
     }
     if (evt.type === "run.completed" || evt.type === "run.failed") {
@@ -167,25 +171,62 @@ function trackRunForConversation(
     if (run.status === "completed" || run.status === "failed") {
       finalize();
     } else if (run.status === "waiting_approval") {
-      void postSystemMessage(
-        tenantId,
-        conversationId,
-        "The run is paused awaiting your approval. Review and approve it on the run card above to continue.",
-        runId,
-      );
+      void postWaitingMessage(tenantId, conversationId, runId);
     }
   })();
 }
 
-async function postSystemMessage(
+/**
+ * Whether a run follow-up message of the given kind has already been posted to
+ * the conversation. Used to keep both the in-process tracker and the startup
+ * reconciliation sweep idempotent (never double-post). Matches both the
+ * persisted metadata marker (new messages) and the canonical text (messages
+ * written before the marker existed).
+ */
+async function runFollowupExists(
+  conversationId: string,
+  runId: string,
+  kind: "final" | "waiting",
+): Promise<boolean> {
+  const rows = await db
+    .select()
+    .from(conversationMessagesTable)
+    .where(
+      and(
+        eq(conversationMessagesTable.conversationId, conversationId),
+        eq(conversationMessagesTable.runId, runId),
+      ),
+    );
+  return rows.some((r) => {
+    const marker = (r.metadataJson as { runFollowupKind?: string } | null)
+      ?.runFollowupKind;
+    if (marker === kind) return true;
+    if (kind === "final") {
+      return /^(Run completed|The run completed|The run did not finish)/.test(
+        r.content,
+      );
+    }
+    return /awaiting your approval/i.test(r.content);
+  });
+}
+
+/** Post the "awaiting approval" follow-up, idempotently. */
+async function postWaitingMessage(
   tenantId: string,
   conversationId: string,
-  content: string,
-  runId: string | null,
+  runId: string,
 ): Promise<void> {
+  if (await runFollowupExists(conversationId, runId, "waiting")) return;
   const [row] = await db
     .insert(conversationMessagesTable)
-    .values({ tenantId, conversationId, role: "system", content, runId })
+    .values({
+      tenantId,
+      conversationId,
+      role: "system",
+      content: RUN_WAITING_MESSAGE,
+      runId,
+      metadataJson: { runFollowupKind: "waiting" },
+    })
     .returning();
   emit(conversationId, { kind: "message", message: serializeConversationMessage(row) });
 }
@@ -200,6 +241,9 @@ async function finalizeRunMessage(
     .from(runsTable)
     .where(and(eq(runsTable.id, runId), eq(runsTable.tenantId, tenantId)));
   if (!run) return;
+  // Idempotency guard: never post the completion follow-up twice, whether the
+  // second attempt comes from a live subscription or the startup reconciliation.
+  if (await runFollowupExists(conversationId, runId, "final")) return;
   const content =
     run.status === "completed"
       ? run.summary
@@ -208,13 +252,93 @@ async function finalizeRunMessage(
       : `The run did not finish (status: ${run.status}${run.error ? ` — ${run.error}` : ""}).`;
   const [row] = await db
     .insert(conversationMessagesTable)
-    .values({ tenantId, conversationId, role: "agent", content, runId })
+    .values({
+      tenantId,
+      conversationId,
+      role: "agent",
+      content,
+      runId,
+      metadataJson: { runFollowupKind: "final" },
+    })
     .returning();
   await db
     .update(conversationsTable)
     .set({ updatedAt: new Date() })
     .where(eq(conversationsTable.id, conversationId));
   emit(conversationId, { kind: "message", message: serializeConversationMessage(row) });
+}
+
+/**
+ * Durable recovery for run-driven chat follow-ups. The in-process tracker
+ * (trackRunForConversation) is lost if the server restarts mid-run, so on
+ * startup we sweep every conversation message that links a run and, for any run
+ * that has since reached a terminal/awaiting state without its follow-up posted,
+ * post it now. Idempotent via runFollowupExists, so it is safe to run on every
+ * boot and never double-posts.
+ */
+export async function reconcileRunConversations(): Promise<void> {
+  let links: {
+    tenantId: string;
+    conversationId: string;
+    runId: string | null;
+  }[];
+  try {
+    links = await db
+      .selectDistinct({
+        tenantId: conversationMessagesTable.tenantId,
+        conversationId: conversationMessagesTable.conversationId,
+        runId: conversationMessagesTable.runId,
+      })
+      .from(conversationMessagesTable)
+      .where(isNotNull(conversationMessagesTable.runId));
+  } catch (err) {
+    logger.error({ err }, "Run/conversation reconciliation query failed");
+    return;
+  }
+
+  let posted = 0;
+  for (const link of links) {
+    if (!link.runId) continue;
+    try {
+      const did = await reconcileRunConversation(
+        link.tenantId,
+        link.conversationId,
+        link.runId,
+      );
+      if (did) posted += 1;
+    } catch (err) {
+      logger.error(
+        { err, conversationId: link.conversationId, runId: link.runId },
+        "Run/conversation reconciliation failed for a linked run",
+      );
+    }
+  }
+  if (posted > 0) {
+    logger.info({ posted }, "Reconciled run-driven chat follow-ups on startup");
+  }
+}
+
+async function reconcileRunConversation(
+  tenantId: string,
+  conversationId: string,
+  runId: string,
+): Promise<boolean> {
+  const [run] = await db
+    .select()
+    .from(runsTable)
+    .where(and(eq(runsTable.id, runId), eq(runsTable.tenantId, tenantId)));
+  if (!run) return false;
+  if ((TERMINAL_RUN_STATUSES as readonly string[]).includes(run.status)) {
+    if (await runFollowupExists(conversationId, runId, "final")) return false;
+    await finalizeRunMessage(tenantId, conversationId, runId);
+    return true;
+  }
+  if (run.status === "waiting_approval") {
+    if (await runFollowupExists(conversationId, runId, "waiting")) return false;
+    await postWaitingMessage(tenantId, conversationId, runId);
+    return true;
+  }
+  return false;
 }
 
 async function kickOffRun(

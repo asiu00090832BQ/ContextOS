@@ -38,11 +38,11 @@ import type {
   ApprovalRequest,
   Artifact,
   AuditRecord,
-  BlueprintInput,
   BotMemoryInput,
   BotMemoryUpdate,
   BotPolicyInput,
   Capability,
+  CapabilityTestResult,
   ConstructedAuthInput,
   ConstructedServerInput,
   ContextFragment,
@@ -60,13 +60,10 @@ import type {
   EvaluationRecord,
   EvaluationRecordInput,
   EventLog,
-  GeneratedMcpServer,
-  GeneratedServerDetail,
   GetObservabilityMetricsParams,
   HealthStatus,
   HealthTestResult,
   ImportOpenApiInput,
-  IntegrationBlueprint,
   Intent,
   IntentInput,
   IntentUpdate,
@@ -96,7 +93,6 @@ import type {
   Principal,
   PrincipalInput,
   PrincipalUpdate,
-  RegenerateInput,
   RetestServerResult,
   Run,
   RunCommandInput,
@@ -1829,6 +1825,70 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getInvokeCapabilityMutationOptions(options));
+    }
+
+export const getTestCapabilityUrl = (id: string,) => {
+
+
+
+
+  return `/api/capabilities/${id}/test`
+}
+
+export const testCapability = async (id: string, options?: RequestInit): Promise<CapabilityTestResult> => {
+
+  return customFetch<CapabilityTestResult>(getTestCapabilityUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getTestCapabilityMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testCapability>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testCapability>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['testCapability'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testCapability>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  testCapability(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TestCapabilityMutationResult = NonNullable<Awaited<ReturnType<typeof testCapability>>>
+
+    export type TestCapabilityMutationError = ErrorType<unknown>
+
+    export const useTestCapability = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testCapability>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof testCapability>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getTestCapabilityMutationOptions(options));
     }
 
 export const getListIntentsUrl = (params?: ListIntentsParams,) => {
@@ -4915,805 +4975,6 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getRunCommandMutationOptions(options));
-    }
-
-export const getListBlueprintsUrl = () => {
-
-
-
-
-  return `/api/integration-blueprints`
-}
-
-export const listBlueprints = async ( options?: RequestInit): Promise<IntegrationBlueprint[]> => {
-
-  return customFetch<IntegrationBlueprint[]>(getListBlueprintsUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getListBlueprintsQueryKey = () => {
-    return [
-    `/api/integration-blueprints`
-    ] as const;
-    }
-
-
-export const getListBlueprintsQueryOptions = <TData = Awaited<ReturnType<typeof listBlueprints>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBlueprints>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getListBlueprintsQueryKey();
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBlueprints>>> = ({ signal }) => listBlueprints({ signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBlueprints>>, TError, TData> & { queryKey: QueryKey }
-}
-
-export type ListBlueprintsQueryResult = NonNullable<Awaited<ReturnType<typeof listBlueprints>>>
-export type ListBlueprintsQueryError = ErrorType<unknown>
-
-
-
-export function useListBlueprints<TData = Awaited<ReturnType<typeof listBlueprints>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBlueprints>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-
- ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-
-  const queryOptions = getListBlueprintsQueryOptions(options)
-
-  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-
-
-
-export const getCreateBlueprintUrl = () => {
-
-
-
-
-  return `/api/integration-blueprints`
-}
-
-export const createBlueprint = async (blueprintInput: BlueprintInput, options?: RequestInit): Promise<IntegrationBlueprint> => {
-
-  return customFetch<IntegrationBlueprint>(getCreateBlueprintUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      blueprintInput,)
-  }
-);}
-
-
-
-
-export const getCreateBlueprintMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBlueprint>>, TError,{data: BodyType<BlueprintInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createBlueprint>>, TError,{data: BodyType<BlueprintInput>}, TContext> => {
-
-const mutationKey = ['createBlueprint'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBlueprint>>, {data: BodyType<BlueprintInput>}> = (props) => {
-          const {data} = props ?? {};
-
-          return  createBlueprint(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type CreateBlueprintMutationResult = NonNullable<Awaited<ReturnType<typeof createBlueprint>>>
-    export type CreateBlueprintMutationBody = BodyType<BlueprintInput>
-    export type CreateBlueprintMutationError = ErrorType<unknown>
-
-    export const useCreateBlueprint = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBlueprint>>, TError,{data: BodyType<BlueprintInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof createBlueprint>>,
-        TError,
-        {data: BodyType<BlueprintInput>},
-        TContext
-      > => {
-      return useMutation(getCreateBlueprintMutationOptions(options));
-    }
-
-export const getGetBlueprintUrl = (id: string,) => {
-
-
-
-
-  return `/api/integration-blueprints/${id}`
-}
-
-export const getBlueprint = async (id: string, options?: RequestInit): Promise<IntegrationBlueprint> => {
-
-  return customFetch<IntegrationBlueprint>(getGetBlueprintUrl(id),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetBlueprintQueryKey = (id: string,) => {
-    return [
-    `/api/integration-blueprints/${id}`
-    ] as const;
-    }
-
-
-export const getGetBlueprintQueryOptions = <TData = Awaited<ReturnType<typeof getBlueprint>>, TError = ErrorType<unknown>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBlueprint>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetBlueprintQueryKey(id);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBlueprint>>> = ({ signal }) => getBlueprint(id, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBlueprint>>, TError, TData> & { queryKey: QueryKey }
-}
-
-export type GetBlueprintQueryResult = NonNullable<Awaited<ReturnType<typeof getBlueprint>>>
-export type GetBlueprintQueryError = ErrorType<unknown>
-
-
-
-export function useGetBlueprint<TData = Awaited<ReturnType<typeof getBlueprint>>, TError = ErrorType<unknown>>(
- id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBlueprint>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-
- ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-
-  const queryOptions = getGetBlueprintQueryOptions(id,options)
-
-  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-
-
-
-export const getAnalyzeBlueprintUrl = (id: string,) => {
-
-
-
-
-  return `/api/integration-blueprints/${id}/analyze`
-}
-
-export const analyzeBlueprint = async (id: string, options?: RequestInit): Promise<IntegrationBlueprint> => {
-
-  return customFetch<IntegrationBlueprint>(getAnalyzeBlueprintUrl(id),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-export const getAnalyzeBlueprintMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeBlueprint>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof analyzeBlueprint>>, TError,{id: string}, TContext> => {
-
-const mutationKey = ['analyzeBlueprint'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof analyzeBlueprint>>, {id: string}> = (props) => {
-          const {id} = props ?? {};
-
-          return  analyzeBlueprint(id,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type AnalyzeBlueprintMutationResult = NonNullable<Awaited<ReturnType<typeof analyzeBlueprint>>>
-
-    export type AnalyzeBlueprintMutationError = ErrorType<unknown>
-
-    export const useAnalyzeBlueprint = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeBlueprint>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof analyzeBlueprint>>,
-        TError,
-        {id: string},
-        TContext
-      > => {
-      return useMutation(getAnalyzeBlueprintMutationOptions(options));
-    }
-
-export const getSynthesizeServerUrl = (id: string,) => {
-
-
-
-
-  return `/api/integration-blueprints/${id}/synthesize`
-}
-
-export const synthesizeServer = async (id: string, options?: RequestInit): Promise<GeneratedMcpServer> => {
-
-  return customFetch<GeneratedMcpServer>(getSynthesizeServerUrl(id),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-export const getSynthesizeServerMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof synthesizeServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof synthesizeServer>>, TError,{id: string}, TContext> => {
-
-const mutationKey = ['synthesizeServer'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof synthesizeServer>>, {id: string}> = (props) => {
-          const {id} = props ?? {};
-
-          return  synthesizeServer(id,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type SynthesizeServerMutationResult = NonNullable<Awaited<ReturnType<typeof synthesizeServer>>>
-
-    export type SynthesizeServerMutationError = ErrorType<unknown>
-
-    export const useSynthesizeServer = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof synthesizeServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof synthesizeServer>>,
-        TError,
-        {id: string},
-        TContext
-      > => {
-      return useMutation(getSynthesizeServerMutationOptions(options));
-    }
-
-export const getListGeneratedServersUrl = () => {
-
-
-
-
-  return `/api/generated-mcp-servers`
-}
-
-export const listGeneratedServers = async ( options?: RequestInit): Promise<GeneratedMcpServer[]> => {
-
-  return customFetch<GeneratedMcpServer[]>(getListGeneratedServersUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getListGeneratedServersQueryKey = () => {
-    return [
-    `/api/generated-mcp-servers`
-    ] as const;
-    }
-
-
-export const getListGeneratedServersQueryOptions = <TData = Awaited<ReturnType<typeof listGeneratedServers>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGeneratedServers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getListGeneratedServersQueryKey();
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listGeneratedServers>>> = ({ signal }) => listGeneratedServers({ signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listGeneratedServers>>, TError, TData> & { queryKey: QueryKey }
-}
-
-export type ListGeneratedServersQueryResult = NonNullable<Awaited<ReturnType<typeof listGeneratedServers>>>
-export type ListGeneratedServersQueryError = ErrorType<unknown>
-
-
-
-export function useListGeneratedServers<TData = Awaited<ReturnType<typeof listGeneratedServers>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGeneratedServers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-
- ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-
-  const queryOptions = getListGeneratedServersQueryOptions(options)
-
-  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-
-
-
-export const getGetGeneratedServerUrl = (id: string,) => {
-
-
-
-
-  return `/api/generated-mcp-servers/${id}`
-}
-
-export const getGeneratedServer = async (id: string, options?: RequestInit): Promise<GeneratedServerDetail> => {
-
-  return customFetch<GeneratedServerDetail>(getGetGeneratedServerUrl(id),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetGeneratedServerQueryKey = (id: string,) => {
-    return [
-    `/api/generated-mcp-servers/${id}`
-    ] as const;
-    }
-
-
-export const getGetGeneratedServerQueryOptions = <TData = Awaited<ReturnType<typeof getGeneratedServer>>, TError = ErrorType<unknown>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGeneratedServer>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetGeneratedServerQueryKey(id);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGeneratedServer>>> = ({ signal }) => getGeneratedServer(id, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGeneratedServer>>, TError, TData> & { queryKey: QueryKey }
-}
-
-export type GetGeneratedServerQueryResult = NonNullable<Awaited<ReturnType<typeof getGeneratedServer>>>
-export type GetGeneratedServerQueryError = ErrorType<unknown>
-
-
-
-export function useGetGeneratedServer<TData = Awaited<ReturnType<typeof getGeneratedServer>>, TError = ErrorType<unknown>>(
- id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGeneratedServer>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-
- ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-
-  const queryOptions = getGetGeneratedServerQueryOptions(id,options)
-
-  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-
-
-
-export const getTestGeneratedServerUrl = (id: string,) => {
-
-
-
-
-  return `/api/generated-mcp-servers/${id}/test`
-}
-
-export const testGeneratedServer = async (id: string, options?: RequestInit): Promise<GeneratedServerDetail> => {
-
-  return customFetch<GeneratedServerDetail>(getTestGeneratedServerUrl(id),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-export const getTestGeneratedServerMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testGeneratedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof testGeneratedServer>>, TError,{id: string}, TContext> => {
-
-const mutationKey = ['testGeneratedServer'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testGeneratedServer>>, {id: string}> = (props) => {
-          const {id} = props ?? {};
-
-          return  testGeneratedServer(id,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type TestGeneratedServerMutationResult = NonNullable<Awaited<ReturnType<typeof testGeneratedServer>>>
-
-    export type TestGeneratedServerMutationError = ErrorType<unknown>
-
-    export const useTestGeneratedServer = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testGeneratedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof testGeneratedServer>>,
-        TError,
-        {id: string},
-        TContext
-      > => {
-      return useMutation(getTestGeneratedServerMutationOptions(options));
-    }
-
-export const getApproveGeneratedServerUrl = (id: string,) => {
-
-
-
-
-  return `/api/generated-mcp-servers/${id}/approve`
-}
-
-export const approveGeneratedServer = async (id: string, options?: RequestInit): Promise<GeneratedServerDetail> => {
-
-  return customFetch<GeneratedServerDetail>(getApproveGeneratedServerUrl(id),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-export const getApproveGeneratedServerMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveGeneratedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof approveGeneratedServer>>, TError,{id: string}, TContext> => {
-
-const mutationKey = ['approveGeneratedServer'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveGeneratedServer>>, {id: string}> = (props) => {
-          const {id} = props ?? {};
-
-          return  approveGeneratedServer(id,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ApproveGeneratedServerMutationResult = NonNullable<Awaited<ReturnType<typeof approveGeneratedServer>>>
-
-    export type ApproveGeneratedServerMutationError = ErrorType<unknown>
-
-    export const useApproveGeneratedServer = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveGeneratedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof approveGeneratedServer>>,
-        TError,
-        {id: string},
-        TContext
-      > => {
-      return useMutation(getApproveGeneratedServerMutationOptions(options));
-    }
-
-export const getDeployGeneratedServerUrl = (id: string,) => {
-
-
-
-
-  return `/api/generated-mcp-servers/${id}/deploy`
-}
-
-export const deployGeneratedServer = async (id: string, options?: RequestInit): Promise<GeneratedServerDetail> => {
-
-  return customFetch<GeneratedServerDetail>(getDeployGeneratedServerUrl(id),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-export const getDeployGeneratedServerMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deployGeneratedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof deployGeneratedServer>>, TError,{id: string}, TContext> => {
-
-const mutationKey = ['deployGeneratedServer'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deployGeneratedServer>>, {id: string}> = (props) => {
-          const {id} = props ?? {};
-
-          return  deployGeneratedServer(id,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type DeployGeneratedServerMutationResult = NonNullable<Awaited<ReturnType<typeof deployGeneratedServer>>>
-
-    export type DeployGeneratedServerMutationError = ErrorType<unknown>
-
-    export const useDeployGeneratedServer = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deployGeneratedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof deployGeneratedServer>>,
-        TError,
-        {id: string},
-        TContext
-      > => {
-      return useMutation(getDeployGeneratedServerMutationOptions(options));
-    }
-
-export const getRegisterGeneratedServerUrl = (id: string,) => {
-
-
-
-
-  return `/api/generated-mcp-servers/${id}/register`
-}
-
-export const registerGeneratedServer = async (id: string, options?: RequestInit): Promise<GeneratedServerDetail> => {
-
-  return customFetch<GeneratedServerDetail>(getRegisterGeneratedServerUrl(id),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-export const getRegisterGeneratedServerMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerGeneratedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof registerGeneratedServer>>, TError,{id: string}, TContext> => {
-
-const mutationKey = ['registerGeneratedServer'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof registerGeneratedServer>>, {id: string}> = (props) => {
-          const {id} = props ?? {};
-
-          return  registerGeneratedServer(id,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type RegisterGeneratedServerMutationResult = NonNullable<Awaited<ReturnType<typeof registerGeneratedServer>>>
-
-    export type RegisterGeneratedServerMutationError = ErrorType<unknown>
-
-    export const useRegisterGeneratedServer = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerGeneratedServer>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof registerGeneratedServer>>,
-        TError,
-        {id: string},
-        TContext
-      > => {
-      return useMutation(getRegisterGeneratedServerMutationOptions(options));
-    }
-
-export const getRegenerateGeneratedServerUrl = (id: string,) => {
-
-
-
-
-  return `/api/generated-mcp-servers/${id}/regenerate`
-}
-
-export const regenerateGeneratedServer = async (id: string,
-    regenerateInput?: RegenerateInput, options?: RequestInit): Promise<GeneratedMcpServer> => {
-
-  return customFetch<GeneratedMcpServer>(getRegenerateGeneratedServerUrl(id),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      regenerateInput,)
-  }
-);}
-
-
-
-
-export const getRegenerateGeneratedServerMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateGeneratedServer>>, TError,{id: string;data?: BodyType<RegenerateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof regenerateGeneratedServer>>, TError,{id: string;data?: BodyType<RegenerateInput>}, TContext> => {
-
-const mutationKey = ['regenerateGeneratedServer'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof regenerateGeneratedServer>>, {id: string;data?: BodyType<RegenerateInput>}> = (props) => {
-          const {id,data} = props ?? {};
-
-          return  regenerateGeneratedServer(id,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type RegenerateGeneratedServerMutationResult = NonNullable<Awaited<ReturnType<typeof regenerateGeneratedServer>>>
-    export type RegenerateGeneratedServerMutationBody = BodyType<RegenerateInput> | undefined
-    export type RegenerateGeneratedServerMutationError = ErrorType<unknown>
-
-    export const useRegenerateGeneratedServer = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateGeneratedServer>>, TError,{id: string;data?: BodyType<RegenerateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof regenerateGeneratedServer>>,
-        TError,
-        {id: string;data?: BodyType<RegenerateInput>},
-        TContext
-      > => {
-      return useMutation(getRegenerateGeneratedServerMutationOptions(options));
     }
 
 export const getListTracesUrl = (params?: ListTracesParams,) => {

@@ -98,7 +98,34 @@ router.get("/runs", async (req, res): Promise<void> => {
         .where(eq(intentsTable.tenantId, req.tenantId))
     ).map((i) => [i.id, i.title]),
   );
-  res.json(ListRunsResponse.parse(rows.map((r) => serializeRun(r, titles.get(r.intentId) ?? null))));
+  const runIds = rows.map((r) => r.id);
+  const fallbackRows = runIds.length
+    ? await db
+        .select({
+          runId: agentRunsTable.runId,
+          usedFallback: agentRunsTable.usedFallback,
+        })
+        .from(agentRunsTable)
+        .where(inArray(agentRunsTable.runId, runIds))
+    : [];
+  const callAgg = new Map<string, { live: number; stub: number }>();
+  for (const ar of fallbackRows) {
+    const g = callAgg.get(ar.runId) ?? { live: 0, stub: 0 };
+    if (ar.usedFallback) g.stub += 1;
+    else g.live += 1;
+    callAgg.set(ar.runId, g);
+  }
+  res.json(
+    ListRunsResponse.parse(
+      rows.map((r) => {
+        const g = callAgg.get(r.id);
+        return serializeRun(r, titles.get(r.intentId) ?? null, {
+          liveCallCount: g?.live ?? 0,
+          stubCallCount: g?.stub ?? 0,
+        });
+      }),
+    ),
+  );
 });
 
 router.get("/runs/:id", async (req, res): Promise<void> => {
@@ -139,7 +166,10 @@ router.get("/runs/:id", async (req, res): Promise<void> => {
 
   res.json(
     GetRunResponse.parse({
-      ...serializeRun(run, intent?.title ?? null),
+      ...serializeRun(run, intent?.title ?? null, {
+        liveCallCount: aRuns.filter((r) => !r.usedFallback).length,
+        stubCallCount: aRuns.filter((r) => r.usedFallback).length,
+      }),
       taskGraph: run.taskGraphJson ?? undefined,
       intent: intent ? serializeIntent(intent) : undefined,
       actions: actions.map(serializeAction),

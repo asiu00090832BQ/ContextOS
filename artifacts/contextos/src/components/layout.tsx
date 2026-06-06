@@ -1,12 +1,15 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetMe,
   getGetMeQueryKey,
   useGetDashboard,
   getGetDashboardQueryKey,
+  useReviewBotServers,
 } from "@workspace/api-client-react";
 import { toast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import {
   LayoutDashboard,
   Cable,
@@ -95,7 +98,8 @@ function isItemActive(location: string, href: string): boolean {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
+  const queryClient = useQueryClient();
   const { data: me } = useGetMe({ query: { queryKey: getGetMeQueryKey() } });
   const { data: dashboard } = useGetDashboard({
     query: {
@@ -104,7 +108,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
       refetchIntervalInBackground: true,
     },
   });
+  const reviewMutation = useReviewBotServers();
   const newBotServerCount = dashboard?.newBotServerCount ?? 0;
+
+  const handleReview = React.useCallback(async () => {
+    try {
+      await reviewMutation.mutateAsync();
+    } finally {
+      queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
+      navigate("/servers");
+    }
+  }, [reviewMutation, queryClient, navigate]);
 
   const prevCountRef = React.useRef<number | null>(null);
   React.useEffect(() => {
@@ -117,10 +131,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
             ? "The assistant built a new web service"
             : `The assistant built ${added} new web services`,
         description: "Open MCP Servers to review them.",
+        action: (
+          <ToastAction altText="Review new web services" onClick={() => void handleReview()}>
+            Review
+          </ToastAction>
+        ),
       });
     }
     prevCountRef.current = newBotServerCount;
-  }, [newBotServerCount]);
+  }, [newBotServerCount, handleReview]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">

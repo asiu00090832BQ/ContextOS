@@ -28,4 +28,8 @@ export interface Run {
   /** @nullable */
   completedAt?: Date | null;
   createdAt: Date;
+  /** @nullable */
+  liveCallCount?: number | null;
+  /** @nullable */
+  stubCallCount?: number | null;
 }

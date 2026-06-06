@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -63,6 +63,19 @@ function Router() {
         <Route path="/evaluations" component={Evaluations} />
         <Route path="/telegram" component={Telegram} />
         <Route path="/settings" component={Settings} />
+        <Route path="/build-mcp">
+          <Redirect to="/servers" />
+        </Route>
+        <Route path="/adapters">
+          <Redirect to="/servers" />
+        </Route>
+        <Route path="/adapters/:id">{() => <Redirect to="/servers" />}</Route>
+        <Route path="/capabilities">
+          <Redirect to="/servers" />
+        </Route>
+        <Route path="/integrations">
+          <Redirect to="/servers" />
+        </Route>
         <Route component={NotFound} />
       </Switch>
     </Layout>
