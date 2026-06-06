@@ -297,7 +297,15 @@ async function orchestrateAgentsNode(state: RunStateT): Promise<Partial<RunState
   // pass over every coding agent's output. It is selected by its "verifier"
   // role; when none is configured QA review is simply skipped.
   const qaAgent = agents.find((a) => a.role === "verifier");
-  const workforce = agents.filter((a) => a.id !== qaAgent?.id);
+  // The ContextOS bot is a pure concierge: it delegates work to other agents and
+  // must NEVER execute work itself. It is excluded from the run workforce so it can
+  // never be selected as lead (incl. the `workforce[0]` fallback, where the bot —
+  // being the earliest-created agent — would otherwise land) or as a worker.
+  const isSystemBot = (a: (typeof agents)[number]): boolean =>
+    (a.metadataJson as { isSystemBot?: boolean } | null)?.isSystemBot === true;
+  const workforce = agents.filter(
+    (a) => a.id !== qaAgent?.id && !isSystemBot(a),
+  );
 
   // Run the QA agent against one coding agent's output. The producer's work is
   // handed to QA through the SANCTIONED context broker — an explicit, per-

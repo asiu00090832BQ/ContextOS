@@ -22,6 +22,22 @@ allowed and acceptable). **How to apply:** any NEW surface that lets the bot
 call tools must thread a bot `ToolCaller`; never widen `BOT_ALLOWED_TOOLS` to
 include action/constructed/dynamic-capability tools.
 
+## Concierge "never acts itself" needs TWO layers, not one
+The bot-as-concierge rule (create/delegate to agents, never do work itself) must
+be enforced at two independent places — the tool allow-list alone is NOT enough:
+1. **Tool layer** — `BOT_ALLOWED_TOOLS` + bot-caller TOP guard (above).
+2. **Run workforce layer** — `runEngine` builds `workforce` from active agents and
+   picks lead as `workforce.find(role==='lead') ?? workforce[0]`. The bot is the
+   earliest-created agent, so without a guard it lands in `workforce[0]` and
+   becomes lead → it executes the run itself. Fix: filter `isSystemBot` out of the
+   workforce (alongside the existing `verifier`/QA exclusion).
+**Why:** a delegated run can route back to the bot by *identity* even though the
+bot never directly called an action tool — the allow-list permits `run_command`,
+but the orchestrator chooses who runs it. **How to apply:** any change to lead/
+worker selection in `runEngine` must keep `isSystemBot` agents out of the
+workforce; verify with `agent_runs` (bot must never appear) + `runs.lead_agent_id`
+(never the bot id) after a delegated run.
+
 ## Memory partition keyed on agentId
 `working_memories.agent_id` (nullable FK) partitions memory. `remember` writes
 `agentId=botId` for bot callers; tenant-shared memory is `agentId IS NULL`.
