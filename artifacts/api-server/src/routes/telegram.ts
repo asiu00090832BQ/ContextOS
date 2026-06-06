@@ -10,12 +10,9 @@ import {
   getWebhookSecret,
   type TelegramUpdate,
 } from "../lib/telegram";
-import {
-  handleTelegramMessage,
-  resolveOwnerTarget,
-  getTelegramModelEndpointId,
-  setTelegramModelEndpointId,
-} from "../lib/telegramEngine";
+import { handleTelegramMessage, resolveOwnerTarget } from "../lib/telegramEngine";
+import { getContext } from "../lib/context";
+import { resolveAgentModel } from "../lib/runEngine";
 import { logger } from "../lib/logger";
 
 /**
@@ -152,30 +149,15 @@ telegramAdminRouter.post(
   },
 );
 
-/** Which model endpoint the Telegram bot uses (null = managed Anthropic). */
+/**
+ * The model the Telegram bot uses. It is the ContextOS Bot agent's own model
+ * (the single source of truth shared with the in-app bot), so it is read-only
+ * here — change it on the agent itself. Returns the resolved endpoint name.
+ */
 telegramAdminRouter.get("/telegram/model", async (req, res): Promise<void> => {
-  const modelEndpointId = await getTelegramModelEndpointId(req.tenantId);
-  res.json({ modelEndpointId });
-});
-
-telegramAdminRouter.put("/telegram/model", async (req, res): Promise<void> => {
-  const raw = (req.body ?? {}) as { modelEndpointId?: unknown };
-  const value = raw.modelEndpointId;
-  if (value !== null && value !== undefined && typeof value !== "string") {
-    res
-      .status(400)
-      .json({ error: "`modelEndpointId` must be a string or null." });
-    return;
-  }
-  try {
-    const modelEndpointId = await setTelegramModelEndpointId(
-      req.tenantId,
-      value && typeof value === "string" ? value : null,
-    );
-    res.json({ modelEndpointId });
-  } catch (err) {
-    res.status(400).json({
-      error: err instanceof Error ? err.message : "Failed to save selection.",
-    });
-  }
+  const { botAgent } = await getContext();
+  const { primary } = await resolveAgentModel(req.tenantId, botAgent.id);
+  res.json({
+    modelEndpointName: primary?.name ?? "Managed Anthropic (Claude Sonnet 4.6)",
+  });
 });

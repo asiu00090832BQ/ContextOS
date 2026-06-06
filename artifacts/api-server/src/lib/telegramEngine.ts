@@ -4,10 +4,7 @@ import {
   conversationsTable,
   conversationMessagesTable,
   telegramChatsTable,
-  modelEndpointsTable,
-  tenantsTable,
   type Agent,
-  type ModelEndpoint,
 } from "@workspace/db";
 import { getContext } from "./context";
 import {
@@ -20,12 +17,14 @@ import {
 import { resolveEndpointApiKey } from "./secretStore";
 import { runToolChat, type ToolChatMessage, type ToolSpec } from "./toolChat";
 import { composeBotSystemPrompt, TELEGRAM_CHANNEL_NOTE } from "./botPrompt";
+import { resolveAgentModel } from "./runEngine";
 import { logger } from "./logger";
 
 const MAX_TOKENS = 8192;
 // Cap the agentic tool-calling loop so a misbehaving model can never spin
 // forever; each iteration is one model turn that may request tool calls.
-const MAX_TOOL_ITERATIONS = 6;
+// Matches the in-app bot loop so both surfaces behave identically.
+const MAX_TOOL_ITERATIONS = 8;
 // How many prior messages to load for short-term memory.
 const HISTORY_LIMIT = 30;
 // Telegram chat history older than this is pruned. Durable rules/tasks should be
@@ -85,99 +84,6 @@ export async function pruneTelegramHistory(): Promise<number> {
   return deleted.length;
 }
 
-/** Settings key (on tenants.settingsJson) holding the selected model endpoint. */
-export const TELEGRAM_MODEL_SETTING = "telegramModelEndpointId";
-
-/**
- * Resolve which model endpoint the Telegram bot should use for a tenant.
- * Returns null to mean "use the Replit-managed Anthropic integration" — that
- * is the default when nothing is selected or the selection no longer exists.
- */
-export async function resolveTelegramEndpoint(
-  tenantId: string,
-): Promise<ModelEndpoint | null> {
-  const [tenant] = await db
-    .select()
-    .from(tenantsTable)
-    .where(eq(tenantsTable.id, tenantId));
-  const selectedId = tenant?.settingsJson?.[TELEGRAM_MODEL_SETTING];
-  if (typeof selectedId !== "string" || selectedId.length === 0) return null;
-
-  const [endpoint] = await db
-    .select()
-    .from(modelEndpointsTable)
-    .where(
-      and(
-        eq(modelEndpointsTable.id, selectedId),
-        eq(modelEndpointsTable.tenantId, tenantId),
-      ),
-    );
-  if (!endpoint) {
-    logger.warn(
-      { tenantId, selectedId },
-      "Selected Telegram model endpoint no longer exists; using managed Anthropic",
-    );
-    return null;
-  }
-  return endpoint;
-}
-
-/** Read the currently selected Telegram model endpoint id (or null). */
-export async function getTelegramModelEndpointId(
-  tenantId: string,
-): Promise<string | null> {
-  const [tenant] = await db
-    .select()
-    .from(tenantsTable)
-    .where(eq(tenantsTable.id, tenantId));
-  const selectedId = tenant?.settingsJson?.[TELEGRAM_MODEL_SETTING];
-  return typeof selectedId === "string" && selectedId.length > 0
-    ? selectedId
-    : null;
-}
-
-/**
- * Persist the selected Telegram model endpoint id (null clears it, reverting to
- * the managed Anthropic default). Throws if the endpoint is not owned by the
- * tenant. Returns the stored id (or null).
- */
-export async function setTelegramModelEndpointId(
-  tenantId: string,
-  endpointId: string | null,
-): Promise<string | null> {
-  if (endpointId) {
-    const [endpoint] = await db
-      .select()
-      .from(modelEndpointsTable)
-      .where(
-        and(
-          eq(modelEndpointsTable.id, endpointId),
-          eq(modelEndpointsTable.tenantId, tenantId),
-        ),
-      );
-    if (!endpoint) {
-      throw new Error("Model endpoint not found for this workspace.");
-    }
-  }
-
-  const [tenant] = await db
-    .select()
-    .from(tenantsTable)
-    .where(eq(tenantsTable.id, tenantId));
-  const settings = { ...(tenant?.settingsJson ?? {}) } as Record<
-    string,
-    unknown
-  >;
-  if (endpointId) settings[TELEGRAM_MODEL_SETTING] = endpointId;
-  else delete settings[TELEGRAM_MODEL_SETTING];
-
-  await db
-    .update(tenantsTable)
-    .set({ settingsJson: settings })
-    .where(eq(tenantsTable.id, tenantId));
-  return endpointId;
-}
-
 /**
  * Find (or create) the conversation bound to a Telegram chat so inbound
  * messages reuse the conversation tables for short-term memory.
@@ -230,8 +136,8 @@ async function loadHistory(conversationId: string): Promise<ToolChatMessage[]> {
 
 /**
  * Process one inbound Telegram text message: persist it, run a real
- * tool-calling loop against the tenant's selected model endpoint (or the
- * managed Anthropic integration) with the full ContextOS tool catalog
+ * tool-calling loop using the ContextOS Bot agent's own model policy (the same
+ * source of truth as the in-app bot) with the full ContextOS tool catalog
  * (built-in + constructed capabilities), persist the reply, and return the
  * text to send back over Telegram. Isolated from the simulated run engine.
  */
@@ -271,8 +177,14 @@ export async function handleTelegramMessage(
       },
   }));
 
-  const endpoint = await resolveTelegramEndpoint(tenantId);
-  const apiKey = resolveEndpointApiKey(endpoint);
+  // Route EXACTLY like the in-app bot: the ContextOS Bot agent's own model
+  // policy is the single source of truth, so Telegram and the in-app chat use
+  // the same model, tools, memory, and base prompt.
+  const { primary, temperature, maxTokens } = await resolveAgentModel(
+    tenantId,
+    botAgent.id,
+  );
+  const apiKey = resolveEndpointApiKey(primary);
   const [stateBlock, memoryBlock] = await Promise.all([
     getWorkspaceStateBlock(tenantId, { forceRefresh: true }),
     buildLongTermMemoryBlock(tenantId, botAgent),
@@ -285,12 +197,13 @@ export async function handleTelegramMessage(
   let replyText = "";
   try {
     const result = await runToolChat({
-      endpoint,
+      endpoint: primary,
       apiKey,
       system,
       history,
       tools,
-      maxTokens: MAX_TOKENS,
+      temperature,
+      maxTokens: maxTokens ?? MAX_TOKENS,
       maxIterations: MAX_TOOL_ITERATIONS,
       executeTool: async (name, args) => {
         try {
@@ -311,8 +224,8 @@ export async function handleTelegramMessage(
   } catch (err) {
     logger.error({ err, tenantId, chatId }, "Telegram model call failed");
     replyText =
-      "Sorry, I couldn't reach the configured model. Check the selected model " +
-      "endpoint in ContextOS (Telegram settings) and try again.";
+      "Sorry, I couldn't reach the configured model. Check the ContextOS Bot " +
+      "agent's model in ContextOS and try again.";
   }
 
   if (!replyText) {

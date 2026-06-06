@@ -1,25 +1,12 @@
-import { useEffect, useState } from "react";
-import {
-  useListModelEndpoints,
-  getListModelEndpointsQueryKey,
-} from "@workspace/api-client-react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Link } from "wouter";
 import { Send, Link2, Link2Off, BrainCircuit, Bot } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
-
-const MANAGED_VALUE = "__managed__";
 
 interface TelegramBot {
   id: number;
@@ -72,20 +59,10 @@ export function Telegram() {
   });
   const modelQuery = useQuery({
     queryKey: ["telegram", "model"],
-    queryFn: () => apiGet<{ modelEndpointId: string | null }>("/telegram/model"),
-  });
-  const { data: endpoints } = useListModelEndpoints({
-    query: { queryKey: getListModelEndpointsQueryKey() },
+    queryFn: () => apiGet<{ modelEndpointName: string }>("/telegram/model"),
   });
 
   const [busy, setBusy] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string>(MANAGED_VALUE);
-
-  useEffect(() => {
-    if (modelQuery.data) {
-      setSelected(modelQuery.data.modelEndpointId ?? MANAGED_VALUE);
-    }
-  }, [modelQuery.data]);
 
   const status = statusQuery.data;
   const webhookUrl =
@@ -128,25 +105,6 @@ export function Telegram() {
       });
     } finally {
       setBusy(null);
-    }
-  };
-
-  const handleSelectModel = async (value: string) => {
-    const previous = selected;
-    setSelected(value);
-    try {
-      await apiSend("/telegram/model", "PUT", {
-        modelEndpointId: value === MANAGED_VALUE ? null : value,
-      });
-      await queryClient.invalidateQueries({ queryKey: ["telegram", "model"] });
-      toast({ title: "Model updated for Telegram bot" });
-    } catch (err) {
-      setSelected(previous);
-      toast({
-        title: "Could not change model",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "destructive",
-      });
     }
   };
 
@@ -249,39 +207,27 @@ export function Telegram() {
           <BrainCircuit className="w-5 h-5 text-primary" /> Model
         </h2>
         <Card className="bg-card">
-          <CardContent className="pt-6 flex flex-col gap-4 text-sm">
+          <CardContent className="pt-6 flex flex-col gap-3 text-sm">
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">Current model</span>
+              <span className="font-mono">
+                {modelQuery.isLoading
+                  ? "…"
+                  : (modelQuery.data?.modelEndpointName ?? "—")}
+              </span>
+            </div>
             <p className="text-muted-foreground">
-              Choose which model endpoint the Telegram bot talks to. The managed
-              Anthropic model works out of the box; add your own providers on the{" "}
+              The Telegram bot IS the ContextOS Bot agent — it uses that agent's
+              model, tools, and memory, so it behaves identically to the in-app
+              chat. To change the model, set it on the{" "}
               <Link
-                href="/model-endpoints"
+                href="/agents"
                 className="text-primary underline underline-offset-2"
               >
-                Model Endpoints
-              </Link>{" "}
-              page.
+                ContextOS Bot agent
+              </Link>
+              .
             </p>
-            <div className="max-w-md">
-              <Select
-                value={selected}
-                onValueChange={handleSelectModel}
-                disabled={modelQuery.isLoading}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a model…" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={MANAGED_VALUE}>
-                    Managed Anthropic (Claude Sonnet 4.6) — default
-                  </SelectItem>
-                  {endpoints?.map((ep) => (
-                    <SelectItem key={ep.id} value={ep.id}>
-                      {ep.name} · {ep.modelName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </CardContent>
         </Card>
       </section>
