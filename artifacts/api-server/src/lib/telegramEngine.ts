@@ -14,7 +14,12 @@ import {
   loadOwnedLongTermMemories,
 } from "./mcpServer";
 import { resolveEndpointApiKey } from "./secretStore";
-import { runToolChat, type ToolChatMessage, type ToolSpec } from "./toolChat";
+import {
+  runToolChat,
+  toToolExecutionResult,
+  type ToolChatMessage,
+  type ToolSpec,
+} from "./toolChat";
 import { composeBotSystemPrompt, TELEGRAM_CHANNEL_NOTE } from "./botPrompt";
 import { resolveAgentModel } from "./runEngine";
 import { logger } from "./logger";
@@ -206,7 +211,10 @@ export async function handleTelegramMessage(
       executeTool: async (name, args) => {
         try {
           const out = await callTool(tenantId, userId ?? "", name, args, caller);
-          return { content: JSON.stringify(out), isError: false };
+          // Media-aware: external MCP tool results carry image/audio blocks
+          // (e.g. a screenshot) that are forwarded to the model as native
+          // content; every other result is stringified exactly as before.
+          return toToolExecutionResult(out);
         } catch (err) {
           const message =
             err instanceof McpToolError

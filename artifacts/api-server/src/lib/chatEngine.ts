@@ -19,7 +19,12 @@ import {
   callTool,
   McpToolError,
 } from "./mcpServer";
-import { runToolChat, type ToolChatMessage, type ToolSpec } from "./toolChat";
+import {
+  runToolChat,
+  toToolExecutionResult,
+  type ToolChatMessage,
+  type ToolSpec,
+} from "./toolChat";
 import { composeBotSystemPrompt } from "./botPrompt";
 import { buildLongTermMemoryBlock } from "./telegramEngine";
 import { logger } from "./logger";
@@ -476,7 +481,10 @@ async function generateBotToolReply(
               trackRunForConversation(tenantId, conversationId, runId);
             }
           }
-          return { content: JSON.stringify(out), isError: false };
+          // Media-aware: external MCP tool results carry image/audio blocks
+          // (e.g. a screenshot) that are forwarded to the model as native
+          // content; every other result is stringified exactly as before.
+          return toToolExecutionResult(out);
         } catch (err) {
           const message =
             err instanceof McpToolError

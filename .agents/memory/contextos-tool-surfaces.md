@@ -32,6 +32,50 @@ use, add its name to `BUILDER_TOOL_NAMES` (and mention it in
 `BOT_ALLOWED_TOOLS`. There is no general per-agent tool-calling loop beyond the
 builder loop — don't assume one exists.
 
+# External (live) MCP server tools are a FOURTH surface
+
+Tools discovered from a connected external MCP server ("Connect existing server",
+e.g. screen/computer-control) have NO stored recipe (`executionJson` is null) and
+their adapter `transport !== "constructed"` with an http(s) `endpointUrl`. They
+are NOT in `TOOLS`, `BUILDER_TOOL_NAMES`, or `BOT_ALLOWED_TOOLS`. They become
+callable by being surfaced dynamically per-tenant, not by editing any allow-list:
+- `capabilityExec.ts`: `isExternalMcpAdapter`, `listExternalMcpToolCapabilities`,
+  `resolveExternalMcpCapability` identify them (filter: type==="tool", no recipe,
+  external adapter).
+- `mcpServer.ts`: `listToolsForTenant` (agent branch) advertises them; `callTool`
+  default case, after `executeNamedCapability` returns null, invokes them live via
+  `callMcpTool(endpointUrl, name, args)` and returns `{source:"external_mcp",
+  content, media, structured}`.
+- `runEngine.ts`: builder loop offers them alongside `BUILDER_TOOL_NAMES`, runs
+  read-only ones directly, and REFUSES full-control (L3+/humanReviewRequired) ones
+  with a "requires approval" message — the actual approval request is created by
+  the deterministic `proposeActionsNode` (which also executes non-gated external
+  read tools, storing only media *metadata*, never base64, in the DB).
+
+**Why:** the task goal was "paste a hosted screen-control MCP endpoint and its
+tools just work with zero onboarding / no manual allow-list edits"; full-control
+actions must still route through the existing L3 approval policy, not be dropped.
+
+**How to apply:** never add external MCP tool names to a static allow-list. The
+risk tier comes from `discoverAdapter`/`mapToolToCapability` annotations
+(destructiveHint→L3+humanReviewRequired, readOnlyHint→L1, else L2). Run-action
+approval threshold is `RUN_APPROVAL_THRESHOLD="L3"` (module scope, runEngine.ts);
+`RISK_RANK` is also module-scope there.
+
+# MCP image/audio media must be forwarded, never stringified
+
+External tool results carry image/audio content blocks (screenshots). The bridge
+is `toToolExecutionResult(out)` in `toolChat.ts` (passes `media` through when
+`source==="external_mcp"`, else `JSON.stringify` as before). EVERY tool-calling
+loop must use it instead of `JSON.stringify(out)`: builder loop (runEngine), web
+bot (chatEngine), telegram bot (telegramEngine). `routes/mcp.ts` tools/call
+re-emits media as real MCP image/audio content blocks. `runToolChat` wires media
+into all 3 provider paths (Anthropic image blocks, OpenAI image_url follow-up,
+Google inlineData); audio degrades to a placeholder text line everywhere.
+
+**Why:** without this, a screenshot reaches the LLM as a useless stringified
+base64 blob. Any new tool-calling loop or provider path must thread media too.
+
 # Where to OBSERVE that a built-in/firecrawl tool actually fired
 
 Builder-loop and bot tool calls are recorded in `event_logs`, NOT the

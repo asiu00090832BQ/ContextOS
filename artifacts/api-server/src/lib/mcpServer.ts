@@ -17,11 +17,13 @@ import {
 } from "@workspace/db";
 import { parse as parseYaml } from "yaml";
 import { executeRun } from "./runEngine";
-import { discoverAdapter } from "./mcp";
+import { discoverAdapter, callMcpTool } from "./mcp";
 import {
   executeNamedCapability,
   executeCapabilityRow,
   resolveNamedCapability,
+  resolveExternalMcpCapability,
+  listExternalMcpToolCapabilities,
   recordCapabilityTest,
   lastTestOf,
   listExecutableCapabilities,
@@ -2365,21 +2367,49 @@ export async function callTool(
       return callFirecrawl(() => firecrawlCrawl(args));
     default: {
       const result = await executeNamedCapability(tenantId, name, args);
-      if (result === null) {
-        throw new McpToolError(`Unknown tool: ${name}`);
+      if (result !== null) {
+        if (!result.ok) {
+          throw new McpToolError(
+            result.error ?? `Tool "${name}" failed to execute.`,
+          );
+        }
+        return {
+          ok: true,
+          status: result.status ?? null,
+          durationMs: result.durationMs,
+          extracted: result.extracted ?? null,
+          body: result.body ?? null,
+        };
       }
-      if (!result.ok) {
-        throw new McpToolError(
-          result.error ?? `Tool "${name}" failed to execute.`,
+      // No constructed recipe matched — try a live external MCP server tool
+      // (discovered via "Connect existing server"). These run over MCP
+      // `tools/call` and can return image/audio content blocks (e.g. a
+      // screenshot), which we tag so the model receives them as real media.
+      const external = await resolveExternalMcpCapability(tenantId, name);
+      if (external) {
+        const res = await callMcpTool(
+          external.adapter.endpointUrl as string,
+          name,
+          args,
         );
+        if (res.isError) {
+          throw new McpToolError(res.text || `Tool "${name}" failed to execute.`);
+        }
+        const content =
+          res.structured != null
+            ? `${res.text}\n\nStructured result: ${JSON.stringify(
+                res.structured,
+              ).slice(0, 4000)}`
+            : res.text;
+        return {
+          ok: true,
+          source: "external_mcp",
+          content,
+          media: res.media,
+          structured: res.structured ?? null,
+        };
       }
-      return {
-        ok: true,
-        status: result.status ?? null,
-        durationMs: result.durationMs,
-        extracted: result.extracted ?? null,
-        body: result.body ?? null,
-      };
+      throw new McpToolError(`Unknown tool: ${name}`);
     }
   }
 }
@@ -2654,6 +2684,21 @@ export async function listToolsForTenant(
     dynamic.push({
       name: c.name,
       description: `${base}${suffix}`,
+      inputSchema: toJsonSchema(c.inputSchemaJson),
+    });
+  }
+  // Tools discovered from live external MCP servers ("Connect existing server")
+  // carry no recipe and are executed via live tools/call, so they aren't in the
+  // constructed list above. Advertise them to agent callers too, so a freshly
+  // connected screen-control / computer-control server is immediately usable
+  // without any manual allow-list edit.
+  const externalMcp = await listExternalMcpToolCapabilities(tenantId);
+  for (const { capability: c } of externalMcp) {
+    if (seen.has(c.name)) continue;
+    seen.add(c.name);
+    dynamic.push({
+      name: c.name,
+      description: c.description ?? `External MCP tool: ${c.name}`,
       inputSchema: toJsonSchema(c.inputSchemaJson),
     });
   }

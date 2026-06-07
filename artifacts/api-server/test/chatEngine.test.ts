@@ -121,7 +121,13 @@ mock.module("../src/lib/mcpServer", {
 });
 
 const runToolChat = mock.fn(async () => ({ text: "" }));
-mock.module("../src/lib/toolChat", { namedExports: { runToolChat } });
+const toToolExecutionResult = mock.fn((out: unknown) => ({
+  content: JSON.stringify(out),
+  isError: false,
+}));
+mock.module("../src/lib/toolChat", {
+  namedExports: { runToolChat, toToolExecutionResult },
+});
 
 const { looksActionable, generateAgentReply, reconcileRunConversations } =
   await import("../src/lib/chatEngine");

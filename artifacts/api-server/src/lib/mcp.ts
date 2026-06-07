@@ -1,5 +1,6 @@
 import type { InferInsertModel } from "drizzle-orm";
 import { capabilitiesTable } from "@workspace/db";
+import type { ToolMediaBlock } from "./toolChat";
 
 type CapabilitySeed = Omit<
   InferInsertModel<typeof capabilitiesTable>,
@@ -274,4 +275,130 @@ export async function healthCheckAdapter(
     checkedAt: new Date().toISOString(),
     detail: "Demo transport reachable; handshake succeeded.",
   };
+}
+
+/** Parsed outcome of an MCP `tools/call`, split into text and media blocks. */
+export interface McpCallResult {
+  isError: boolean;
+  /** Concatenated text blocks plus a placeholder line per media block. */
+  text: string;
+  /** Image/audio content blocks, ready to forward to the model. */
+  media: ToolMediaBlock[];
+  /** `structuredContent` from the result, if the server returned any. */
+  structured: unknown;
+}
+
+/**
+ * Convert an MCP `tools/call` result object (`{ content: [...], isError?,
+ * structuredContent? }`) into a `McpCallResult`. Text blocks are joined; image
+ * and audio blocks become `media` entries (with a short placeholder added to the
+ * text so text-only consumers still see that media was returned); embedded
+ * resources surface their text. Falls back to a JSON dump when the server
+ * returns an unrecognized shape.
+ */
+function parseMcpToolResult(result: Record<string, unknown>): McpCallResult {
+  const blocks = Array.isArray(result.content)
+    ? (result.content as Record<string, unknown>[])
+    : [];
+  const textParts: string[] = [];
+  const media: ToolMediaBlock[] = [];
+  for (const block of blocks) {
+    if (!block || typeof block !== "object") continue;
+    const type = block.type;
+    if (type === "text" && typeof block.text === "string") {
+      textParts.push(block.text);
+    } else if (
+      (type === "image" || type === "audio") &&
+      typeof block.data === "string"
+    ) {
+      const mimeType =
+        typeof block.mimeType === "string"
+          ? block.mimeType
+          : type === "image"
+            ? "image/png"
+            : "audio/mpeg";
+      media.push({ kind: type, mimeType, data: block.data });
+      const kb = Math.round(((block.data.length * 3) / 4 / 1024) * 10) / 10;
+      textParts.push(
+        `[${type} ${mimeType} (~${kb} KB) returned and provided to you as ${type} content]`,
+      );
+    } else if (type === "resource") {
+      const resource = block.resource as Record<string, unknown> | undefined;
+      if (resource && typeof resource.text === "string") {
+        textParts.push(resource.text);
+      } else if (resource && typeof resource.uri === "string") {
+        textParts.push(`[resource ${resource.uri}]`);
+      } else {
+        textParts.push("[resource content omitted]");
+      }
+    }
+  }
+  const structured = result.structuredContent ?? null;
+  if (textParts.length === 0 && media.length === 0 && structured == null) {
+    textParts.push(JSON.stringify(result).slice(0, 2000));
+  }
+  return {
+    isError: result.isError === true,
+    text: textParts.join("\n"),
+    media,
+    structured,
+  };
+}
+
+/**
+ * Invoke a tool on a live external MCP server over streamable HTTP. Performs the
+ * initialize → notifications/initialized → tools/call handshake (mirroring
+ * `discoverAdapter`) and returns the result parsed into text + media blocks.
+ * Throws on transport/protocol errors; tool-level failures are surfaced via
+ * `McpCallResult.isError`.
+ */
+export async function callMcpTool(
+  endpointUrl: string,
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<McpCallResult> {
+  const init = await mcpRpc(
+    endpointUrl,
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: { name: "contextos", version: "1.0.0" },
+      },
+    },
+    null,
+  );
+  if (init.json?.error) {
+    throw new Error(init.json.error.message ?? "MCP initialize returned an error.");
+  }
+  const sessionId = init.sessionId;
+  try {
+    await mcpRpc(
+      endpointUrl,
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      sessionId,
+    );
+  } catch {
+    // Stateless servers don't require the notification; continue.
+  }
+  const called = await mcpRpc(
+    endpointUrl,
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: toolName, arguments: args ?? {} },
+    },
+    sessionId,
+  );
+  if (called.json?.error) {
+    throw new Error(
+      called.json.error.message ?? `MCP tools/call for "${toolName}" failed.`,
+    );
+  }
+  const result = (called.json?.result ?? {}) as Record<string, unknown>;
+  return parseMcpToolResult(result);
 }

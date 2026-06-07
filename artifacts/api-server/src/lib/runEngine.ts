@@ -34,9 +34,15 @@ import { complete, stubComplete, type LlmResult } from "./llm";
 import { resolveEndpointApiKey } from "./secretStore";
 import { parseRecipe } from "./webTools";
 import { sendMessage } from "./telegram";
-import { executeCapabilityRow } from "./capabilityExec";
+import {
+  executeCapabilityRow,
+  isExternalMcpAdapter,
+  listExternalMcpToolCapabilities,
+} from "./capabilityExec";
+import { callMcpTool } from "./mcp";
 import {
   runToolChat,
+  toToolExecutionResult,
   MANAGED_ANTHROPIC_REF,
   type ToolSpec,
 } from "./toolChat";
@@ -51,6 +57,16 @@ import {
 } from "./contextBroker";
 import { logger } from "./logger";
 import { StateGraph, Annotation, START, END } from "@langchain/langgraph";
+
+/** Ordinal ranking of risk tiers, used to compare against approval thresholds. */
+const RISK_RANK = { L1: 1, L2: 2, L3: 3, L4: 4 } as const;
+
+/**
+ * Risk tier at or above which a run action requires human approval. External
+ * full-control tools (mouse/click/type/run) map to L3+, so they route through
+ * this same approval gate rather than being dropped or hard-blocked.
+ */
+const RUN_APPROVAL_THRESHOLD = "L3" as const;
 
 /**
  * Resolve the configured model for an agent: its model policy plus the primary
@@ -481,12 +497,11 @@ async function proposeActionsNode(state: RunStateT): Promise<Partial<RunStateT>>
     .select()
     .from(capabilitiesTable)
     .where(eq(capabilitiesTable.tenantId, tenantId))
-    .limit(4);
+    .limit(50);
 
   // Policy bundle: assemble the effective policy for this run so its approval
   // decisions have explicit, queryable provenance. Capabilities at or above
   // the approval threshold (or flagged for human review) require sign-off.
-  const RISK_RANK = { L1: 1, L2: 2, L3: 3, L4: 4 } as const;
   const [policyBundle] = await db
     .insert(policyBundlesTable)
     .values({
@@ -494,12 +509,12 @@ async function proposeActionsNode(state: RunStateT): Promise<Partial<RunStateT>>
       runId,
       name: `Policy bundle for "${intent.title}"`,
       rulesJson: {
-        requireApprovalAtOrAbove: "L3",
+        requireApprovalAtOrAbove: RUN_APPROVAL_THRESHOLD,
         deniedSystems: intent.deniedSystems ?? [],
       },
       allowedCapabilities: caps.map((c) => c.name),
       deniedCapabilities: [],
-      approvalThreshold: "L3",
+      approvalThreshold: RUN_APPROVAL_THRESHOLD,
     })
     .returning();
   await logEvent(tenantId, runId, "policy.bundle.assembled", `Policy bundle assembled (approval required at or above ${policyBundle.approvalThreshold})`);
@@ -546,6 +561,42 @@ async function proposeActionsNode(state: RunStateT): Promise<Partial<RunStateT>>
           body: result.body ?? null,
           error: result.error ?? null,
         };
+      }
+    } else if (!needsApproval && cap.type === "tool") {
+      // Non-gated tool from a live external MCP server (no stored recipe):
+      // really invoke it over MCP tools/call. These are the read-only screen
+      // tools (e.g. screenshot/get_screen); full-control actions are L3+ and
+      // are gated above, so they never reach this branch. Only media *metadata*
+      // is persisted — base64 image/audio payloads are never written to the DB.
+      const adapter = await loadAdapter(cap.adapterId);
+      if (adapter && isExternalMcpAdapter(adapter) && adapter.endpointUrl) {
+        const started = Date.now();
+        try {
+          const res = await callMcpTool(adapter.endpointUrl, cap.name, {});
+          executed = true;
+          execOk = !res.isError;
+          execDuration = Date.now() - started;
+          execOutput = {
+            ok: !res.isError,
+            source: "external_mcp",
+            text: res.text.slice(0, 4000),
+            media: res.media.map((m) => ({
+              kind: m.kind,
+              mimeType: m.mimeType,
+              bytes: Math.round((m.data.length * 3) / 4),
+            })),
+            structured: res.structured ?? null,
+          };
+        } catch (err) {
+          executed = true;
+          execOk = false;
+          execDuration = Date.now() - started;
+          execOutput = {
+            ok: false,
+            source: "external_mcp",
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
     }
 
@@ -1123,8 +1174,27 @@ async function runBuilderCompletion(args: {
   const start = Date.now();
   const toolCalls: BuilderToolCall[] = [];
   const catalog = await listToolsForTenant(args.tenantId);
+
+  // Tools discovered from a live external MCP server ("Connect existing server",
+  // e.g. a screen-control / computer-control server) are offered to the builder
+  // agent alongside its own toolset, so they "just work" with zero onboarding.
+  // Full-control actions (mouse/click/type/run) map to L3+/humanReviewRequired
+  // and are gated below: the agent is told they require approval rather than
+  // having them silently executed. Read-only screen tools run directly.
+  const externalCaps = await listExternalMcpToolCapabilities(args.tenantId);
+  const externalByName = new Map(externalCaps.map((c) => [c.capability.name, c]));
+  const isExternalGated = (name: string): boolean => {
+    const entry = externalByName.get(name);
+    if (!entry) return false;
+    const { capability } = entry;
+    return (
+      capability.humanReviewRequired ||
+      RISK_RANK[capability.riskTier] >= RISK_RANK[RUN_APPROVAL_THRESHOLD]
+    );
+  };
+
   const tools: ToolSpec[] = catalog
-    .filter((t) => BUILDER_TOOL_NAMES.has(t.name))
+    .filter((t) => BUILDER_TOOL_NAMES.has(t.name) || externalByName.has(t.name))
     .map((t) => ({
       name: t.name,
       description: t.description,
@@ -1152,14 +1222,37 @@ async function runBuilderCompletion(args: {
     // resolveAgentModel already returns temperature in the 0..1 range.
     temperature: args.temperature,
     executeTool: async (name, toolArgs) => {
-      // Defense in depth: even though the model is only offered builder tools,
-      // refuse anything outside the allowlist so a hallucinated tool name can
-      // never reach an arbitrary (possibly destructive) constructed capability.
-      if (!BUILDER_TOOL_NAMES.has(name)) {
+      // Defense in depth: even though the model is only offered builder tools
+      // plus the connected external MCP tools, refuse anything outside both
+      // allowlists so a hallucinated tool name can never reach an arbitrary
+      // (possibly destructive) constructed capability.
+      const isExternal = externalByName.has(name);
+      if (!BUILDER_TOOL_NAMES.has(name) && !isExternal) {
         return {
           content: `Tool "${name}" is not permitted for an autonomous builder agent.`,
           isError: true,
         };
+      }
+      // Full-control / high-risk external actions route through the existing
+      // approval policy: refuse here (so nothing is silently executed) and tell
+      // the agent it needs approval. The run's proposeActions phase creates the
+      // actual approval request for the gated capability.
+      if (isExternal && isExternalGated(name)) {
+        const tier = externalByName.get(name)!.capability.riskTier;
+        const message = `Tool "${name}" is a full-control action (${tier}) and requires human approval before it can run; it cannot be executed autonomously.`;
+        await logEvent(
+          args.tenantId,
+          args.runId,
+          "agent.tool_call",
+          `${args.agentName} call to ${name} blocked: requires approval`,
+          "warn",
+          {
+            agentId: args.agentId,
+            data: { tool: name, argKeys: Object.keys(toolArgs ?? {}) },
+          },
+        );
+        toolCalls.push({ name, ok: false, summary: "requires approval" });
+        return { content: message, isError: true };
       }
       try {
         const out = await callTool(
@@ -1187,7 +1280,10 @@ async function runBuilderCompletion(args: {
           ok: true,
           summary: summarizeBuilderResult(out),
         });
-        return { content: JSON.stringify(out), isError: false };
+        // Media-aware: external MCP results (e.g. screenshots) carry image/audio
+        // blocks that are forwarded to the model as native content; every other
+        // result is stringified exactly as before.
+        return toToolExecutionResult(out);
       } catch (err) {
         const message =
           err instanceof McpToolError

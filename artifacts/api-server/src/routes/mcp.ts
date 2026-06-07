@@ -81,6 +81,49 @@ async function dispatch(
         try {
           const caller = await resolveBotCaller(tenantId);
           const result = await callTool(tenantId, userId, name, args, caller);
+          // External MCP tool results are tagged `source: "external_mcp"` and may
+          // carry image/audio content blocks (e.g. a screenshot). Re-emit those as
+          // proper MCP content blocks so a downstream client receives viewable
+          // media; every other result is serialized as text exactly as before.
+          const r = result as {
+            source?: unknown;
+            content?: unknown;
+            media?: unknown;
+          };
+          if (r && r.source === "external_mcp") {
+            const blocks: Record<string, unknown>[] = [];
+            if (typeof r.content === "string" && r.content.length > 0) {
+              blocks.push({ type: "text", text: r.content });
+            }
+            if (Array.isArray(r.media)) {
+              for (const m of r.media as {
+                kind?: unknown;
+                mimeType?: unknown;
+                data?: unknown;
+              }[]) {
+                if (
+                  m &&
+                  (m.kind === "image" || m.kind === "audio") &&
+                  typeof m.data === "string"
+                ) {
+                  blocks.push({
+                    type: m.kind,
+                    data: m.data,
+                    mimeType:
+                      typeof m.mimeType === "string"
+                        ? m.mimeType
+                        : m.kind === "image"
+                          ? "image/png"
+                          : "audio/mpeg",
+                  });
+                }
+              }
+            }
+            if (blocks.length === 0) {
+              blocks.push({ type: "text", text: JSON.stringify(result, null, 2) });
+            }
+            return ok(id, { content: blocks });
+          }
           return ok(id, {
             content: [
               { type: "text", text: JSON.stringify(result, null, 2) },

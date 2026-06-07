@@ -27,9 +27,74 @@ export interface ToolChatMessage {
   content: string;
 }
 
+/**
+ * A non-text result block returned by a tool (e.g. an MCP screenshot). Carried
+ * alongside the textual `content` so each provider path can forward it to the
+ * model as native image/audio input instead of stringifying it.
+ */
+export interface ToolMediaBlock {
+  kind: "image" | "audio";
+  /** IANA media type, e.g. "image/png" or "audio/wav". */
+  mimeType: string;
+  /** Base64-encoded payload (no data: prefix). */
+  data: string;
+}
+
 export interface ToolExecutionResult {
   content: string;
   isError: boolean;
+  /** Optional image/audio blocks to forward to the model as native content. */
+  media?: ToolMediaBlock[];
+}
+
+/**
+ * Normalize a raw `callTool` return value into a `ToolExecutionResult`. External
+ * MCP tool results are tagged with `source: "external_mcp"` and carry image/audio
+ * blocks in `media`; those are passed through so the model receives real image
+ * content. Every other tool result is stringified exactly as before, so text-only
+ * behaviour is unchanged.
+ */
+export function toToolExecutionResult(out: unknown): ToolExecutionResult {
+  if (out && typeof out === "object") {
+    const o = out as {
+      source?: unknown;
+      content?: unknown;
+      media?: unknown;
+    };
+    if (o.source === "external_mcp") {
+      const media = Array.isArray(o.media)
+        ? (o.media as ToolMediaBlock[]).filter(
+            (m) =>
+              m &&
+              (m.kind === "image" || m.kind === "audio") &&
+              typeof m.data === "string",
+          )
+        : [];
+      const content =
+        typeof o.content === "string" ? o.content : JSON.stringify(out);
+      return {
+        content,
+        isError: false,
+        media: media.length > 0 ? media : undefined,
+      };
+    }
+  }
+  return { content: JSON.stringify(out), isError: false };
+}
+
+/** Anthropic only accepts these media types in image blocks. */
+const ANTHROPIC_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+function anthropicImageType(
+  mimeType: string,
+): "image/jpeg" | "image/png" | "image/gif" | "image/webp" {
+  return ANTHROPIC_IMAGE_TYPES.has(mimeType)
+    ? (mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp")
+    : "image/png";
 }
 
 export interface ToolChatOptions {
@@ -163,10 +228,32 @@ async function runAnthropicToolChat(
       const realName = nameMap.get(use.name) ?? use.name;
       const args = (use.input as Record<string, unknown>) ?? {};
       const out = await opts.executeTool(realName, args);
+      const text = out.content.slice(0, 20_000);
+      const blocks: (Anthropic.TextBlockParam | Anthropic.ImageBlockParam)[] =
+        [];
+      if (text) blocks.push({ type: "text", text });
+      for (const m of out.media ?? []) {
+        if (m.kind === "image") {
+          blocks.push({
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: anthropicImageType(m.mimeType),
+              data: m.data,
+            },
+          });
+        } else {
+          // Anthropic tool_result blocks can't carry audio — note it instead.
+          blocks.push({
+            type: "text",
+            text: `[audio ${m.mimeType} returned by the tool but this model can't accept audio input; omitted]`,
+          });
+        }
+      }
       toolResults.push({
         type: "tool_result",
         tool_use_id: use.id,
-        content: out.content.slice(0, 20_000),
+        content: blocks.length > 0 ? blocks : text,
         ...(out.isError ? { is_error: true } : {}),
       });
     }
@@ -179,9 +266,13 @@ async function runAnthropicToolChat(
 // OpenAI-compatible (chat/completions + tool_calls)
 // ---------------------------------------------------------------------------
 
+type OpenAiContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 interface OpenAiMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: string | OpenAiContentPart[] | null;
   tool_calls?: {
     id: string;
     type: "function";
@@ -267,6 +358,31 @@ async function runOpenAiToolChat(
         tool_call_id: call.id,
         content: out.content.slice(0, 20_000),
       });
+      // A tool message can only carry text, so forward any image blocks as a
+      // follow-up user message with image_url parts (the standard way to feed
+      // image content to OpenAI-compatible vision models).
+      const images = (out.media ?? []).filter((m) => m.kind === "image");
+      const audios = (out.media ?? []).filter((m) => m.kind === "audio");
+      if (images.length > 0) {
+        const parts: OpenAiContentPart[] = [
+          { type: "text", text: `Image output from tool ${realName}:` },
+        ];
+        for (const m of images) {
+          parts.push({
+            type: "image_url",
+            image_url: { url: `data:${m.mimeType};base64,${m.data}` },
+          });
+        }
+        messages.push({ role: "user", content: parts });
+      }
+      if (audios.length > 0) {
+        messages.push({
+          role: "user",
+          content: `[Tool ${realName} returned audio (${audios
+            .map((a) => a.mimeType)
+            .join(", ")}); this endpoint can't accept audio input, so it was omitted.]`,
+        });
+      }
     }
   }
   return replyText;
@@ -280,6 +396,7 @@ interface GooglePart {
   text?: string;
   functionCall?: { name: string; args?: Record<string, unknown> };
   functionResponse?: { name: string; response: Record<string, unknown> };
+  inlineData?: { mimeType: string; data: string };
 }
 interface GoogleContent {
   role: "user" | "model";
@@ -350,6 +467,7 @@ async function runGoogleToolChat(
 
     contents.push({ role: "model", parts });
     const responseParts: GooglePart[] = [];
+    const mediaParts: GooglePart[] = [];
     for (const part of calls) {
       const fc = part.functionCall;
       if (!fc) continue;
@@ -361,8 +479,22 @@ async function runGoogleToolChat(
           response: { result: out.content.slice(0, 20_000), isError: out.isError },
         },
       });
+      // Gemini takes image/audio as inlineData parts in a user turn, not inside
+      // the functionResponse, so collect them and append after the responses.
+      for (const m of out.media ?? []) {
+        mediaParts.push({ inlineData: { mimeType: m.mimeType, data: m.data } });
+      }
     }
     contents.push({ role: "user", parts: responseParts });
+    if (mediaParts.length > 0) {
+      contents.push({
+        role: "user",
+        parts: [
+          { text: "Media output from the tool calls above:" },
+          ...mediaParts,
+        ],
+      });
+    }
   }
   return replyText;
 }

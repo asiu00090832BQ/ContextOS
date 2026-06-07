@@ -90,6 +90,74 @@ export async function executeNamedCapability(
   return executeCapabilityRow(match.capability, match.adapter, args);
 }
 
+/**
+ * True when an adapter is a live external MCP server (connected via the "Connect
+ * existing server" flow): a non-constructed transport with a real HTTP(S)
+ * endpoint. Such adapters' tools are invoked over MCP `tools/call` at runtime
+ * rather than via a stored web-request recipe.
+ */
+export function isExternalMcpAdapter(adapter: Adapter): boolean {
+  return (
+    adapter.transport !== "constructed" &&
+    typeof adapter.endpointUrl === "string" &&
+    /^https?:\/\//i.test(adapter.endpointUrl)
+  );
+}
+
+/**
+ * List every tool capability that belongs to a live external MCP server in this
+ * tenant — i.e. discovered tools that carry no executable recipe (they run via
+ * live `tools/call`). These are the tools a freshly connected screen-control /
+ * computer-control server exposes; they're surfaced to agent callers so no
+ * manual allow-list edit is needed before they can be used.
+ */
+export async function listExternalMcpToolCapabilities(
+  tenantId: string,
+): Promise<{ capability: Capability; adapter: Adapter }[]> {
+  const rows = await db
+    .select({ capability: capabilitiesTable, adapter: adaptersTable })
+    .from(capabilitiesTable)
+    .innerJoin(adaptersTable, eq(capabilitiesTable.adapterId, adaptersTable.id))
+    .where(eq(capabilitiesTable.tenantId, tenantId))
+    .orderBy(asc(capabilitiesTable.createdAt), asc(capabilitiesTable.id));
+  return rows.filter(
+    (r) =>
+      r.capability.type === "tool" &&
+      !parseRecipe(r.capability.executionJson) &&
+      isExternalMcpAdapter(r.adapter),
+  );
+}
+
+/**
+ * Resolve a single external MCP tool capability (plus its adapter) by name.
+ * Uses the same deterministic ordering as dispatch/listing. Returns null when no
+ * matching external MCP tool exists, so callers can fall through.
+ */
+export async function resolveExternalMcpCapability(
+  tenantId: string,
+  name: string,
+): Promise<{ capability: Capability; adapter: Adapter } | null> {
+  const rows = await db
+    .select({ capability: capabilitiesTable, adapter: adaptersTable })
+    .from(capabilitiesTable)
+    .innerJoin(adaptersTable, eq(capabilitiesTable.adapterId, adaptersTable.id))
+    .where(
+      and(
+        eq(capabilitiesTable.tenantId, tenantId),
+        eq(capabilitiesTable.name, name),
+      ),
+    )
+    .orderBy(asc(capabilitiesTable.createdAt), asc(capabilitiesTable.id));
+  return (
+    rows.find(
+      (r) =>
+        r.capability.type === "tool" &&
+        !parseRecipe(r.capability.executionJson) &&
+        isExternalMcpAdapter(r.adapter),
+    ) ?? null
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Post-import smoke test
 // ---------------------------------------------------------------------------
