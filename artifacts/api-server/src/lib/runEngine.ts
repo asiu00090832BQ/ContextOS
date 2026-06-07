@@ -1069,7 +1069,7 @@ const BUILDER_MAX_ITERATIONS = 8;
  * unavailable up front, so it reports that web access needs setup instead of
  * repeatedly calling firecrawl_* tools that would only fail.
  */
-function builderSystemPrompt(): string {
+export function builderSystemPrompt(): string {
   const webLine = isFirecrawlConfigured()
     ? "You have always-available built-in web access via Firecrawl: firecrawl_search (find pages), " +
       "firecrawl_scrape (read one page as markdown), firecrawl_map (list a site's links), and " +
