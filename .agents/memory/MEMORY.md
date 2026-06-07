@@ -11,3 +11,4 @@
 - [Dev→prod config sync](contextos-dev-to-prod-sync.md) — no auto data sync; on-demand HTTP-to-HTTP helper (scripts push-prod) upserts agents/policies/bot by name, never copies secrets, default dry-run.
 - [Bot/telegram model selection](contextos-bot-model-selection.md) — model lives in DB (not carried by publish); weak deepseek-chat-v3 ignores injected live-state snapshot; use managed Claude.
 - [Bot live-state freshness](contextos-bot-freshness.md) — "data is all wrong" = prompt directive won't force re-fetch; inject a live workspace snapshot per-turn into BOTH bot paths.
+- [Tool surfaces & agent tool path](contextos-tool-surfaces.md) — built-in tools need 3 separate gates: TOOLS (agents w/ full catalog), BOT_ALLOWED_TOOLS (bot/mcp), BUILDER_TOOL_NAMES (run agents — the only agent tool loop).

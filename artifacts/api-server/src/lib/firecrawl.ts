@@ -128,6 +128,23 @@ function posInt(value: unknown): number | undefined {
   return undefined;
 }
 
+/**
+ * Resolve a caller-supplied count to a sane, bounded value. Always returns a
+ * value within [1, max]; falls back to `fallback` when omitted/invalid. This
+ * caps Firecrawl credit usage so an agent (or the bot) can't request a runaway
+ * search/map/crawl.
+ */
+function boundedInt(value: unknown, max: number, fallback: number): number {
+  const n = posInt(value) ?? fallback;
+  return Math.min(n, max);
+}
+
+// Hard upper bounds for caller-supplied counts (credit-usage safety).
+const MAX_SEARCH_LIMIT = 20;
+const MAX_MAP_LIMIT = 200;
+const MAX_CRAWL_LIMIT = 50;
+const MAX_CRAWL_DEPTH = 5;
+
 // ---------------------------------------------------------------------------
 // scrape
 // ---------------------------------------------------------------------------
@@ -168,7 +185,7 @@ export async function firecrawlSearch(
 ): Promise<Record<string, unknown>> {
   const query = str(args.query);
   if (!query) throw new FirecrawlError("`query` is required.");
-  const limit = posInt(args.limit) ?? 5;
+  const limit = boundedInt(args.limit, MAX_SEARCH_LIMIT, 5);
   const body: Record<string, unknown> = { query, limit };
   // Optionally scrape each result's page content (markdown), not just the
   // search snippet. Costs extra Firecrawl credits per scraped result.
@@ -207,8 +224,9 @@ export async function firecrawlMap(
   const body: Record<string, unknown> = { url };
   const search = str(args.search);
   if (search) body.search = search;
-  const limit = posInt(args.limit);
-  if (limit !== undefined) body.limit = limit;
+  if (args.limit !== undefined) {
+    body.limit = boundedInt(args.limit, MAX_MAP_LIMIT, MAX_MAP_LIMIT);
+  }
   const json = await firecrawlFetch<{ links?: unknown }>("/v1/map", {
     method: "POST",
     body,
@@ -234,9 +252,13 @@ export async function firecrawlCrawl(
 ): Promise<Record<string, unknown>> {
   const url = str(args.url);
   if (!url) throw new FirecrawlError("`url` is required.");
-  const body: Record<string, unknown> = { url, limit: posInt(args.limit) ?? 20 };
-  const maxDepth = posInt(args.maxDepth);
-  if (maxDepth !== undefined) body.maxDepth = maxDepth;
+  const body: Record<string, unknown> = {
+    url,
+    limit: boundedInt(args.limit, MAX_CRAWL_LIMIT, 20),
+  };
+  if (args.maxDepth !== undefined) {
+    body.maxDepth = boundedInt(args.maxDepth, MAX_CRAWL_DEPTH, MAX_CRAWL_DEPTH);
+  }
 
   const start = await firecrawlFetch<{ id?: string }>("/v1/crawl", {
     method: "POST",
