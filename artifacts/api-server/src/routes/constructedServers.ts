@@ -34,6 +34,7 @@ import {
   recordCapabilityTest,
 } from "../lib/capabilityExec";
 import { putSecret, deleteSecret } from "../lib/secretStore";
+import { recordAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -97,6 +98,15 @@ router.post("/constructed-servers", async (req, res): Promise<void> => {
       },
     })
     .returning();
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "adapter.created",
+    resourceType: "adapter",
+    resourceId: row.id,
+    summary: `Created constructed server "${row.name}"`,
+    dataJson: { transport: row.transport, endpointUrl: row.endpointUrl },
+  });
   await respondAdapterDetail(res, row.id, 201);
 });
 
@@ -256,6 +266,19 @@ router.post(
       })
       .where(eq(adaptersTable.id, adapter.id));
 
+    await recordAudit({
+      tenantId: req.tenantId,
+      actorId: req.userId,
+      action: "capability.imported",
+      resourceType: "adapter",
+      resourceId: adapter.id,
+      summary: `Imported ${inserted.length} tool${inserted.length === 1 ? "" : "s"} from OpenAPI into server "${adapter.name}"`,
+      dataJson: {
+        importedCount: inserted.length,
+        replacedExisting: parsed.data.replaceExisting === true,
+        baseUrl,
+      },
+    });
     await respondAdapterDetail(res, adapter.id, 200);
   },
 );
@@ -325,6 +348,16 @@ router.post(
       .select()
       .from(capabilitiesTable)
       .where(eq(capabilitiesTable.id, row.id));
+    await recordAudit({
+      tenantId: req.tenantId,
+      actorId: req.userId,
+      action: "capability.created",
+      resourceType: "capability",
+      resourceId: row.id,
+      summary: `Added tool "${row.name}" to server "${adapter.name}"`,
+      riskTier: row.riskTier,
+      dataJson: { adapterId: adapter.id, kind: recipe.kind },
+    });
     res.status(201).json(serializeCapability(refreshed ?? row));
   },
 );
@@ -369,6 +402,15 @@ router.put(
         },
       })
       .where(eq(adaptersTable.id, adapter.id));
+    await recordAudit({
+      tenantId: req.tenantId,
+      actorId: req.userId,
+      action: "adapter.auth_updated",
+      resourceType: "adapter",
+      resourceId: adapter.id,
+      summary: `Updated auth (${authType}) for server "${adapter.name}"`,
+      dataJson: { authType },
+    });
     await respondAdapterDetail(res, adapter.id, 200);
   },
 );
@@ -393,6 +435,15 @@ router.delete("/capabilities/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Capability not found" });
     return;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "capability.deleted",
+    resourceType: "capability",
+    resourceId: row.id,
+    summary: `Deleted tool "${row.name}"`,
+    dataJson: { adapterId: row.adapterId },
+  });
   res.sendStatus(204);
 });
 
@@ -470,6 +521,14 @@ router.post(
       .from(capabilitiesTable)
       .where(eq(capabilitiesTable.adapterId, adapter.id));
     const outcome = await retestServerTools(adapter, caps);
+    await recordAudit({
+      tenantId: req.tenantId,
+      actorId: req.userId,
+      action: "adapter.tested",
+      resourceType: "adapter",
+      resourceId: adapter.id,
+      summary: `Re-tested server "${adapter.name}"`,
+    });
     res.json(RetestConstructedServerResponse.parse(outcome));
   },
 );
@@ -515,6 +574,15 @@ router.post("/capabilities/:id/test", async (req, res): Promise<void> => {
   const { capability, args } = candidates[0];
   const result = await executeCapabilityRow(capability, adapter, args);
   const record = await recordCapabilityTest(capability.id, result);
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "capability.tested",
+    resourceType: "capability",
+    resourceId: capability.id,
+    summary: `Tested tool "${capability.name}" (${record.ok ? "ok" : "failed"})`,
+    dataJson: { adapterId: adapter.id, ok: record.ok },
+  });
   res.json(
     TestCapabilityResponse.parse({
       ok: record.ok,
