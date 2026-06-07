@@ -35,6 +35,13 @@ import {
   type HttpRecipe,
 } from "./webTools";
 import { putSecret, resolveEndpointApiKey } from "./secretStore";
+import {
+  FirecrawlError,
+  firecrawlScrape,
+  firecrawlSearch,
+  firecrawlMap,
+  firecrawlCrawl,
+} from "./firecrawl";
 import { BOT_AGENT_NAME } from "./context";
 import { logger } from "./logger";
 
@@ -110,6 +117,10 @@ const BOT_ALLOWED_TOOLS = new Set<string>([
   "set_agent_model",
   "remember",
   "recall_memories",
+  "firecrawl_scrape",
+  "firecrawl_search",
+  "firecrawl_map",
+  "firecrawl_crawl",
 ]);
 
 /**
@@ -536,6 +547,100 @@ export const TOOLS: McpTool[] = [
       "List your saved long-term memories (operational rules, preferences, larger tasks). They are also injected automatically each message, but use this to review or confirm exactly what is stored.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "firecrawl_scrape",
+    description:
+      "Read a single web page and return its main content as clean markdown (plus metadata). Use this whenever you need the contents of a known URL — there is no need to construct a per-site web MCP first; web access is always available.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "The full URL of the page to scrape (http/https).",
+        },
+        formats: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Output formats to return, e.g. ['markdown'], ['markdown','html'], ['links']. Defaults to ['markdown'].",
+        },
+        onlyMainContent: {
+          type: "boolean",
+          description:
+            "When true (default behaviour), strips nav/footer/boilerplate and returns just the main article content.",
+        },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "firecrawl_search",
+    description:
+      "Search the web and return the top results (title, URL, snippet). Use this to find pages when you don't already have a URL. Set scrapeResults=true to also fetch each result page's markdown content in one call.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "The web search query." },
+        limit: {
+          type: "number",
+          description: "Maximum number of results to return (default 5).",
+        },
+        scrapeResults: {
+          type: "boolean",
+          description:
+            "When true, also scrape each result page and include its markdown (uses more credits). Defaults to false.",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "firecrawl_map",
+    description:
+      "Discover the URLs available on a website (a fast sitemap of links) starting from a given URL. Use this to find relevant pages on a site before scraping specific ones.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "The website URL to map (e.g. https://example.com).",
+        },
+        search: {
+          type: "string",
+          description:
+            "Optional keyword to filter/rank the discovered links by relevance.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of links to return.",
+        },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "firecrawl_crawl",
+    description:
+      "Crawl a website starting from a URL and return the markdown content of multiple pages it links to. Heavier than firecrawl_scrape — prefer scrape for a single page. The crawl runs to completion or a bounded time budget, then returns the pages gathered so far plus a status.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "The starting URL to crawl from.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of pages to crawl (default 20).",
+        },
+        maxDepth: {
+          type: "number",
+          description: "Maximum link depth to follow from the starting URL.",
+        },
+      },
+      required: ["url"],
+    },
+  },
 ];
 
 function asString(v: unknown): string | undefined {
@@ -610,6 +715,22 @@ async function resolveEndpointRef(
       ),
     );
   return byName ?? null;
+}
+
+/**
+ * Run a Firecrawl web-tool call, translating Firecrawl-specific failures
+ * (missing key, API/network errors) into the standard McpToolError so callers
+ * surface a clean tool error rather than an unhandled exception.
+ */
+async function callFirecrawl<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof FirecrawlError) {
+      throw new McpToolError(err.message);
+    }
+    throw err;
+  }
 }
 
 /**
@@ -1531,6 +1652,14 @@ export async function callTool(
         })),
       };
     }
+    case "firecrawl_scrape":
+      return callFirecrawl(() => firecrawlScrape(args));
+    case "firecrawl_search":
+      return callFirecrawl(() => firecrawlSearch(args));
+    case "firecrawl_map":
+      return callFirecrawl(() => firecrawlMap(args));
+    case "firecrawl_crawl":
+      return callFirecrawl(() => firecrawlCrawl(args));
     default: {
       const result = await executeNamedCapability(tenantId, name, args);
       if (result === null) {
