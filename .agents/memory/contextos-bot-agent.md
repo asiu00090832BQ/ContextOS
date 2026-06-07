@@ -58,6 +58,22 @@ steps if hardening the route.
 read helper; `includeShared = contextPolicy !== "isolated"`. The `/bot/*` routes
 mutate ONLY rows scoped to `tenantId + agentId=botId`.
 
+## Workspace state is PULLED, not injected
+The bot learns current workspace state by calling `get_workspace_state` /
+`get_recent_changes` (audit-log feed) tools — NOT by having a snapshot appended
+to its system prompt. Do not reintroduce a forced state block into the bot
+prompt or a background state poller. **Why:** injecting a full snapshot every
+turn bloats context, goes stale between turns, and can't reflect mid-turn
+changes; pull-on-demand lets the bot fetch exactly what it needs when it needs
+it. `buildWorkspaceStateBlock(tenantId)` still exists but ONLY backs the
+`get_workspace_state` tool. Mutations across the app should write a
+`recordAudit` row (see `lib/audit.ts`, best-effort) so `get_recent_changes`
+surfaces them. **How to apply:** the bot has full MANAGEMENT tools (agent /
+endpoint / adapter / context-fragment CRUD) but still no direct capability
+execution; keep `test_web_tool` and the default/`executeNamedCapability`
+dispatch out of `BOT_ALLOWED_TOOLS`. New tenant-scoped handlers must validate
+any cross-resource id (e.g. a fragment's optional `runId`) against the tenant.
+
 ## Stale-cache trap
 `getContext()` caches the full `botAgent` row, and Telegram reads
 `botAgent.contextPolicy` when building the long-term memory block. After

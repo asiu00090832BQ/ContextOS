@@ -18,7 +18,6 @@ import {
   listToolsForTenant,
   callTool,
   McpToolError,
-  getWorkspaceStateBlock,
 } from "./mcpServer";
 import { runToolChat, type ToolChatMessage, type ToolSpec } from "./toolChat";
 import { composeBotSystemPrompt } from "./botPrompt";
@@ -430,16 +429,13 @@ async function generateBotToolReply(
     botAgent.id,
   );
   const apiKey = resolveEndpointApiKey(primary);
-  // Same canonical, freshness-forcing prompt the bot uses on Telegram, plus a
-  // live workspace-state snapshot and long-term memory grounding, so the in-app
-  // bot always reflects current state instead of answering from its weak stored
-  // prompt or stale earlier-in-conversation assumptions.
-  const [stateBlock, memoryBlock] = await Promise.all([
-    getWorkspaceStateBlock(tenantId, { forceRefresh: true }),
-    buildLongTermMemoryBlock(tenantId, botAgent),
-  ]);
+  // Same canonical, freshness-forcing prompt the bot uses on Telegram. Workspace
+  // state is pulled on demand via the bot's get_workspace_state /
+  // get_recent_changes tools rather than injected here; only long-term memory is
+  // grounded into the prompt.
+  const memoryBlock = await buildLongTermMemoryBlock(tenantId, botAgent);
   const system =
-    composeBotSystemPrompt(botAgent.systemPrompt) + stateBlock + memoryBlock;
+    composeBotSystemPrompt(botAgent.systemPrompt) + memoryBlock;
 
   // The first run started by a tool call is linked to the reply for the inline
   // RunCard; every run we see is tracked so its terminal state posts a

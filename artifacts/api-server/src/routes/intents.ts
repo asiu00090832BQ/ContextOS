@@ -17,6 +17,7 @@ import {
 } from "@workspace/api-zod";
 import { serializeIntent, serializeRun } from "../lib/serialize";
 import { executeRun } from "../lib/runEngine";
+import { recordAudit } from "../lib/audit";
 
 type RiskTier = "L1" | "L2" | "L3" | "L4";
 type IntentStatus =
@@ -75,6 +76,15 @@ router.post("/intents", async (req, res): Promise<void> => {
       createdBy: req.userId,
     })
     .returning();
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "intent.created",
+    resourceType: "intent",
+    resourceId: row.id,
+    summary: `Created intent "${row.title}"`,
+    riskTier: row.riskTier,
+  });
   res.status(201).json(GetIntentResponse.parse(serializeIntent(row, 0)));
 });
 
@@ -126,6 +136,16 @@ router.patch("/intents/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Intent not found" });
     return;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "intent.updated",
+    resourceType: "intent",
+    resourceId: row.id,
+    summary: `Updated intent "${row.title}"`,
+    riskTier: row.riskTier,
+    dataJson: { changed: Object.keys(parsed.data) },
+  });
   res.json(UpdateIntentResponse.parse(serializeIntent(row)));
 });
 
@@ -143,6 +163,14 @@ router.delete("/intents/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Intent not found" });
     return;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "intent.deleted",
+    resourceType: "intent",
+    resourceId: row.id,
+    summary: `Deleted intent "${row.title}"`,
+  });
   res.sendStatus(204);
 });
 
@@ -175,6 +203,18 @@ router.post("/intents/:id/start-run", async (req, res): Promise<void> => {
       leadAgentId: parsed.data.leadAgentId ?? null,
     })
     .returning();
+
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "run.started",
+    resourceType: "run",
+    resourceId: run.id,
+    summary: `Started run for intent "${intent.title}"`,
+    riskTier: intent.riskTier,
+    runId: run.id,
+    dataJson: { intentId: intent.id, orchestrationMode: run.orchestrationMode },
+  });
 
   void executeRun(req.tenantId, run.id);
 

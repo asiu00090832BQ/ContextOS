@@ -47,6 +47,7 @@ import {
   resolveEndpointApiKey,
   isSecretRef,
 } from "../lib/secretStore";
+import { recordAudit } from "../lib/audit";
 
 type AgentRole =
   | "lead"
@@ -110,6 +111,15 @@ router.post("/agents", async (req, res): Promise<void> => {
       canBuildIntegrations: parsed.data.canBuildIntegrations ?? false,
     })
     .returning();
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "agent.created",
+    resourceType: "agent",
+    resourceId: row.id,
+    summary: `Created agent "${row.name}" (${row.role})`,
+    dataJson: { name: row.name, role: row.role, contextPolicy: row.contextPolicy },
+  });
   res.status(201).json(GetAgentResponse.parse(serializeAgent(row)));
 });
 
@@ -198,6 +208,15 @@ router.patch("/agents/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "agent.updated",
+    resourceType: "agent",
+    resourceId: row.id,
+    summary: `Updated agent "${row.name}"`,
+    dataJson: { changed: Object.keys(parsed.data) },
+  });
   res.json(UpdateAgentResponse.parse(serializeAgent(row, await loadPolicy(row.id))));
 });
 
@@ -215,6 +234,14 @@ router.delete("/agents/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "agent.deleted",
+    resourceType: "agent",
+    resourceId: row.id,
+    summary: `Deleted agent "${row.name}"`,
+  });
   res.sendStatus(204);
 });
 
@@ -253,6 +280,18 @@ router.put("/agents/:id/model-policy", async (req, res): Promise<void> => {
         .where(eq(agentModelPoliciesTable.id, existing.id))
         .returning()
     : await db.insert(agentModelPoliciesTable).values(values).returning();
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "agent.model_policy.set",
+    resourceType: "agent",
+    resourceId: agent.id,
+    summary: `Set model policy for agent "${agent.name}"`,
+    dataJson: {
+      primaryEndpointId: row.primaryEndpointId,
+      fallbackEndpointId: row.fallbackEndpointId,
+    },
+  });
   res.json(SetAgentModelPolicyResponse.parse(serializeModelPolicy(row)));
 });
 
@@ -310,6 +349,15 @@ router.post("/model-endpoints", async (req, res): Promise<void> => {
     deleteSecret(apiKeyRef);
     throw err;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "model_endpoint.created",
+    resourceType: "model_endpoint",
+    resourceId: row.id,
+    summary: `Created model endpoint "${row.name}" (${row.providerType}/${row.modelName})`,
+    dataJson: { providerType: row.providerType, modelName: row.modelName },
+  });
   res.status(201).json(GetModelEndpointResponse.parse(serializeModelEndpoint(row)));
 });
 
@@ -411,6 +459,15 @@ router.patch("/model-endpoints/:id", async (req, res): Promise<void> => {
     return;
   }
   if (secretToDeleteAfterCommit) deleteSecret(secretToDeleteAfterCommit);
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "model_endpoint.updated",
+    resourceType: "model_endpoint",
+    resourceId: row.id,
+    summary: `Updated model endpoint "${row.name}"`,
+    dataJson: { changed: Object.keys(parsed.data) },
+  });
   res.json(UpdateModelEndpointResponse.parse(serializeModelEndpoint(row)));
 });
 
@@ -429,6 +486,14 @@ router.delete("/model-endpoints/:id", async (req, res): Promise<void> => {
     return;
   }
   deleteSecret(row.apiKeyRef);
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "model_endpoint.deleted",
+    resourceType: "model_endpoint",
+    resourceId: row.id,
+    summary: `Deleted model endpoint "${row.name}"`,
+  });
   res.sendStatus(204);
 });
 
@@ -496,6 +561,15 @@ router.post("/model-endpoints/:id/test", async (req, res): Promise<void> => {
       lastTestResultJson: { ...result },
     })
     .where(eq(modelEndpointsTable.id, row.id));
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "model_endpoint.tested",
+    resourceType: "model_endpoint",
+    resourceId: row.id,
+    summary: `Tested model endpoint "${row.name}" — ${result.ok ? "active" : "error"}`,
+    dataJson: { ok: result.ok, mode: result.mode },
+  });
   res.json(
     TestModelEndpointResponse.parse({
       ok: result.ok,

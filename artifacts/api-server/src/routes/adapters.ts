@@ -23,6 +23,7 @@ import {
   serializeCapability,
 } from "../lib/serialize";
 import { discoverAdapter, healthCheckAdapter } from "../lib/mcp";
+import { recordAudit } from "../lib/audit";
 
 type AdapterTransport = "streamable_http" | "stdio" | "websocket" | "demo";
 type AdapterStatus = "registered" | "active" | "error" | "disabled";
@@ -67,6 +68,15 @@ router.post("/adapters", async (req, res): Promise<void> => {
       linkedAccountId: parsed.data.linkedAccountId ?? null,
     })
     .returning();
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "adapter.created",
+    resourceType: "adapter",
+    resourceId: row.id,
+    summary: `Created adapter "${row.name}" (${row.transport})`,
+    dataJson: { transport: row.transport, endpointUrl: row.endpointUrl },
+  });
   res.status(201).json(GetAdapterResponse.parse(serializeAdapterDetail(row, [])));
 });
 
@@ -124,6 +134,15 @@ router.patch("/adapters/:id", async (req, res): Promise<void> => {
     .select()
     .from(capabilitiesTable)
     .where(eq(capabilitiesTable.adapterId, row.id));
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "adapter.updated",
+    resourceType: "adapter",
+    resourceId: row.id,
+    summary: `Updated adapter "${row.name}"`,
+    dataJson: { changed: Object.keys(parsed.data) },
+  });
   res.json(UpdateAdapterResponse.parse(serializeAdapterDetail(row, caps)));
 });
 
@@ -143,6 +162,14 @@ router.delete("/adapters/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Adapter not found" });
     return;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "adapter.deleted",
+    resourceType: "adapter",
+    resourceId: row.id,
+    summary: `Deleted adapter "${row.name}"`,
+  });
   res.sendStatus(204);
 });
 
@@ -185,6 +212,15 @@ router.post("/adapters/:id/discover", async (req, res): Promise<void> => {
     })
     .where(eq(adaptersTable.id, adapter.id))
     .returning();
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "adapter.discovered",
+    resourceType: "adapter",
+    resourceId: adapter.id,
+    summary: `Discovered ${inserted.length} capabilities on adapter "${adapter.name}"`,
+    dataJson: { capabilityCount: inserted.length },
+  });
   res.json(DiscoverAdapterResponse.parse(serializeAdapterDetail(updated, inserted)));
 });
 
@@ -213,6 +249,15 @@ router.post("/adapters/:id/test", async (req, res): Promise<void> => {
       lastHealthResultJson: { ...health },
     })
     .where(eq(adaptersTable.id, adapter.id));
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "adapter.tested",
+    resourceType: "adapter",
+    resourceId: adapter.id,
+    summary: `Health-checked adapter "${adapter.name}" — ${health.healthy ? "active" : "error"}`,
+    dataJson: { healthy: health.healthy },
+  });
   res.json(
     TestAdapterResponse.parse({
       ok: health.healthy,

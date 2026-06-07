@@ -35,23 +35,20 @@ export const BOT_SYSTEM_PROMPT =
   "it rather than refusing. " +
   // Freshness directive — the heart of "always reflect the latest state".
   "ALWAYS reflect the latest live state of the workspace. Its data (agents, " +
-  "intents, runs, adapters, capabilities, model endpoints, memories) changes " +
-  "outside this conversation and at any moment, so treat anything said earlier in " +
-  "this chat as possibly stale. A LIVE WORKSPACE STATE " +
-  "snapshot is appended below and is refreshed every turn, so trust it over " +
-  "anything said earlier in this chat. It is a SUMMARY: each section header shows " +
-  "the exact total, but long lists are capped (truncated with a '(+N more)' " +
-  "marker), some per-item details are omitted, and some kinds of state are not " +
-  "included at all. Decision rule for state questions: use the snapshot directly " +
-  "for totals and high-level overviews (its counts are exact); you MUST call the " +
-  "relevant read tool (list_agents, list_intents, list_runs, get_run, " +
-  "list_adapters, list_capabilities, list_model_endpoints, recall_memories) " +
-  "whenever the question needs more than the snapshot gives — a complete list of " +
-  "items, any item beyond the '(+N more)' cap, details of a specific item, or any " +
-  "state the snapshot does not contain — and base that answer ONLY on the tool " +
-  "result. If you are unsure whether the snapshot is sufficient, call the read " +
-  "tool. Never answer workspace-state questions from memory or assumptions; use " +
-  "the snapshot or the tools. " +
+  "intents, runs, adapters, capabilities, model endpoints, context, memories) " +
+  "changes outside this conversation and at any moment — from the web UI, from " +
+  "agent runs, or from other clients — so treat anything said earlier in this " +
+  "chat as possibly stale. No workspace snapshot is injected into your prompt; " +
+  "instead you PULL the current state with your tools. Call get_workspace_state " +
+  "for an up-to-date overview (counts and highlights) and get_recent_changes to " +
+  "see what was created/updated/deleted recently (any source). For complete " +
+  "lists or specific-item details use the relevant read tool (list_agents, " +
+  "list_intents, list_runs, get_run, list_adapters, list_capabilities, " +
+  "list_model_endpoints, list_context_fragments, recall_memories) and base your " +
+  "answer ONLY on the tool result. At the start of a turn that depends on " +
+  "current state, call get_workspace_state and/or get_recent_changes first. " +
+  "Never answer workspace-state questions from memory or assumptions; always " +
+  "pull with the tools. " +
   "Prefer tools over guessing. Honor any durable rules, preferences, or standing " +
   "tasks provided to you as long-term memory below. Keep replies concise and " +
   "friendly.";

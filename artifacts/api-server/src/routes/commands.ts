@@ -3,6 +3,7 @@ import { db, intentsTable, runsTable } from "@workspace/db";
 import { RunCommandBody } from "@workspace/api-zod";
 import { executeRun } from "../lib/runEngine";
 import { requireApiKey } from "../middlewares/tenant";
+import { recordAudit } from "../lib/audit";
 
 type RiskTier = "L1" | "L2" | "L3" | "L4";
 type OrchestrationMode = "static_graph" | "dynamic_delegation";
@@ -46,6 +47,19 @@ router.post("/commands/run", async (req, res): Promise<void> => {
       leadAgentId: parsed.data.leadAgentId ?? null,
     })
     .returning();
+
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorType: "service",
+    actorId: req.userId,
+    action: "run.started",
+    resourceType: "run",
+    resourceId: run.id,
+    summary: `Remote command started run for intent "${intent.title}"`,
+    riskTier: intent.riskTier,
+    runId: run.id,
+    dataJson: { intentId: intent.id, via: "commands_api" },
+  });
 
   void executeRun(req.tenantId, run.id);
 

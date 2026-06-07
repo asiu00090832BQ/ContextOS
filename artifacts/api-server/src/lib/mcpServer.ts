@@ -1,4 +1,4 @@
-import { eq, and, or, asc, desc, isNull } from "drizzle-orm";
+import { eq, and, or, asc, desc, isNull, gte } from "drizzle-orm";
 import {
   db,
   agentsTable,
@@ -9,6 +9,8 @@ import {
   workingMemoriesTable,
   modelEndpointsTable,
   agentModelPoliciesTable,
+  contextFragmentsTable,
+  auditRecordsTable,
   type Adapter,
   type Agent,
   type Capability,
@@ -34,7 +36,8 @@ import {
   type ExecutionResult,
   type HttpRecipe,
 } from "./webTools";
-import { putSecret, resolveEndpointApiKey } from "./secretStore";
+import { putSecret, deleteSecret, resolveEndpointApiKey } from "./secretStore";
+import { recordAudit } from "./audit";
 import {
   FirecrawlError,
   firecrawlScrape,
@@ -50,6 +53,44 @@ import { logger } from "./logger";
 
 type RiskTier = "L1" | "L2" | "L3" | "L4";
 type OrchestrationMode = "static_graph" | "dynamic_delegation";
+type ModelProviderType =
+  | "openai"
+  | "anthropic"
+  | "google"
+  | "openrouter"
+  | "azure_openai"
+  | "openai_compatible";
+type ContextFragmentType =
+  | "retrieval"
+  | "memory"
+  | "tool_output"
+  | "user"
+  | "system"
+  | "summary";
+type ContextSensitivity = "public" | "internal" | "confidential" | "restricted";
+
+const MODEL_PROVIDER_TYPES = new Set<string>([
+  "openai",
+  "anthropic",
+  "google",
+  "openrouter",
+  "azure_openai",
+  "openai_compatible",
+]);
+const CONTEXT_FRAGMENT_TYPES = new Set<string>([
+  "retrieval",
+  "memory",
+  "tool_output",
+  "user",
+  "system",
+  "summary",
+]);
+const CONTEXT_SENSITIVITIES = new Set<string>([
+  "public",
+  "internal",
+  "confidential",
+  "restricted",
+]);
 
 const AGENT_ROLES = new Set<string>([
   "lead",
@@ -105,21 +146,45 @@ export type ToolCaller =
  * and command an agent instead.
  */
 const BOT_ALLOWED_TOOLS = new Set<string>([
+  // Read / inspect
   "list_agents",
-  "create_agent",
-  "delete_agent",
   "list_intents",
-  "create_intent",
-  "run_intent",
-  "run_command",
   "get_run",
   "list_runs",
   "list_adapters",
   "list_capabilities",
   "list_model_endpoints",
+  "list_context_fragments",
+  // Workspace knowledge (pull-on-demand: current state + change feed)
+  "get_workspace_state",
+  "get_recent_changes",
+  // Orchestration — the ONLY way the bot performs real work is by commanding agents
+  "create_intent",
+  "run_intent",
+  "run_command",
+  // Full management of the workspace (configuration, never task execution)
+  "create_agent",
+  "update_agent",
+  "delete_agent",
   "set_agent_model",
+  "create_model_endpoint",
+  "delete_model_endpoint",
+  "delete_adapter",
+  "create_context_fragment",
+  "delete_context_fragment",
+  // Build / register / verify MCP servers and tools (setup, not task execution).
+  // Note: test_web_tool and the default capability-execution path remain BLOCKED
+  // for the bot — actually running a capability to do work must be delegated to
+  // an agent. retest_web_server only dry-runs safe read/list tools.
+  "register_mcp_server",
+  "create_web_mcp_server",
+  "add_web_mcp_tool",
+  "import_openapi_tools",
+  "retest_web_server",
+  // Bot's own long-term memory
   "remember",
   "recall_memories",
+  // Web access (read-only research the bot may use to answer)
   "firecrawl_scrape",
   "firecrawl_search",
   "firecrawl_map",
@@ -519,6 +584,199 @@ export const TOOLS: McpTool[] = [
     },
   },
   {
+    name: "get_workspace_state",
+    description:
+      "Pull the current live state of the whole ContextOS workspace as a single summary — agent, intent, run, adapter/capability and model-endpoint counts plus highlights. Call this whenever you need an up-to-date overview before answering or acting, instead of relying on earlier messages.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_recent_changes",
+    description:
+      "Pull the recent change feed (audit log) for this workspace — every create/update/delete/run.started across agents, intents, runs, adapters, capabilities, model endpoints, context and settings, from any source (you, the web UI, agents, or remote clients). Use this to see what changed and stay current.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "number",
+          description: "Max changes to return (1..200, default 50).",
+        },
+        since: {
+          type: "string",
+          description: "ISO 8601 date-time; only return changes at or after this time.",
+        },
+        resourceType: {
+          type: "string",
+          description:
+            "Filter to one resource type, e.g. agent, intent, run, adapter, capability, model_endpoint, context_fragment, context_pack, settings.",
+        },
+      },
+    },
+  },
+  {
+    name: "update_agent",
+    description:
+      "Update an existing agent's configuration (name, description, system prompt, role, context policy, active flag, capability-provider/integration-builder flags). Identify the agent by agentId (use list_agents to find it). Only the fields you pass are changed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agentId: { type: "string", description: "The id of the agent to update." },
+        name: { type: "string" },
+        description: { type: "string" },
+        systemPrompt: { type: "string" },
+        role: {
+          type: "string",
+          enum: [
+            "lead",
+            "specialist",
+            "verifier",
+            "executor",
+            "summarizer",
+            "router",
+            "memory_manager",
+          ],
+        },
+        contextPolicy: {
+          type: "string",
+          enum: [
+            "isolated",
+            "shared_summary",
+            "shared_readonly",
+            "shared_full",
+            "brokered",
+          ],
+        },
+        isActive: { type: "boolean" },
+        exposeAsCapabilityProvider: { type: "boolean" },
+        canBuildIntegrations: { type: "boolean" },
+      },
+      required: ["agentId"],
+    },
+  },
+  {
+    name: "delete_adapter",
+    description:
+      "Permanently delete an MCP adapter / constructed server (and its discovered capabilities) by its id. Use list_adapters first to find the adapterId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        adapterId: { type: "string", description: "The id of the adapter to delete." },
+      },
+      required: ["adapterId"],
+    },
+  },
+  {
+    name: "create_model_endpoint",
+    description:
+      "Add a new LLM model endpoint to the workspace (e.g. OpenRouter, Anthropic, OpenAI, Google, Azure, or an OpenAI-compatible local server). Returns the new endpoint's id, which you can then assign to an agent with set_agent_model.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Display name for the endpoint." },
+        providerType: {
+          type: "string",
+          enum: [
+            "openai",
+            "anthropic",
+            "google",
+            "openrouter",
+            "azure_openai",
+            "openai_compatible",
+          ],
+        },
+        modelName: { type: "string", description: "The model id to call." },
+        baseUrl: {
+          type: "string",
+          description:
+            "Base URL (required for openai_compatible local/self-hosted endpoints).",
+        },
+        apiKey: {
+          type: "string",
+          description: "API key/secret; stored securely and never returned.",
+        },
+        host: { type: "string" },
+        organization: { type: "string" },
+        deployment: { type: "string" },
+        isDefault: { type: "boolean" },
+      },
+      required: ["name", "providerType", "modelName"],
+    },
+  },
+  {
+    name: "delete_model_endpoint",
+    description:
+      "Permanently delete a model endpoint by its id (and its stored key). Use list_model_endpoints first to find the endpointId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        endpointId: {
+          type: "string",
+          description: "The id of the model endpoint to delete.",
+        },
+      },
+      required: ["endpointId"],
+    },
+  },
+  {
+    name: "list_context_fragments",
+    description:
+      "List context fragments in the workspace (retrieval/memory/tool-output/etc.), optionally scoped to a single run.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        runId: {
+          type: "string",
+          description: "Optional run id to scope fragments to.",
+        },
+      },
+    },
+  },
+  {
+    name: "create_context_fragment",
+    description:
+      "Create a context fragment — a piece of grounding content (a note, retrieved snippet, etc.) that can be selected into context packs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          enum: [
+            "retrieval",
+            "memory",
+            "tool_output",
+            "user",
+            "system",
+            "summary",
+          ],
+        },
+        source: { type: "string", description: "Where this content came from." },
+        content: { type: "string", description: "The fragment's text content." },
+        runId: { type: "string", description: "Optional run to attach it to." },
+        sensitivity: {
+          type: "string",
+          enum: ["public", "internal", "confidential", "restricted"],
+        },
+        selected: { type: "boolean" },
+        tokens: { type: "number" },
+      },
+      required: ["type", "source", "content"],
+    },
+  },
+  {
+    name: "delete_context_fragment",
+    description:
+      "Permanently delete a context fragment by its id. Use list_context_fragments first to find the fragmentId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fragmentId: {
+          type: "string",
+          description: "The id of the context fragment to delete.",
+        },
+      },
+      required: ["fragmentId"],
+    },
+  },
+  {
     name: "remember",
     description:
       "Save a durable, long-term memory — an operational rule, a standing preference, or a larger ongoing task — that must survive beyond the rolling 48-hour Telegram chat window. Use this whenever the user states a standing instruction or a big task to keep working on. Saved memories are automatically reloaded into your context on every future message.",
@@ -737,6 +995,28 @@ async function callFirecrawl<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * Map a tool caller to audit-record actor fields. The audit principal enum has
+ * no "bot", so both the ContextOS bot and ordinary agents record as "agent"
+ * (the bot carries its own agentId); an absent caller (internal/system) records
+ * as "service".
+ */
+function callerAudit(caller?: ToolCaller): {
+  actorType: "agent" | "service";
+  actorId: string | null;
+  agentId: string | null;
+} {
+  if (caller?.kind === "bot")
+    return { actorType: "agent", actorId: caller.agentId, agentId: caller.agentId };
+  if (caller?.kind === "agent")
+    return {
+      actorType: "agent",
+      actorId: caller.agentId ?? null,
+      agentId: caller.agentId ?? null,
+    };
+  return { actorType: "service", actorId: null, agentId: null };
+}
+
+/**
  * Execute a single tool by name. All reads/writes are scoped to `tenantId`.
  * Returns a JSON-serializable result that the caller wraps as tool output.
  */
@@ -873,6 +1153,15 @@ export async function callTool(
             .insert(agentModelPoliciesTable)
             .values(values)
             .returning();
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "agent.model_policy.set",
+        resourceType: "agent",
+        resourceId: agent.id,
+        summary: `Set model policy for agent "${agent.name}" → ${primary.name}`,
+        dataJson: { primaryEndpointId: row.primaryEndpointId, fallbackEndpointId: row.fallbackEndpointId },
+      });
       return {
         agentId: agent.id,
         agentName: agent.name,
@@ -931,6 +1220,15 @@ export async function callTool(
               : false,
         })
         .returning();
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "agent.created",
+        resourceType: "agent",
+        resourceId: row.id,
+        summary: `Created agent "${row.name}" (${row.role})`,
+        dataJson: { name: row.name, role: row.role, contextPolicy: row.contextPolicy },
+      });
       return {
         agentId: row.id,
         name: row.name,
@@ -974,6 +1272,14 @@ export async function callTool(
         .where(
           and(eq(agentsTable.id, agentId), eq(agentsTable.tenantId, tenantId)),
         );
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "agent.deleted",
+        resourceType: "agent",
+        resourceId: agentId,
+        summary: `Deleted agent "${target.name}"`,
+      });
       return { deleted: true, agentId, name: target.name };
     }
     case "create_intent": {
@@ -991,6 +1297,15 @@ export async function callTool(
           createdBy: userId,
         })
         .returning();
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "intent.created",
+        resourceType: "intent",
+        resourceId: row.id,
+        summary: `Created intent "${row.title}"`,
+        riskTier: row.riskTier,
+      });
       return { intentId: row.id, title: row.title, status: row.status };
     }
     case "run_intent": {
@@ -1017,6 +1332,17 @@ export async function callTool(
             caller?.kind === "bot" ? caller.telegramChatId ?? null : null,
         })
         .returning();
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "run.started",
+        resourceType: "run",
+        resourceId: run.id,
+        summary: `Started run for intent "${intent.title}"`,
+        riskTier: intent.riskTier,
+        runId: run.id,
+        dataJson: { intentId: intent.id, orchestrationMode: run.orchestrationMode },
+      });
       void executeRun(tenantId, run.id);
       return { runId: run.id, status: run.status, intentId: intent.id };
     }
@@ -1049,6 +1375,17 @@ export async function callTool(
             caller?.kind === "bot" ? caller.telegramChatId ?? null : null,
         })
         .returning();
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "run.started",
+        resourceType: "run",
+        resourceId: run.id,
+        summary: `Command started run for intent "${intent.title}"`,
+        riskTier: intent.riskTier,
+        runId: run.id,
+        dataJson: { intentId: intent.id, orchestrationMode: run.orchestrationMode },
+      });
       void executeRun(tenantId, run.id);
       return { intentId: intent.id, runId: run.id, status: run.status };
     }
@@ -1159,6 +1496,15 @@ export async function callTool(
           lastDiscoveredAt: new Date(),
         })
         .where(eq(adaptersTable.id, adapter.id));
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "adapter.created",
+        resourceType: "adapter",
+        resourceId: adapter.id,
+        summary: `Registered MCP server "${adapter.name}" with ${inserted.length} capabilities`,
+        dataJson: { endpointUrl: adapter.endpointUrl, capabilityCount: inserted.length },
+      });
       return {
         adapterId: adapter.id,
         status: "active",
@@ -1204,6 +1550,15 @@ export async function callTool(
           },
         })
         .returning();
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "adapter.created",
+        resourceType: "adapter",
+        resourceId: adapter.id,
+        summary: `Created constructed web MCP server "${adapter.name}"`,
+        dataJson: { baseUrl: adapter.endpointUrl, authType },
+      });
       return {
         adapterId: adapter.id,
         name: adapter.name,
@@ -1303,6 +1658,19 @@ export async function callTool(
         : smokeTest.ok
           ? `Auto dry-run of "${smokeTest.tool}" succeeded — the base URL and auth look correct.`
           : `Auto dry-run of "${smokeTest.tool}" FAILED (${smokeTest.error ?? `HTTP ${smokeTest.status}`}). Fix the base URL/auth/recipe and re-test before relying on this tool.`;
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: existing ? "capability.updated" : "capability.created",
+        resourceType: "capability",
+        resourceId: cap.id,
+        summary: `${existing ? "Updated" : "Added"} tool "${cap.name}" on server "${adapter.name}"`,
+        riskTier: cap.riskTier,
+        dataJson: {
+          adapterId: adapter.id,
+          method: "method" in recipe ? recipe.method : undefined,
+        },
+      });
       return {
         capabilityId: cap.id,
         name: cap.name,
@@ -1461,6 +1829,16 @@ export async function callTool(
         })
         .where(eq(adaptersTable.id, adapter.id));
 
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "capability.imported",
+        resourceType: "adapter",
+        resourceId: adapter.id,
+        summary: `Imported ${inserted.length} tools into server "${adapter.name}" from OpenAPI spec`,
+        dataJson: { baseUrl, toolsCreated: inserted.length, sourceTitle: parsedSpec.title },
+      });
+
       return {
         adapterId: adapter.id,
         baseUrl,
@@ -1589,6 +1967,328 @@ export async function callTool(
             : outcome.failed === 0
               ? `All ${outcome.ran} safe tools responded correctly — the base URL and auth look right.`
               : `${outcome.failed} of ${outcome.ran} tools FAILED. Fix the base URL/auth and re-test before relying on this server.`,
+      };
+    }
+    case "update_agent": {
+      const agentId = asString(args.agentId);
+      if (!agentId) throw new McpToolError("`agentId` is required.");
+      const [target] = await db
+        .select()
+        .from(agentsTable)
+        .where(
+          and(eq(agentsTable.id, agentId), eq(agentsTable.tenantId, tenantId)),
+        );
+      if (!target) throw new McpToolError("Agent not found.");
+      const updates: Partial<typeof agentsTable.$inferInsert> = {};
+      const newName = asString(args.name);
+      if (newName !== undefined) updates.name = newName;
+      if (args.description !== undefined)
+        updates.description = asString(args.description) ?? null;
+      if (args.systemPrompt !== undefined)
+        updates.systemPrompt = asString(args.systemPrompt) ?? null;
+      const roleArg = asString(args.role);
+      if (roleArg !== undefined) {
+        if (!AGENT_ROLES.has(roleArg)) {
+          throw new McpToolError(
+            `Invalid role "${roleArg}". Valid roles: ${[...AGENT_ROLES].join(", ")}.`,
+          );
+        }
+        updates.role = roleArg as Agent["role"];
+      }
+      const policyArg = asString(args.contextPolicy);
+      if (policyArg !== undefined) {
+        if (!CONTEXT_POLICIES.has(policyArg)) {
+          throw new McpToolError(
+            `Invalid contextPolicy "${policyArg}". Valid values: ${[...CONTEXT_POLICIES].join(", ")}.`,
+          );
+        }
+        updates.contextPolicy = policyArg as Agent["contextPolicy"];
+      }
+      if (typeof args.isActive === "boolean") updates.isActive = args.isActive;
+      if (typeof args.exposeAsCapabilityProvider === "boolean")
+        updates.exposeAsCapabilityProvider = args.exposeAsCapabilityProvider;
+      if (typeof args.canBuildIntegrations === "boolean")
+        updates.canBuildIntegrations = args.canBuildIntegrations;
+      if (Object.keys(updates).length === 0) {
+        throw new McpToolError("No updatable fields were provided.");
+      }
+      updates.updatedAt = new Date();
+      const [row] = await db
+        .update(agentsTable)
+        .set(updates)
+        .where(
+          and(eq(agentsTable.id, agentId), eq(agentsTable.tenantId, tenantId)),
+        )
+        .returning();
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "agent.updated",
+        resourceType: "agent",
+        resourceId: row.id,
+        summary: `Updated agent "${row.name}"`,
+        dataJson: { changed: Object.keys(updates).filter((k) => k !== "updatedAt") },
+      });
+      return {
+        agentId: row.id,
+        name: row.name,
+        role: row.role,
+        contextPolicy: row.contextPolicy,
+        isActive: row.isActive,
+      };
+    }
+    case "delete_adapter": {
+      const adapterId = asString(args.adapterId);
+      if (!adapterId) throw new McpToolError("`adapterId` is required.");
+      const [row] = await db
+        .delete(adaptersTable)
+        .where(
+          and(
+            eq(adaptersTable.id, adapterId),
+            eq(adaptersTable.tenantId, tenantId),
+          ),
+        )
+        .returning();
+      if (!row) throw new McpToolError("Adapter not found.");
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "adapter.deleted",
+        resourceType: "adapter",
+        resourceId: row.id,
+        summary: `Deleted adapter "${row.name}"`,
+      });
+      return { deleted: true, adapterId: row.id, name: row.name };
+    }
+    case "create_model_endpoint": {
+      const epName = asString(args.name);
+      const providerType = asString(args.providerType);
+      const modelName = asString(args.modelName);
+      if (!epName || !providerType || !modelName) {
+        throw new McpToolError(
+          "`name`, `providerType`, and `modelName` are required.",
+        );
+      }
+      if (!MODEL_PROVIDER_TYPES.has(providerType)) {
+        throw new McpToolError(
+          `Invalid providerType "${providerType}". Valid values: ${[...MODEL_PROVIDER_TYPES].join(", ")}.`,
+        );
+      }
+      const baseUrl = asString(args.baseUrl);
+      if (providerType === "openai_compatible" && !baseUrl?.trim()) {
+        throw new McpToolError(
+          "A baseUrl is required for OpenAI-compatible (local / self-hosted) endpoints.",
+        );
+      }
+      const apiKey = asString(args.apiKey);
+      const apiKeyRef = apiKey ? putSecret(apiKey) : null;
+      let row;
+      try {
+        [row] = await db
+          .insert(modelEndpointsTable)
+          .values({
+            tenantId,
+            name: epName,
+            providerType: providerType as ModelProviderType,
+            baseUrl: baseUrl ?? null,
+            host: asString(args.host) ?? null,
+            modelName,
+            apiKeyRef,
+            organization: asString(args.organization) ?? null,
+            deployment: asString(args.deployment) ?? null,
+            isDefault: args.isDefault === true,
+          })
+          .returning();
+      } catch (err) {
+        deleteSecret(apiKeyRef);
+        throw err;
+      }
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "model_endpoint.created",
+        resourceType: "model_endpoint",
+        resourceId: row.id,
+        summary: `Created model endpoint "${row.name}" (${row.providerType}/${row.modelName})`,
+        dataJson: { providerType: row.providerType, modelName: row.modelName },
+      });
+      return {
+        endpointId: row.id,
+        name: row.name,
+        providerType: row.providerType,
+        model: row.modelName,
+        isDefault: row.isDefault,
+      };
+    }
+    case "delete_model_endpoint": {
+      const endpointId = asString(args.endpointId);
+      if (!endpointId) throw new McpToolError("`endpointId` is required.");
+      const [row] = await db
+        .delete(modelEndpointsTable)
+        .where(
+          and(
+            eq(modelEndpointsTable.id, endpointId),
+            eq(modelEndpointsTable.tenantId, tenantId),
+          ),
+        )
+        .returning();
+      if (!row) throw new McpToolError("Model endpoint not found.");
+      deleteSecret(row.apiKeyRef);
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "model_endpoint.deleted",
+        resourceType: "model_endpoint",
+        resourceId: row.id,
+        summary: `Deleted model endpoint "${row.name}"`,
+      });
+      return { deleted: true, endpointId: row.id, name: row.name };
+    }
+    case "list_context_fragments": {
+      const runId = asString(args.runId);
+      const filters = [eq(contextFragmentsTable.tenantId, tenantId)];
+      if (runId) filters.push(eq(contextFragmentsTable.runId, runId));
+      const rows = await db
+        .select()
+        .from(contextFragmentsTable)
+        .where(and(...filters))
+        .orderBy(desc(contextFragmentsTable.createdAt))
+        .limit(200);
+      return {
+        fragments: rows.map((f) => ({
+          id: f.id,
+          type: f.type,
+          source: f.source,
+          runId: f.runId,
+          sensitivity: f.sensitivity,
+          selected: f.selected,
+          tokens: f.tokens,
+        })),
+      };
+    }
+    case "create_context_fragment": {
+      const type = asString(args.type);
+      const source = asString(args.source);
+      const content = asString(args.content);
+      if (!type || !source || !content) {
+        throw new McpToolError("`type`, `source`, and `content` are required.");
+      }
+      if (!CONTEXT_FRAGMENT_TYPES.has(type)) {
+        throw new McpToolError(
+          `Invalid type "${type}". Valid values: ${[...CONTEXT_FRAGMENT_TYPES].join(", ")}.`,
+        );
+      }
+      const sensitivity = asString(args.sensitivity);
+      if (sensitivity && !CONTEXT_SENSITIVITIES.has(sensitivity)) {
+        throw new McpToolError(
+          `Invalid sensitivity "${sensitivity}". Valid values: ${[...CONTEXT_SENSITIVITIES].join(", ")}.`,
+        );
+      }
+      // Tenant-scope the optional run link: a fragment may only reference a run
+      // owned by the same tenant. Without this check a known foreign run UUID
+      // could be linked across the tenant boundary.
+      const fragmentRunId = asString(args.runId);
+      if (fragmentRunId) {
+        const [run] = await db
+          .select({ id: runsTable.id })
+          .from(runsTable)
+          .where(
+            and(
+              eq(runsTable.id, fragmentRunId),
+              eq(runsTable.tenantId, tenantId),
+            ),
+          )
+          .limit(1);
+        if (!run) throw new McpToolError("Run not found.");
+      }
+      const [row] = await db
+        .insert(contextFragmentsTable)
+        .values({
+          tenantId,
+          runId: fragmentRunId ?? null,
+          type: type as ContextFragmentType,
+          source,
+          content,
+          tokens: typeof args.tokens === "number" ? args.tokens : 0,
+          selected: args.selected === false ? false : true,
+          sensitivity:
+            (sensitivity as ContextSensitivity | undefined) ?? "internal",
+        })
+        .returning();
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "context_fragment.created",
+        resourceType: "context_fragment",
+        resourceId: row.id,
+        summary: `Created context fragment from "${row.source}" (${row.type})`,
+        dataJson: { type: row.type, source: row.source },
+      });
+      return { fragmentId: row.id, type: row.type, source: row.source };
+    }
+    case "delete_context_fragment": {
+      const fragmentId = asString(args.fragmentId);
+      if (!fragmentId) throw new McpToolError("`fragmentId` is required.");
+      const [row] = await db
+        .delete(contextFragmentsTable)
+        .where(
+          and(
+            eq(contextFragmentsTable.id, fragmentId),
+            eq(contextFragmentsTable.tenantId, tenantId),
+          ),
+        )
+        .returning();
+      if (!row) throw new McpToolError("Context fragment not found.");
+      await recordAudit({
+        tenantId,
+        ...callerAudit(caller),
+        action: "context_fragment.deleted",
+        resourceType: "context_fragment",
+        resourceId: row.id,
+        summary: `Deleted context fragment from "${row.source}"`,
+      });
+      return { deleted: true, fragmentId: row.id };
+    }
+    case "get_workspace_state": {
+      const state = await buildWorkspaceStateBlock(tenantId);
+      return { state };
+    }
+    case "get_recent_changes": {
+      const limit = Math.min(
+        Math.max(typeof args.limit === "number" ? Math.round(args.limit) : 50, 1),
+        200,
+      );
+      const filters = [eq(auditRecordsTable.tenantId, tenantId)];
+      const resourceType = asString(args.resourceType);
+      if (resourceType)
+        filters.push(eq(auditRecordsTable.resourceType, resourceType));
+      const since = asString(args.since);
+      if (since) {
+        const sinceDate = new Date(since);
+        if (Number.isNaN(sinceDate.getTime())) {
+          throw new McpToolError("`since` must be an ISO 8601 date-time string.");
+        }
+        filters.push(gte(auditRecordsTable.createdAt, sinceDate));
+      }
+      const rows = await db
+        .select()
+        .from(auditRecordsTable)
+        .where(and(...filters))
+        .orderBy(desc(auditRecordsTable.createdAt))
+        .limit(limit);
+      return {
+        changes: rows.map((r) => ({
+          id: r.id,
+          at: r.createdAt,
+          actorType: r.actorType,
+          actorId: r.actorId,
+          action: r.action,
+          resourceType: r.resourceType,
+          resourceId: r.resourceId,
+          summary: r.summary,
+          riskTier: r.riskTier,
+          runId: r.runId,
+        })),
       };
     }
     case "remember": {
@@ -1835,90 +2535,11 @@ export async function buildWorkspaceStateBlock(
       "tell the user to add a Firecrawl API key to enable web access.";
 
   return (
-    "\n\nLIVE WORKSPACE STATE (snapshot taken just now, at the start of this " +
-    "turn — this is the ground truth; prefer it over anything said earlier in " +
-    "the conversation, and call the read tools only when you need more detail):\n" +
+    "LIVE WORKSPACE STATE (snapshot taken just now — this is the ground truth; " +
+    "prefer it over anything said earlier in the conversation, and call the read " +
+    "tools only when you need more detail):\n" +
     `${webAccess}\n` +
     sections.join("\n")
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Live workspace-state cache + background polling.
-//
-// The bot injects a fresh snapshot on every message (the per-message path passes
-// forceRefresh), but we ALSO keep a per-tenant cache warm on a short interval so
-// the system continuously re-checks the latest state between messages — not only
-// at message time. Tenants are registered on first access and evicted once idle,
-// so the poller only does work for tenants actually using the bot.
-// ---------------------------------------------------------------------------
-export const WORKSPACE_STATE_POLL_INTERVAL_MS = 5000;
-// Stop polling (and drop the cache for) a tenant that hasn't been used in a while.
-const WORKSPACE_STATE_IDLE_TTL_MS = 10 * 60 * 1000;
-
-interface WorkspaceStateCacheEntry {
-  block: string;
-  builtAt: number;
-  lastAccess: number;
-}
-
-const workspaceStateCache = new Map<string, WorkspaceStateCacheEntry>();
-
-/**
- * Get the tenant's live workspace-state block. Registers the tenant for
- * background polling and, when `forceRefresh` is set (the per-message path) or
- * the cache is missing/older than the poll interval, rebuilds the snapshot
- * synchronously so the caller always gets current data.
- */
-export async function getWorkspaceStateBlock(
-  tenantId: string,
-  { forceRefresh = false }: { forceRefresh?: boolean } = {},
-): Promise<string> {
-  const now = Date.now();
-  const cached = workspaceStateCache.get(tenantId);
-  if (
-    !forceRefresh &&
-    cached &&
-    now - cached.builtAt < WORKSPACE_STATE_POLL_INTERVAL_MS
-  ) {
-    cached.lastAccess = now;
-    return cached.block;
-  }
-  const block = await buildWorkspaceStateBlock(tenantId);
-  workspaceStateCache.set(tenantId, {
-    block,
-    builtAt: Date.now(),
-    lastAccess: now,
-  });
-  return block;
-}
-
-/**
- * Refresh the cached snapshot for every tenant that has used the bot recently,
- * and evict tenants idle beyond the TTL. Called on a fixed interval by the
- * server so workspace state is re-checked every few seconds, not just on
- * message. Per-tenant failures are isolated so one bad tenant can't stall the
- * sweep.
- */
-export async function refreshActiveWorkspaceState(): Promise<void> {
-  const now = Date.now();
-  await Promise.all(
-    [...workspaceStateCache.entries()].map(async ([tenantId, entry]) => {
-      if (now - entry.lastAccess > WORKSPACE_STATE_IDLE_TTL_MS) {
-        workspaceStateCache.delete(tenantId);
-        return;
-      }
-      try {
-        const block = await buildWorkspaceStateBlock(tenantId);
-        const current = workspaceStateCache.get(tenantId);
-        if (current) {
-          current.block = block;
-          current.builtAt = Date.now();
-        }
-      } catch (err) {
-        logger.error({ err, tenantId }, "Workspace state poll refresh failed");
-      }
-    }),
   );
 }
 

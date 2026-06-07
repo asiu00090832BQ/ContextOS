@@ -31,6 +31,7 @@ import {
   UpdateSettingsResponse,
 } from "@workspace/api-zod";
 import { serializeFragment, serializePack } from "../lib/serialize";
+import { recordAudit } from "../lib/audit";
 
 type FragmentType =
   | "retrieval"
@@ -81,6 +82,15 @@ router.post("/context-fragments", async (req, res): Promise<void> => {
       sensitivity: (parsed.data.sensitivity as Sensitivity) ?? "internal",
     })
     .returning();
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "context_fragment.created",
+    resourceType: "context_fragment",
+    resourceId: row.id,
+    summary: `Created context fragment from "${row.source}" (${row.type})`,
+    dataJson: { type: row.type, source: row.source },
+  });
   res.status(201).json(GetContextFragmentResponse.parse(serializeFragment(row)));
 });
 
@@ -150,6 +160,15 @@ router.patch("/context-fragments/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Context fragment not found" });
     return;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "context_fragment.updated",
+    resourceType: "context_fragment",
+    resourceId: row.id,
+    summary: `Updated context fragment from "${row.source}"`,
+    dataJson: { changed: Object.keys(body.data) },
+  });
   res.json(UpdateContextFragmentResponse.parse(serializeFragment(row)));
 });
 
@@ -172,6 +191,14 @@ router.delete("/context-fragments/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Context fragment not found" });
     return;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "context_fragment.deleted",
+    resourceType: "context_fragment",
+    resourceId: result[0].id,
+    summary: `Deleted context fragment from "${result[0].source}"`,
+  });
   res.status(204).end();
 });
 
@@ -211,6 +238,15 @@ router.post("/context-packs", async (req, res): Promise<void> => {
       summary: parsed.data.summary ?? null,
     })
     .returning();
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "context_pack.created",
+    resourceType: "context_pack",
+    resourceId: row.id,
+    summary: `Created context pack "${row.name}"`,
+    dataJson: { strategy: row.strategy },
+  });
   res.status(201).json(GetContextPackResponse.parse(serializePack(row)));
 });
 
@@ -273,6 +309,15 @@ router.patch("/context-packs/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Context pack not found" });
     return;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "context_pack.updated",
+    resourceType: "context_pack",
+    resourceId: row.id,
+    summary: `Updated context pack "${row.name}"`,
+    dataJson: { changed: Object.keys(body.data) },
+  });
   res.json(UpdateContextPackResponse.parse(serializePack(row)));
 });
 
@@ -295,6 +340,14 @@ router.delete("/context-packs/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Context pack not found" });
     return;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "context_pack.deleted",
+    resourceType: "context_pack",
+    resourceId: result[0].id,
+    summary: `Deleted context pack "${result[0].name}"`,
+  });
   res.status(204).end();
 });
 
@@ -334,6 +387,15 @@ router.put("/settings", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Tenant not found" });
     return;
   }
+  await recordAudit({
+    tenantId: req.tenantId,
+    actorId: req.userId,
+    action: "settings.updated",
+    resourceType: "settings",
+    resourceId: tenant.id,
+    summary: "Updated workspace settings",
+    dataJson: { keys: Object.keys(body.data.settings ?? {}) },
+  });
   res.json(
     UpdateSettingsResponse.parse({
       tenantId: tenant.id,

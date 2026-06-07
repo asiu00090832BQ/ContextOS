@@ -23,6 +23,7 @@ const tables = {
   intentsTable: table("intents"),
   runsTable: table("runs"),
   agentsTable: table("agents"),
+  telegramChatsTable: table("telegram_chats"),
 };
 
 function makeChain(kind: keyof typeof registry) {
@@ -108,9 +109,15 @@ mock.module("../src/lib/context", { namedExports: { getContext } });
 
 const listToolsForTenant = mock.fn(async () => []);
 const callTool = mock.fn(async () => ({}));
+const loadOwnedLongTermMemories = mock.fn(async () => []);
 class McpToolError extends Error {}
 mock.module("../src/lib/mcpServer", {
-  namedExports: { listToolsForTenant, callTool, McpToolError },
+  namedExports: {
+    listToolsForTenant,
+    callTool,
+    McpToolError,
+    loadOwnedLongTermMemories,
+  },
 });
 
 const runToolChat = mock.fn(async () => ({ text: "" }));

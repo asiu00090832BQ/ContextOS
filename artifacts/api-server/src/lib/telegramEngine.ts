@@ -12,7 +12,6 @@ import {
   callTool,
   McpToolError,
   loadOwnedLongTermMemories,
-  getWorkspaceStateBlock,
 } from "./mcpServer";
 import { resolveEndpointApiKey } from "./secretStore";
 import { runToolChat, type ToolChatMessage, type ToolSpec } from "./toolChat";
@@ -185,13 +184,12 @@ export async function handleTelegramMessage(
     botAgent.id,
   );
   const apiKey = resolveEndpointApiKey(primary);
-  const [stateBlock, memoryBlock] = await Promise.all([
-    getWorkspaceStateBlock(tenantId, { forceRefresh: true }),
-    buildLongTermMemoryBlock(tenantId, botAgent),
-  ]);
+  // Workspace state is NOT injected into the prompt; the bot pulls it on demand
+  // via get_workspace_state / get_recent_changes. Only long-term memory is
+  // grounded here.
+  const memoryBlock = await buildLongTermMemoryBlock(tenantId, botAgent);
   const system =
     composeBotSystemPrompt(botAgent.systemPrompt, TELEGRAM_CHANNEL_NOTE) +
-    stateBlock +
     memoryBlock;
 
   let replyText = "";
