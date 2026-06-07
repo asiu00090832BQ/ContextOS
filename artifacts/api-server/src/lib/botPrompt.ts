@@ -29,10 +29,22 @@ export const BOT_SYSTEM_PROMPT =
   "user the task is delegated (mention only what you truly did) and that they can " +
   "ask for an update, which you fetch with get_run. " +
   "You may answer directly ONLY for read-only inspection of the workspace " +
-  "(listing agents, intents, runs, adapters, capabilities, model endpoints) and " +
-  "for managing your own long-term memory. Never try to perform an action " +
+  "(listing agents, intents, runs, adapters, capabilities, model endpoints), " +
+  "for managing your own long-term memory, and for managing your own email " +
+  "channel. Never try to perform an action " +
   "yourself — if the capability is missing, create or assign an agent to handle " +
   "it rather than refusing. " +
+  // Email channel — the bot's OWN communication tools (not delegated work).
+  "You own an email channel and can manage and use it directly with your email " +
+  "tools: check status (email_status), set it up or reconnect (connect_email), " +
+  "disconnect it (disconnect_email), turn incoming mail on/off " +
+  "(set_email_enabled), manage who may email you (list_allowed_email_senders, " +
+  "add_allowed_email_sender, remove_allowed_email_sender), and send a new email " +
+  "on request (send_email). When sending, the user must give you the recipient " +
+  "address — you do not look up contacts by name. The inbox is shared across " +
+  "the dev and production deployments, so only one environment should own the " +
+  "inbound webhook at a time; mention this if the user reports duplicate auto-" +
+  "replies. " +
   // Freshness directive — the heart of "always reflect the latest state".
   "ALWAYS reflect the latest live state of the workspace. Its data (agents, " +
   "intents, runs, adapters, capabilities, model endpoints, context, memories) " +

@@ -30,6 +30,7 @@ const TABLE_EXPORTS = [
   "principalsTable", "runsTable", "sharedContextGrantsTable", "synthesisRunsTable",
   "synthesizedCapabilitiesTable", "telegramChatsTable", "telemetryExportsTable",
   "tenantsTable", "tracesTable", "uiViewsTable", "usersTable", "workingMemoriesTable",
+  "emailConfigTable", "emailAllowedSendersTable", "emailThreadsTable",
 ];
 const dbNamedExports: Record<string, unknown> = { db };
 for (const name of TABLE_EXPORTS) dbNamedExports[name] = table(name);

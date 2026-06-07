@@ -1,11 +1,7 @@
 import { Router, type IRouter } from "express";
-import { and, asc, eq } from "drizzle-orm";
-import { db, emailConfigTable, emailAllowedSendersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { db, emailConfigTable } from "@workspace/db";
 import {
-  isAgentMailConnected,
-  getOrCreateInbox,
-  createWebhook,
-  deleteWebhook,
   sendReply,
   verifyWebhookSignature,
   AgentMailError,
@@ -16,10 +12,18 @@ import {
   isSenderAllowed,
   normalizeAddress,
 } from "../lib/emailEngine";
+import {
+  getEmailStatus,
+  connectEmail,
+  disconnectEmail,
+  setEmailEnabled,
+  addAllowedSender,
+  removeAllowedSenderById,
+  EmailAdminError,
+} from "../lib/emailAdmin";
 import { resolveOwnerTarget } from "../lib/telegramEngine";
 import { getContext } from "../lib/context";
 import { resolveAgentModel } from "../lib/runEngine";
-import { recordAudit } from "../lib/audit";
 import { logger } from "../lib/logger";
 
 /**
@@ -121,100 +125,40 @@ emailWebhookRouter.post("/email/webhook", (req, res): void => {
  */
 export const emailAdminRouter: IRouter = Router();
 
+/** Build the audit actor for web admin actions (the workspace owner/user). */
+function webActor(req: { userId: string }): {
+  actorType: "user";
+  actorId: string;
+} {
+  return { actorType: "user", actorId: req.userId };
+}
+
+/** Map a shared-service error to an HTTP status. */
+function adminErrorStatus(err: unknown): number {
+  if (err instanceof EmailAdminError) return err.status;
+  if (err instanceof AgentMailError) return 502;
+  return 500;
+}
+
 emailAdminRouter.get("/email/status", async (req, res): Promise<void> => {
-  let connected = false;
-  let connError: string | undefined;
-  try {
-    connected = await isAgentMailConnected();
-  } catch (err) {
-    connError = err instanceof Error ? err.message : String(err);
-  }
-  const [config] = await db
-    .select()
-    .from(emailConfigTable)
-    .where(eq(emailConfigTable.tenantId, req.tenantId));
-  const senders = await db
-    .select()
-    .from(emailAllowedSendersTable)
-    .where(eq(emailAllowedSendersTable.tenantId, req.tenantId))
-    .orderBy(asc(emailAllowedSendersTable.address));
-  res.json({
-    connected,
-    error: connError,
-    inbox: config ? { inboxId: config.inboxId, email: config.inboxEmail } : null,
-    webhook: { configured: Boolean(config?.webhookId) },
-    enabled: config?.enabled ?? true,
-    allowedSenders: senders.map((s) => ({ id: s.id, address: s.address })),
-  });
+  res.json(await getEmailStatus(req.tenantId));
 });
 
 emailAdminRouter.post("/email/set-webhook", async (req, res): Promise<void> => {
   const url =
     typeof req.body?.url === "string" && req.body.url.length > 0
       ? (req.body.url as string)
-      : null;
-  if (!url || !/^https:\/\//.test(url)) {
-    res.status(400).json({ error: "A public https `url` is required." });
-    return;
-  }
+      : undefined;
   try {
-    if (!(await isAgentMailConnected())) {
-      res.status(400).json({
-        error:
-          "AgentMail is not connected. Connect the AgentMail integration first.",
-      });
-      return;
-    }
-    const inbox = await getOrCreateInbox("ContextOS Bot");
-
-    const [existing] = await db
-      .select()
-      .from(emailConfigTable)
-      .where(eq(emailConfigTable.tenantId, req.tenantId));
-    // Replace any prior webhook so we don't accumulate stale registrations.
-    if (existing?.webhookId) {
-      try {
-        await deleteWebhook(existing.webhookId);
-      } catch {
-        // best-effort
-      }
-    }
-    const webhook = await createWebhook(url, inbox.inbox_id);
-
-    if (existing) {
-      await db
-        .update(emailConfigTable)
-        .set({
-          inboxId: inbox.inbox_id,
-          inboxEmail: inbox.email,
-          webhookId: webhook.webhook_id,
-          webhookSecret: webhook.secret,
-          enabled: true,
-        })
-        .where(eq(emailConfigTable.tenantId, req.tenantId));
-    } else {
-      await db.insert(emailConfigTable).values({
-        tenantId: req.tenantId,
-        inboxId: inbox.inbox_id,
-        inboxEmail: inbox.email,
-        webhookId: webhook.webhook_id,
-        webhookSecret: webhook.secret,
-      });
-    }
-
-    await recordAudit({
+    const result = await connectEmail({
       tenantId: req.tenantId,
-      actorId: req.userId,
-      action: "email.webhook_configured",
-      resourceType: "email_channel",
-      resourceId: inbox.inbox_id,
-      summary: `Connected email channel inbox ${inbox.email}`,
+      actor: webActor(req),
+      url,
     });
-    res.json({ ok: true, inbox: { email: inbox.email }, url });
+    res.json({ ok: true, ...result });
   } catch (err) {
-    const status = err instanceof AgentMailError ? 502 : 500;
     res
-      .status(status)
+      .status(adminErrorStatus(err))
       .json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
@@ -222,98 +166,57 @@ emailAdminRouter.post("/email/set-webhook", async (req, res): Promise<void> => {
 emailAdminRouter.post(
   "/email/delete-webhook",
   async (req, res): Promise<void> => {
-    const [config] = await db
-      .select()
-      .from(emailConfigTable)
-      .where(eq(emailConfigTable.tenantId, req.tenantId));
-    if (config?.webhookId) {
-      try {
-        await deleteWebhook(config.webhookId);
-      } catch {
-        // best-effort
-      }
-    }
-    if (config) {
-      await db
-        .update(emailConfigTable)
-        .set({ webhookId: null, webhookSecret: null })
-        .where(eq(emailConfigTable.tenantId, req.tenantId));
-      await recordAudit({
-        tenantId: req.tenantId,
-        actorId: req.userId,
-        action: "email.webhook_removed",
-        resourceType: "email_channel",
-        resourceId: config.inboxId,
-        summary: "Disconnected email channel webhook",
-      });
-    }
+    await disconnectEmail({ tenantId: req.tenantId, actor: webActor(req) });
     res.json({ ok: true });
   },
 );
+
+emailAdminRouter.post("/email/enabled", async (req, res): Promise<void> => {
+  if (typeof req.body?.enabled !== "boolean") {
+    res.status(400).json({ error: "`enabled` (boolean) is required." });
+    return;
+  }
+  try {
+    const result = await setEmailEnabled({
+      tenantId: req.tenantId,
+      actor: webActor(req),
+      enabled: req.body.enabled,
+    });
+    res.json(result);
+  } catch (err) {
+    res
+      .status(adminErrorStatus(err))
+      .json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
 
 emailAdminRouter.post(
   "/email/allowed-senders",
   async (req, res): Promise<void> => {
     const raw = typeof req.body?.address === "string" ? req.body.address : "";
-    const address = normalizeAddress(raw);
-    if (!address || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
-      res.status(400).json({ error: "A valid email address is required." });
-      return;
-    }
-    const [inserted] = await db
-      .insert(emailAllowedSendersTable)
-      .values({ tenantId: req.tenantId, address })
-      .onConflictDoNothing()
-      .returning();
-    const row =
-      inserted ??
-      (
-        await db
-          .select()
-          .from(emailAllowedSendersTable)
-          .where(
-            and(
-              eq(emailAllowedSendersTable.tenantId, req.tenantId),
-              eq(emailAllowedSendersTable.address, address),
-            ),
-          )
-      )[0];
-    if (inserted) {
-      await recordAudit({
+    try {
+      const row = await addAllowedSender({
         tenantId: req.tenantId,
-        actorId: req.userId,
-        action: "email.sender_allowed",
-        resourceType: "email_allowed_sender",
-        resourceId: inserted.id,
-        summary: `Allowed email sender ${address}`,
+        actor: webActor(req),
+        address: raw,
       });
+      res.status(201).json(row);
+    } catch (err) {
+      res
+        .status(adminErrorStatus(err))
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
-    res.status(201).json({ id: row.id, address: row.address });
   },
 );
 
 emailAdminRouter.delete(
   "/email/allowed-senders/:id",
   async (req, res): Promise<void> => {
-    const [removed] = await db
-      .delete(emailAllowedSendersTable)
-      .where(
-        and(
-          eq(emailAllowedSendersTable.id, req.params.id),
-          eq(emailAllowedSendersTable.tenantId, req.tenantId),
-        ),
-      )
-      .returning();
-    if (removed) {
-      await recordAudit({
-        tenantId: req.tenantId,
-        actorId: req.userId,
-        action: "email.sender_removed",
-        resourceType: "email_allowed_sender",
-        resourceId: removed.id,
-        summary: `Removed email sender ${removed.address}`,
-      });
-    }
+    await removeAllowedSenderById({
+      tenantId: req.tenantId,
+      actor: webActor(req),
+      id: req.params.id,
+    });
     res.sendStatus(204);
   },
 );

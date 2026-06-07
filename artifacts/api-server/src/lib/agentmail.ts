@@ -146,6 +146,25 @@ export async function sendReply(
   );
 }
 
+/**
+ * Send a brand-new email (a fresh thread) from the bot's inbox. Unlike
+ * `sendReply`, this starts a new conversation with the given recipient(s),
+ * subject, and plain-text body. Used by the bot's `send_email` tool.
+ */
+export async function sendMessage(
+  inboxId: string,
+  opts: { to: string | string[]; subject?: string; text: string },
+): Promise<{ message_id: string; thread_id: string }> {
+  return call(`/v0/inboxes/${encodeURIComponent(inboxId)}/messages`, {
+    method: "POST",
+    body: {
+      to: Array.isArray(opts.to) ? opts.to : [opts.to],
+      ...(opts.subject ? { subject: opts.subject } : {}),
+      text: opts.text,
+    },
+  });
+}
+
 export async function createWebhook(
   url: string,
   inboxId: string,

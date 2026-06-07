@@ -67,6 +67,9 @@ const tables: Record<string, { _name: string }> = Object.fromEntries(
     "uiViewsTable",
     "usersTable",
     "workingMemoriesTable",
+    "emailConfigTable",
+    "emailAllowedSendersTable",
+    "emailThreadsTable",
   ].map((name) => [name, table(name)]),
 );
 

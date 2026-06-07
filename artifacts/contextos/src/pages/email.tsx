@@ -123,6 +123,29 @@ export function Email() {
     }
   };
 
+  const handleToggleEnabled = async () => {
+    const next = !(status?.enabled ?? true);
+    setBusy("enabled");
+    try {
+      await apiSend("/email/enabled", "POST", { enabled: next });
+      toast({
+        title: next ? "Incoming email on" : "Incoming email off",
+        description: next
+          ? "The bot will answer incoming mail."
+          : "Incoming mail is acknowledged but not answered.",
+      });
+      await refreshStatus();
+    } catch (err) {
+      toast({
+        title: "Could not update",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const handleAddSender = async () => {
     const address = newSender.trim();
     if (!address) return;
@@ -211,6 +234,19 @@ export function Email() {
                   {webhookUrl}
                 </span>
               </div>
+              {connected && (
+                <div className="flex justify-between items-center gap-4">
+                  <span className="text-muted-foreground">Incoming mail</span>
+                  <Button
+                    variant={status.enabled ? "default" : "outline"}
+                    size="sm"
+                    onClick={handleToggleEnabled}
+                    disabled={busy !== null}
+                  >
+                    {status.enabled ? "On" : "Off"}
+                  </Button>
+                </div>
+              )}
               <div className="flex gap-2 pt-2">
                 <Button onClick={handleSetWebhook} disabled={busy !== null}>
                   <Link2 className="w-4 h-4 mr-1" />

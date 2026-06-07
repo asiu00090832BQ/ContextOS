@@ -16,6 +16,7 @@ import {
   type ToolSpec,
 } from "./toolChat";
 import { composeBotSystemPrompt, EMAIL_CHANNEL_NOTE } from "./botPrompt";
+import { normalizeAddress } from "./emailUtils";
 import { buildLongTermMemoryBlock } from "./telegramEngine";
 import { resolveAgentModel } from "./runEngine";
 import { logger } from "./logger";
@@ -29,15 +30,7 @@ const HISTORY_LIMIT = 30;
 // rules/tasks should be saved to long-term memory (the `remember` tool).
 export const EMAIL_HISTORY_TTL_MS = 48 * 60 * 60 * 1000;
 
-/**
- * Normalize an email sender into a bare, lowercased address: extracts the
- * address from a "Display Name <a@b.com>" header and trims/lowercases it so
- * allow-list checks are case- and format-insensitive.
- */
-export function normalizeAddress(addr: string): string {
-  const match = addr.match(/<([^>]+)>/);
-  return (match ? match[1] : addr).trim().toLowerCase();
-}
+export { normalizeAddress };
 
 /** Whether an inbound sender is on this tenant's approved allow-list. */
 export async function isSenderAllowed(

@@ -51,6 +51,16 @@ import {
   FIRECRAWL_UNCONFIGURED_NOTICE,
 } from "./firecrawl";
 import { BOT_AGENT_NAME } from "./context";
+import {
+  getEmailStatus,
+  connectEmail,
+  disconnectEmail,
+  setEmailEnabled,
+  listAllowedSenders,
+  addAllowedSender,
+  removeAllowedSenderByAddress,
+  sendEmail,
+} from "./emailAdmin";
 import { logger } from "./logger";
 
 type RiskTier = "L1" | "L2" | "L3" | "L4";
@@ -188,6 +198,17 @@ const BOT_ALLOWED_TOOLS = new Set<string>([
   "add_web_mcp_tool",
   "import_openapi_tools",
   "retest_web_server",
+  // Bot's own email channel — set up / manage the inbox + allow-list, and send
+  // a fresh email on command. These are the bot's OWN communication tools (like
+  // its memory), not delegated task execution.
+  "email_status",
+  "connect_email",
+  "disconnect_email",
+  "set_email_enabled",
+  "list_allowed_email_senders",
+  "add_allowed_email_sender",
+  "remove_allowed_email_sender",
+  "send_email",
   // Bot's own long-term memory
   "remember",
   "recall_memories",
@@ -907,6 +928,107 @@ export const TOOLS: McpTool[] = [
         },
       },
       required: ["url"],
+    },
+  },
+  {
+    name: "email_status",
+    description:
+      "Get the ContextOS email channel status: whether AgentMail is connected, the bot's inbox address, whether the inbound webhook is configured, whether incoming-mail handling is enabled, and the allowed-sender list.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "connect_email",
+    description:
+      "Set up the bot's email channel: provision (or reuse) the bot's inbox and register the inbound webhook so the bot can receive and reply to email. The public URL is derived from the environment automatically; pass `baseUrl` only to override it. Returns the inbox address.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseUrl: {
+          type: "string",
+          description:
+            "Optional public https base URL of this deployment (e.g. https://example.replit.app) to register the webhook against. Omit to derive it automatically.",
+        },
+      },
+    },
+  },
+  {
+    name: "disconnect_email",
+    description:
+      "Disconnect the email channel by removing the inbound webhook. The bot stops receiving email. The inbox and allow-list are preserved; reconnect with connect_email.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "set_email_enabled",
+    description:
+      "Turn incoming-email handling on or off without disconnecting the webhook. When disabled, inbound mail is acknowledged but not answered.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        enabled: {
+          type: "boolean",
+          description: "true to answer incoming mail, false to pause it.",
+        },
+      },
+      required: ["enabled"],
+    },
+  },
+  {
+    name: "list_allowed_email_senders",
+    description:
+      "List the email addresses allowed to email the bot. Only mail from these addresses is processed; everything else is ignored.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "add_allowed_email_sender",
+    description:
+      "Add an email address to the allow-list so the bot will process mail from it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        address: {
+          type: "string",
+          description: "The email address to allow (e.g. alice@example.com).",
+        },
+      },
+      required: ["address"],
+    },
+  },
+  {
+    name: "remove_allowed_email_sender",
+    description:
+      "Remove an email address from the allow-list. The bot will stop processing mail from it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        address: {
+          type: "string",
+          description: "The email address to remove from the allow-list.",
+        },
+      },
+      required: ["address"],
+    },
+  },
+  {
+    name: "send_email",
+    description:
+      "Send a brand-new plain-text email from the bot's inbox. The owner must provide the recipient address (no contact/name lookup). Requires the email channel to be set up first (connect_email).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: {
+          type: "string",
+          description: "Recipient email address (e.g. bob@acme.com).",
+        },
+        subject: {
+          type: "string",
+          description: "Email subject line (optional).",
+        },
+        text: {
+          type: "string",
+          description: "Plain-text body of the email.",
+        },
+      },
+      required: ["to", "text"],
     },
   },
 ];
@@ -2370,6 +2492,57 @@ export async function callTool(
       return callFirecrawl(() => firecrawlMap(args));
     case "firecrawl_crawl":
       return callFirecrawl(() => firecrawlCrawl(args));
+    case "email_status":
+      return getEmailStatus(tenantId);
+    case "connect_email": {
+      const result = await connectEmail({
+        tenantId,
+        actor: callerAudit(caller),
+        url: asString(args.baseUrl),
+      });
+      return {
+        ...result,
+        note:
+          "Email channel connected. Note: the inbox is shared across the dev " +
+          "and production deployments, so only one environment should own the " +
+          "webhook at a time — connecting here points incoming mail at this " +
+          "environment.",
+      };
+    }
+    case "disconnect_email":
+      return disconnectEmail({ tenantId, actor: callerAudit(caller) });
+    case "set_email_enabled": {
+      if (typeof args.enabled !== "boolean") {
+        throw new McpToolError("`enabled` (boolean) is required.");
+      }
+      return setEmailEnabled({
+        tenantId,
+        actor: callerAudit(caller),
+        enabled: args.enabled,
+      });
+    }
+    case "list_allowed_email_senders":
+      return { allowedSenders: await listAllowedSenders(tenantId) };
+    case "add_allowed_email_sender":
+      return addAllowedSender({
+        tenantId,
+        actor: callerAudit(caller),
+        address: asString(args.address) ?? "",
+      });
+    case "remove_allowed_email_sender":
+      return removeAllowedSenderByAddress({
+        tenantId,
+        actor: callerAudit(caller),
+        address: asString(args.address) ?? "",
+      });
+    case "send_email":
+      return sendEmail({
+        tenantId,
+        actor: callerAudit(caller),
+        to: asString(args.to) ?? "",
+        subject: asString(args.subject),
+        text: asString(args.text) ?? "",
+      });
     default: {
       const result = await executeNamedCapability(tenantId, name, args);
       if (result !== null) {
