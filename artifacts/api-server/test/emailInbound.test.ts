@@ -451,4 +451,65 @@ describe("inbound email webhook end-to-end", () => {
     assert.equal(replyCalls().length, 0, "the bot must never reply to itself");
     assert.equal(messageRows().length, 0);
   });
+
+  for (const variant of [
+    "message.received.spam",
+    "message.received.blocked",
+    "message.received.unauthenticated",
+  ]) {
+    it(`ignores ${variant} even from an allow-listed sender`, async () => {
+      seedConfig();
+      // Allow-list the sender so the ONLY reason to ignore is the event variant.
+      allowedSenders.add("alice@example.com");
+
+      const res = await deliver(
+        buildEvent({ from: "alice@example.com", eventType: variant }),
+      );
+      // Signature is valid → still acked so AgentMail does not retry.
+      assert.equal(res.status, 200);
+
+      await sleep(60);
+      assert.equal(
+        isSenderAllowed.mock.callCount(),
+        0,
+        "the variant is dropped before the allow-list is consulted",
+      );
+      assert.equal(runToolChat.mock.callCount(), 0, "the model was never called");
+      assert.equal(replyCalls().length, 0, "no reply to a non-received variant");
+      assert.equal(messageRows().length, 0, "nothing was persisted");
+    });
+  }
+
+  it("drops inbound mail when the channel is disabled, even from an allow-listed sender", async () => {
+    seedConfig({ enabled: false });
+    allowedSenders.add("alice@example.com");
+
+    const res = await deliver(buildEvent({ from: "alice@example.com" }));
+    // Signature is valid → acked, but processing stops because the channel is off.
+    assert.equal(res.status, 200);
+
+    await sleep(60);
+    assert.equal(
+      isSenderAllowed.mock.callCount(),
+      0,
+      "a disabled channel short-circuits before the allow-list check",
+    );
+    assert.equal(runToolChat.mock.callCount(), 0, "the model was never called");
+    assert.equal(replyCalls().length, 0, "a disabled channel never replies");
+    assert.equal(messageRows().length, 0, "nothing was persisted");
+  });
+
+  it("returns 503 and never processes when the channel is not configured", async () => {
+    // No seedConfig() → no email_config row / webhook secret exists yet.
+    allowedSenders.add("alice@example.com");
+
+    const res = await deliver(buildEvent({ from: "alice@example.com" }));
+    assert.equal(res.status, 503, "an unconfigured channel reports unavailable");
+
+    await sleep(60);
+    assert.equal(isSenderAllowed.mock.callCount(), 0);
+    assert.equal(runToolChat.mock.callCount(), 0, "the model was never called");
+    assert.equal(replyCalls().length, 0, "nothing is sent");
+    assert.equal(messageRows().length, 0, "nothing was persisted");
+  });
 });
