@@ -14,6 +14,9 @@ import {
   ShieldCheck,
   Trash2,
   Plus,
+  MailQuestion,
+  UserPlus,
+  X,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
@@ -21,6 +24,14 @@ import { toast } from "@/hooks/use-toast";
 interface AllowedSender {
   id: string;
   address: string;
+}
+interface DroppedSender {
+  id: string;
+  address: string;
+  lastSubject: string | null;
+  attempts: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
 }
 interface EmailStatus {
   connected: boolean;
@@ -66,11 +77,17 @@ export function Email() {
     queryKey: ["email", "model"],
     queryFn: () => apiGet<{ modelEndpointName: string }>("/email/model"),
   });
+  const droppedQuery = useQuery({
+    queryKey: ["email", "dropped-senders"],
+    queryFn: () => apiGet<DroppedSender[]>("/email/dropped-senders"),
+    enabled: Boolean(statusQuery.data?.connected),
+  });
 
   const [busy, setBusy] = useState<string | null>(null);
   const [newSender, setNewSender] = useState("");
 
   const status = statusQuery.data;
+  const dropped = droppedQuery.data ?? [];
   const webhookUrl =
     typeof window !== "undefined"
       ? `${window.location.origin}/api/email/webhook`
@@ -79,6 +96,8 @@ export function Email() {
 
   const refreshStatus = () =>
     queryClient.invalidateQueries({ queryKey: ["email", "status"] });
+  const refreshDropped = () =>
+    queryClient.invalidateQueries({ queryKey: ["email", "dropped-senders"] });
 
   const handleSetWebhook = async () => {
     setBusy("set");
@@ -174,6 +193,41 @@ export function Email() {
     } catch (err) {
       toast({
         title: "Could not remove sender",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleAllowDropped = async (sender: DroppedSender) => {
+    setBusy(`allow-${sender.id}`);
+    try {
+      await apiSend("/email/allowed-senders", "POST", {
+        address: sender.address,
+      });
+      toast({ title: "Sender allowed", description: sender.address });
+      await Promise.all([refreshStatus(), refreshDropped()]);
+    } catch (err) {
+      toast({
+        title: "Could not add sender",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleDismissDropped = async (sender: DroppedSender) => {
+    setBusy(`dismiss-${sender.id}`);
+    try {
+      await apiSend(`/email/dropped-senders/${sender.id}`, "DELETE");
+      await refreshDropped();
+    } catch (err) {
+      toast({
+        title: "Could not dismiss",
         description: err instanceof Error ? err.message : String(err),
         variant: "destructive",
       });
@@ -322,6 +376,76 @@ export function Email() {
                       >
                         <Trash2 className="w-4 h-4 text-destructive" />
                       </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
+      {status?.connected && (
+        <section className="space-y-4">
+          <h2 className="text-xl font-bold font-mono flex items-center gap-2">
+            <MailQuestion className="w-5 h-5 text-primary" /> Pending senders
+          </h2>
+          <Card className="bg-card">
+            <CardContent className="pt-6 flex flex-col gap-4 text-sm">
+              <p className="text-muted-foreground">
+                People who emailed the bot but aren't on the allow-list. Their
+                mail was dropped (no reply sent). If you recognise a legitimate
+                sender, add them to the allow-list.
+              </p>
+              {droppedQuery.isLoading ? (
+                <Skeleton className="w-full h-16" />
+              ) : dropped.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No dropped senders — nobody outside your allow-list has emailed
+                  the bot.
+                </p>
+              ) : (
+                <ul className="flex flex-col divide-y divide-border/50">
+                  {dropped.map((sender) => (
+                    <li
+                      key={sender.id}
+                      className="flex items-center justify-between gap-3 py-3"
+                    >
+                      <div className="min-w-0 flex flex-col gap-0.5">
+                        <span className="font-mono truncate">
+                          {sender.address}
+                        </span>
+                        {sender.lastSubject && (
+                          <span className="text-xs text-muted-foreground truncate">
+                            {sender.lastSubject}
+                          </span>
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          {sender.attempts > 1
+                            ? `${sender.attempts} attempts · `
+                            : ""}
+                          last {new Date(sender.lastSeenAt).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleAllowDropped(sender)}
+                          disabled={busy !== null}
+                        >
+                          <UserPlus className="w-4 h-4 mr-1" /> Allow
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDismissDropped(sender)}
+                          disabled={busy !== null}
+                          title="Dismiss"
+                        >
+                          <X className="w-4 h-4 text-muted-foreground" />
+                        </Button>
+                      </div>
                     </li>
                   ))}
                 </ul>

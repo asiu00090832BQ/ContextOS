@@ -70,6 +70,7 @@ const tables: Record<string, { _name: string }> = Object.fromEntries(
     "emailConfigTable",
     "emailAllowedSendersTable",
     "emailThreadsTable",
+    "emailDroppedSendersTable",
   ].map((name) => [name, table(name)]),
 );
 

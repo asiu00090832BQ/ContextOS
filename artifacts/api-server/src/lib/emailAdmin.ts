@@ -1,5 +1,10 @@
-import { and, asc, eq } from "drizzle-orm";
-import { db, emailConfigTable, emailAllowedSendersTable } from "@workspace/db";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
+import {
+  db,
+  emailConfigTable,
+  emailAllowedSendersTable,
+  emailDroppedSendersTable,
+} from "@workspace/db";
 import {
   isAgentMailConnected,
   getOrCreateInbox,
@@ -427,6 +432,16 @@ export async function addAllowedSender(opts: {
           ),
         )
     )[0];
+  // Approving a sender resolves any pending "dropped" record for them, so the
+  // owner's pending list reflects only senders still awaiting a decision.
+  await db
+    .delete(emailDroppedSendersTable)
+    .where(
+      and(
+        eq(emailDroppedSendersTable.tenantId, tenantId),
+        eq(emailDroppedSendersTable.address, address),
+      ),
+    );
   if (inserted) {
     await recordAudit({
       tenantId,
@@ -438,6 +453,86 @@ export async function addAllowedSender(opts: {
     });
   }
   return { id: row.id, address: row.address };
+}
+
+/** A dropped (non-allow-listed) inbound sender as surfaced to the owner. */
+export interface DroppedSender {
+  id: string;
+  address: string;
+  lastSubject: string | null;
+  attempts: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+/**
+ * Record that mail from a non-allow-listed sender was dropped. Best-effort and
+ * idempotent per (tenant, address): a repeat attempt bumps `attempts` and
+ * refreshes the last subject/timestamp instead of inserting a duplicate. This is
+ * the only trace an owner has of someone trying to reach the bot, since strangers
+ * never get a reply.
+ */
+export async function recordDroppedSender(opts: {
+  tenantId: string;
+  address: string;
+  subject?: string | null;
+}): Promise<void> {
+  const address = normalizeAddress(opts.address ?? "");
+  if (!address) return;
+  const lastSubject = (opts.subject ?? "").trim().slice(0, 200) || null;
+  await db
+    .insert(emailDroppedSendersTable)
+    .values({ tenantId: opts.tenantId, address, lastSubject, attempts: 1 })
+    .onConflictDoUpdate({
+      target: [
+        emailDroppedSendersTable.tenantId,
+        emailDroppedSendersTable.address,
+      ],
+      set: {
+        lastSubject,
+        attempts: sql`${emailDroppedSendersTable.attempts} + 1`,
+        lastSeenAt: new Date(),
+      },
+    });
+}
+
+/** Most-recently-seen dropped senders still awaiting an allow/dismiss decision. */
+export async function listDroppedSenders(
+  tenantId: string,
+  limit = 50,
+): Promise<DroppedSender[]> {
+  const rows = await db
+    .select()
+    .from(emailDroppedSendersTable)
+    .where(eq(emailDroppedSendersTable.tenantId, tenantId))
+    .orderBy(desc(emailDroppedSendersTable.lastSeenAt))
+    .limit(limit);
+  return rows.map((r) => ({
+    id: r.id,
+    address: r.address,
+    lastSubject: r.lastSubject,
+    attempts: r.attempts,
+    firstSeenAt: r.firstSeenAt.toISOString(),
+    lastSeenAt: r.lastSeenAt.toISOString(),
+  }));
+}
+
+/** Dismiss a dropped-sender record without allow-listing them (web UI). */
+export async function dismissDroppedSenderById(opts: {
+  tenantId: string;
+  id: string;
+}): Promise<{ removed: boolean }> {
+  const { tenantId, id } = opts;
+  const [removed] = await db
+    .delete(emailDroppedSendersTable)
+    .where(
+      and(
+        eq(emailDroppedSendersTable.id, id),
+        eq(emailDroppedSendersTable.tenantId, tenantId),
+      ),
+    )
+    .returning();
+  return { removed: Boolean(removed) };
 }
 
 /** Remove an allow-list entry by its id (web UI). */

@@ -47,6 +47,7 @@ const TABLE_EXPORTS = [
   "synthesizedCapabilitiesTable", "telegramChatsTable", "telemetryExportsTable",
   "tenantsTable", "tracesTable", "uiViewsTable", "usersTable", "workingMemoriesTable",
   "emailConfigTable", "emailAllowedSendersTable", "emailThreadsTable",
+  "emailDroppedSendersTable",
 ];
 
 function makeChain(kind: "select" | "insert" | "update" | "delete", tbl?: any) {
@@ -76,6 +77,9 @@ function makeChain(kind: "select" | "insert" | "update" | "delete", tbl?: any) {
       return chain;
     },
     onConflictDoNothing() {
+      return chain;
+    },
+    onConflictDoUpdate() {
       return chain;
     },
     returning() {
@@ -381,6 +385,15 @@ describe("inbound email webhook end-to-end", () => {
     assert.equal(replyCalls().length, 0, "no reply to a stranger");
     assert.equal(runToolChat.mock.callCount(), 0, "the model was never called");
     assert.equal(messageRows().length, 0, "nothing was persisted");
+
+    // But the drop IS recorded so the owner can see who tried to reach the bot.
+    const recorded = await waitFor(
+      () => (store["emailDroppedSendersTable"] ?? []).length === 1,
+    );
+    assert.ok(recorded, "the dropped sender was recorded for owner visibility");
+    const drop = (store["emailDroppedSendersTable"] ?? [])[0];
+    assert.equal(drop.address, "stranger@evil.com");
+    assert.equal(drop.lastSubject, "A question");
   });
 
   it("rejects a tampered signature with 401 and never processes it", async () => {

@@ -19,6 +19,9 @@ import {
   setEmailEnabled,
   addAllowedSender,
   removeAllowedSenderById,
+  recordDroppedSender,
+  listDroppedSenders,
+  dismissDroppedSenderById,
   EmailAdminError,
 } from "../lib/emailAdmin";
 import { resolveOwnerTarget } from "../lib/telegramEngine";
@@ -94,6 +97,19 @@ emailWebhookRouter.post("/email/webhook", (req, res): void => {
           { from: normalizeAddress(msg.from) },
           "Ignoring email from non-allowlisted sender",
         );
+        // Record the drop so the owner can see who tried to reach the bot and
+        // approve a legitimate sender they forgot to add. Never confirm the
+        // inbox to the stranger (no reply is sent). Best-effort: a failure here
+        // must not affect the already-acked webhook.
+        try {
+          await recordDroppedSender({
+            tenantId,
+            address: msg.from,
+            subject: msg.subject ?? null,
+          });
+        } catch (err) {
+          logger.warn({ err }, "Failed to record dropped email sender");
+        }
         return;
       }
 
@@ -215,6 +231,29 @@ emailAdminRouter.delete(
     await removeAllowedSenderById({
       tenantId: req.tenantId,
       actor: webActor(req),
+      id: req.params.id,
+    });
+    res.sendStatus(204);
+  },
+);
+
+/**
+ * Recent senders whose mail was dropped because they are not on the allow-list.
+ * Lets the owner notice a legitimate sender they forgot to approve.
+ */
+emailAdminRouter.get(
+  "/email/dropped-senders",
+  async (req, res): Promise<void> => {
+    res.json(await listDroppedSenders(req.tenantId));
+  },
+);
+
+/** Dismiss a dropped-sender record without allow-listing them. */
+emailAdminRouter.delete(
+  "/email/dropped-senders/:id",
+  async (req, res): Promise<void> => {
+    await dismissDroppedSenderById({
+      tenantId: req.tenantId,
       id: req.params.id,
     });
     res.sendStatus(204);

@@ -12,6 +12,7 @@ mock.module("@workspace/db", {
     db: {},
     emailConfigTable: {},
     emailAllowedSendersTable: {},
+    emailDroppedSendersTable: {},
     auditRecordsTable: {},
   },
 });

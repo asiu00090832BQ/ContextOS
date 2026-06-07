@@ -3,6 +3,7 @@ import {
   uuid,
   text,
   boolean,
+  integer,
   timestamp,
   index,
   unique,
@@ -94,6 +95,37 @@ export const emailAllowedSendersTable = pgTable(
   ],
 );
 
+/**
+ * Inbound senders whose mail was dropped because they are not on the allow-list.
+ * The inbox is never confirmed to strangers (no reply is sent), but the owner
+ * still needs visibility into who tried to reach the bot so they can approve a
+ * legitimate sender they forgot to add. One row per (tenant, address): repeat
+ * attempts bump `attempts` and refresh `lastSubject`/`lastSeenAt` rather than
+ * piling up duplicates.
+ */
+export const emailDroppedSendersTable = pgTable(
+  "email_dropped_senders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenantsTable.id, { onDelete: "cascade" }),
+    address: text("address").notNull(),
+    lastSubject: text("last_subject"),
+    attempts: integer("attempts").notNull().default(1),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("email_dropped_senders_tenant_idx").on(t.tenantId),
+    unique("email_dropped_senders_tenant_address_uq").on(t.tenantId, t.address),
+  ],
+);
+
 export const insertEmailConfigSchema = createInsertSchema(emailConfigTable).omit({
   id: true,
   createdAt: true,
@@ -105,6 +137,9 @@ export const insertEmailThreadSchema = createInsertSchema(emailThreadsTable).omi
 export const insertEmailAllowedSenderSchema = createInsertSchema(
   emailAllowedSendersTable,
 ).omit({ id: true, createdAt: true });
+export const insertEmailDroppedSenderSchema = createInsertSchema(
+  emailDroppedSendersTable,
+).omit({ id: true, firstSeenAt: true, lastSeenAt: true });
 
 export type EmailConfig = typeof emailConfigTable.$inferSelect;
 export type InsertEmailConfig = z.infer<typeof insertEmailConfigSchema>;
@@ -113,4 +148,8 @@ export type InsertEmailThread = z.infer<typeof insertEmailThreadSchema>;
 export type EmailAllowedSender = typeof emailAllowedSendersTable.$inferSelect;
 export type InsertEmailAllowedSender = z.infer<
   typeof insertEmailAllowedSenderSchema
+>;
+export type EmailDroppedSender = typeof emailDroppedSendersTable.$inferSelect;
+export type InsertEmailDroppedSender = z.infer<
+  typeof insertEmailDroppedSenderSchema
 >;

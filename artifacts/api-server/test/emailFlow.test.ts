@@ -40,6 +40,7 @@ const TABLE_EXPORTS = [
   "tenantsTable", "tracesTable", "uiViewsTable", "usersTable", "workingMemoriesTable",
   // Email tables: needed because the REAL emailAdmin/audit are imported here.
   "emailConfigTable", "emailAllowedSendersTable", "emailThreadsTable",
+  "emailDroppedSendersTable",
 ];
 
 function makeChain(kind: "select" | "insert" | "update" | "delete", tbl?: any) {
