@@ -51,6 +51,16 @@ mock.module("../src/lib/firecrawl", {
     firecrawlSearch,
     firecrawlMap,
     firecrawlCrawl,
+    // mcpServer also imports the availability helpers from this module; provide
+    // them so importing the SUT resolves. Dispatch runs as if configured.
+    isFirecrawlConfigured: () => true,
+    FIRECRAWL_TOOL_NAMES: [
+      "firecrawl_scrape",
+      "firecrawl_search",
+      "firecrawl_map",
+      "firecrawl_crawl",
+    ],
+    FIRECRAWL_UNCONFIGURED_NOTICE: "UNAVAILABLE — web access is not configured.",
   },
 });
 
