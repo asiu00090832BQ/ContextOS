@@ -39,6 +39,26 @@ const INBOX_DISPLAY_NAME = "ContextOS Bot";
 const WEBHOOK_PATH = "/api/email/webhook";
 const BASE64_RE = /^[A-Za-z0-9+/]+=*$/;
 
+/** Per-file and total decoded attachment-size caps, to stay under provider
+ * limits and avoid ballooning request memory on a large payload. */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10 MiB per file
+export const MAX_ATTACHMENTS_TOTAL_BYTES = 20 * 1024 * 1024; // 20 MiB combined
+
+/** Decoded byte length of a base64 string (accounting for `=` padding). */
+function decodedBase64Size(b64: string): number {
+  const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - padding;
+}
+
+/** Human-friendly size like "10 MiB" / "512 KiB" for error messages. */
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) {
+    return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MiB`;
+  }
+  if (bytes >= 1024) return `${Math.round((bytes / 1024) * 10) / 10} KiB`;
+  return `${bytes} bytes`;
+}
+
 /** A single outbound attachment as accepted by `sendEmail`. */
 export interface EmailAttachment {
   /** Displayed file name (e.g. "report.pdf"). */
@@ -55,10 +75,11 @@ export interface EmailAttachment {
  * to application/octet-stream. Throws an `EmailAdminError` on malformed input so
  * the web routes/bot get a clear 400 rather than a vague provider error.
  */
-function normalizeAttachments(
+export function normalizeAttachments(
   attachments?: EmailAttachment[],
 ): { filename: string; content: string; content_type: string }[] {
   if (!attachments || attachments.length === 0) return [];
+  let totalBytes = 0;
   return attachments.map((att, i) => {
     const filename = (att?.filename ?? "").trim();
     const content = (att?.content ?? "").trim();
@@ -75,6 +96,20 @@ function normalizeAttachments(
     if (!BASE64_RE.test(content)) {
       throw new EmailAdminError(
         `Attachment "${filename}" \`content\` must be base64-encoded.`,
+      );
+    }
+    const size = decodedBase64Size(content);
+    if (size > MAX_ATTACHMENT_BYTES) {
+      throw new EmailAdminError(
+        `Attachment "${filename}" is ${formatBytes(size)}, which exceeds the ` +
+          `${formatBytes(MAX_ATTACHMENT_BYTES)} per-file limit.`,
+      );
+    }
+    totalBytes += size;
+    if (totalBytes > MAX_ATTACHMENTS_TOTAL_BYTES) {
+      throw new EmailAdminError(
+        `Attachments total ${formatBytes(totalBytes)}, which exceeds the ` +
+          `${formatBytes(MAX_ATTACHMENTS_TOTAL_BYTES)} combined limit.`,
       );
     }
     const contentType = (att?.contentType ?? "").trim();
