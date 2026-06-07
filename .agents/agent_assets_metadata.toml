@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "lZjAHVvMkG3k7RQUMomiO"
+uri = "file://ContextOS-Explained.pdf"
+type = "pdf"
+title = "ContextOS — A Plain-Language Guide"

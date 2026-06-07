@@ -402,14 +402,27 @@ router.put(
         },
       })
       .where(eq(adaptersTable.id, adapter.id));
+    // Changing auth can change whether each tool still works, so any stored
+    // "verified" / "failed" result is now stale and must be cleared. The tools
+    // drop their badge until they are tested again.
+    const clearedTools = await db
+      .update(capabilitiesTable)
+      .set({ lastTestJson: null })
+      .where(
+        and(
+          eq(capabilitiesTable.adapterId, adapter.id),
+          eq(capabilitiesTable.tenantId, req.tenantId),
+        ),
+      )
+      .returning({ id: capabilitiesTable.id });
     await recordAudit({
       tenantId: req.tenantId,
       actorId: req.userId,
       action: "adapter.auth_updated",
       resourceType: "adapter",
       resourceId: adapter.id,
-      summary: `Updated auth (${authType}) for server "${adapter.name}"`,
-      dataJson: { authType },
+      summary: `Updated auth (${authType}) for server "${adapter.name}"; reset verification on ${clearedTools.length} tool(s)`,
+      dataJson: { authType, verificationResetCount: clearedTools.length },
     });
     await respondAdapterDetail(res, adapter.id, 200);
   },
