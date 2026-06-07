@@ -138,7 +138,12 @@ export interface McpTool {
  * tool catalog, including action/constructed tools.
  */
 export type ToolCaller =
-  | { kind: "bot"; agentId: string; telegramChatId?: string }
+  | {
+      kind: "bot";
+      agentId: string;
+      telegramChatId?: string;
+      emailThreadId?: string;
+    }
   | { kind: "agent"; agentId?: string };
 
 /**

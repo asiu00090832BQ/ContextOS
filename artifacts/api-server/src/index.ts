@@ -1,9 +1,10 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { pruneTelegramHistory } from "./lib/telegramEngine";
+import { pruneEmailHistory } from "./lib/emailEngine";
 import { reconcileRunConversations } from "./lib/chatEngine";
 
-// Sweep expired (>48h) Telegram chat history on this cadence (and once at boot).
+// Sweep expired (>48h) Telegram/email chat history on this cadence (and at boot).
 const TELEGRAM_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const rawPort = process.env["PORT"];
@@ -31,6 +32,9 @@ app.listen(port, (err) => {
   const runPrune = () => {
     void pruneTelegramHistory().catch((e) =>
       logger.error({ err: e }, "Telegram history prune failed"),
+    );
+    void pruneEmailHistory().catch((e) =>
+      logger.error({ err: e }, "Email history prune failed"),
     );
   };
   runPrune();

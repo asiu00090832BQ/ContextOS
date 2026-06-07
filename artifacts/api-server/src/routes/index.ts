@@ -19,6 +19,7 @@ import commandsRouter from "./commands";
 import mcpRouter from "./mcp";
 import observabilityRouter from "./observability";
 import { telegramWebhookRouter, telegramAdminRouter } from "./telegram";
+import { emailWebhookRouter, emailAdminRouter } from "./email";
 
 const router: IRouter = Router();
 
@@ -28,6 +29,10 @@ router.use(healthRouter);
 // The Telegram webhook must stay outside tenant context / API-key auth — it is
 // authenticated solely by the Telegram secret-token header.
 router.use(telegramWebhookRouter);
+
+// The AgentMail inbound webhook is likewise authenticated only by its Svix
+// signature, so it stays outside tenant context / API-key auth.
+router.use(emailWebhookRouter);
 
 // All domain routers are tenant-scoped (single auto-bootstrapped owner + tenant).
 router.use(tenantContext);
@@ -49,5 +54,6 @@ router.use(commandsRouter);
 router.use(mcpRouter);
 router.use(observabilityRouter);
 router.use(telegramAdminRouter);
+router.use(emailAdminRouter);
 
 export default router;

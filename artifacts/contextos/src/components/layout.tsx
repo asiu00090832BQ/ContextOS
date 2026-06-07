@@ -29,6 +29,7 @@ import {
   Radio,
   MessageSquare,
   Send,
+  Mail,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: React.ElementType };
@@ -58,6 +59,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/chat", label: "Chat", icon: MessageSquare },
       { href: "/telegram", label: "Telegram", icon: Send },
+      { href: "/email", label: "Email", icon: Mail },
       { href: "/intents", label: "Intents", icon: ListTree },
       { href: "/runs", label: "Runs", icon: Activity },
       { href: "/approvals", label: "Approvals", icon: CheckSquare },

@@ -27,6 +27,7 @@ import { TraceDetail } from "@/pages/trace-detail";
 import { Evaluations } from "@/pages/evaluations";
 import { Settings } from "@/pages/settings";
 import { Telegram } from "@/pages/telegram";
+import { Email } from "@/pages/email";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -62,6 +63,7 @@ function Router() {
         <Route path="/observability/traces/:id" component={TraceDetail} />
         <Route path="/evaluations" component={Evaluations} />
         <Route path="/telegram" component={Telegram} />
+        <Route path="/email" component={Email} />
         <Route path="/settings" component={Settings} />
         <Route path="/build-mcp">
           <Redirect to="/servers" />

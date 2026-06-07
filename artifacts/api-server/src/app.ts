@@ -26,7 +26,15 @@ app.use(
   }),
 );
 app.use(cors());
-app.use(express.json());
+// Capture the raw request body so Svix-signed webhooks (AgentMail) can be
+// verified byte-for-byte; the parsed JSON body is still produced as usual.
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      (req as unknown as { rawBody?: Buffer }).rawBody = buf;
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);

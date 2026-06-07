@@ -63,6 +63,19 @@ export const TELEGRAM_CHANNEL_NOTE =
   "hours, so when the user gives you a standing operational rule, a preference, " +
   "or a larger ongoing task, save it with the `remember` tool so it persists.";
 
+/**
+ * Channel note for the email surface. Replies are delivered as plain-text email,
+ * so the same plain-text constraints as Telegram apply. Appended after the
+ * shared prompt for the email path only.
+ */
+export const EMAIL_CHANNEL_NOTE =
+  "Your replies are delivered as plain-text email, so avoid markdown tables, " +
+  "code fences, and very long output — write in clear short paragraphs. The " +
+  "first line of the user's message may carry the email subject for context. " +
+  "Your email thread history is automatically pruned after 48 hours, so when " +
+  "the user gives you a standing operational rule, a preference, or a larger " +
+  "ongoing task, save it with the `remember` tool so it persists.";
+
 // The seed/default prompt stored on the system bot agent. Treated as "no custom
 // override" so the canonical prompt above always governs behavior.
 const TRIVIAL_BOT_PROMPTS = new Set([
