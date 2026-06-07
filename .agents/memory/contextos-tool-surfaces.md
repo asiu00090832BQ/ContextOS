@@ -31,3 +31,20 @@ use, add its name to `BUILDER_TOOL_NAMES` (and mention it in
 `BUILDER_SYSTEM_PROMPT` so the model knows it exists). For the bot, add it to
 `BOT_ALLOWED_TOOLS`. There is no general per-agent tool-calling loop beyond the
 builder loop — don't assume one exists.
+
+# Where to OBSERVE that a built-in/firecrawl tool actually fired
+
+Builder-loop and bot tool calls are recorded in `event_logs`, NOT the
+`observations` table. Look for `event_logs.type='agent.tool_call'` (e.g.
+"tester2 called firecrawl_scrape") and `agent.builder.started`. The
+`observations` table's `tool_call` rows only cover the deterministic
+`proposeActionsNode` path, which executes pre-existing DB capabilities and never
+offers firecrawl.
+
+**Why:** Verifying "did the agent use firecrawl?" by querying `observations`
+returns nothing and looks like a failure even when it worked. A real run reading
+a web page logged `agent.tool_call: ... firecrawl_scrape` in `event_logs` while
+`observations` only showed an unrelated `get_todo_by_id` from
+`proposeActionsNode`. The two paths are independent: the LLM agent's web read
+(builder loop) and the run's separate deterministic "actions" do not share a
+tool surface.
