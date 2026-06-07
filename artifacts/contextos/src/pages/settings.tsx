@@ -1,17 +1,73 @@
 import { useListTelemetryExports, getListTelemetryExportsQueryKey, useListDeploymentTargets, getListDeploymentTargetsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Settings as SettingsIcon, Send, Cloud } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Settings as SettingsIcon, Send, Cloud, Globe, CheckCircle2, AlertTriangle } from "lucide-react";
+
+interface WebToolsStatus {
+  configured: boolean;
+}
+
+async function apiGet<T>(path: string): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
 
 export function Settings() {
   const { data: exports, isLoading: exportsLoading } = useListTelemetryExports({ query: { queryKey: getListTelemetryExportsQueryKey() } });
   const { data: targets, isLoading: targetsLoading } = useListDeploymentTargets({ query: { queryKey: getListDeploymentTargetsQueryKey() } });
+  const { data: webTools, isLoading: webToolsLoading } = useQuery({
+    queryKey: ["web-tools", "status"],
+    queryFn: () => apiGet<WebToolsStatus>("/web-tools/status"),
+  });
 
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold font-mono">Platform Settings</h1>
       </div>
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-bold font-mono flex items-center gap-2">
+          <Globe className="w-5 h-5 text-primary" /> Web Access
+        </h2>
+        {webToolsLoading ? <Skeleton className="w-full h-32" /> : (
+          webTools?.configured ? (
+            <Card className="bg-card">
+              <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-border/50">
+                <CardTitle className="text-md font-medium">Built-in web tools</CardTitle>
+                <span className="flex items-center gap-1 text-xs font-medium bg-green-500/15 text-green-500 px-2 py-1 rounded font-mono uppercase">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Active
+                </span>
+              </CardHeader>
+              <CardContent className="pt-4 text-sm text-muted-foreground">
+                Scrape, search, map, and crawl the web are available to your agents and the bot
+                (powered by Firecrawl).
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-amber-500/40 bg-amber-500/5">
+              <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-amber-500/20">
+                <CardTitle className="text-md font-medium flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-amber-500" /> Web tools need setup
+                </CardTitle>
+                <span className="text-xs font-medium bg-amber-500/15 text-amber-600 px-2 py-1 rounded font-mono uppercase">
+                  Not configured
+                </span>
+              </CardHeader>
+              <CardContent className="pt-4 text-sm text-muted-foreground">
+                The built-in web tools (scrape, search, map, crawl) are unavailable because no
+                <span className="font-mono"> FIRECRAWL_API_KEY</span> secret is set. Agents and the
+                bot are told web access is off, so they won't attempt it. Add a Firecrawl API key to
+                this workspace to enable web access.
+              </CardContent>
+            </Card>
+          )
+        )}
+      </section>
       
       <section className="space-y-4">
         <h2 className="text-xl font-bold font-mono flex items-center gap-2">

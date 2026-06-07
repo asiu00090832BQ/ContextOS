@@ -41,6 +41,7 @@ import {
   type ToolSpec,
 } from "./toolChat";
 import { listToolsForTenant, callTool, McpToolError } from "./mcpServer";
+import { isFirecrawlConfigured } from "./firecrawl";
 import { adaptersTable, type Adapter } from "@workspace/db";
 import {
   assembleVisibleContext,
@@ -1011,20 +1012,35 @@ const BUILDER_TOOL_NAMES = new Set([
 
 const BUILDER_MAX_ITERATIONS = 8;
 
-const BUILDER_SYSTEM_PROMPT =
-  "You are an autonomous integration builder running inside a ContextOS run. " +
-  "To accomplish the task you may build new MCP servers and web tools using ONLY these tools: " +
-  "create_web_mcp_server, register_mcp_server, add_web_mcp_tool, import_openapi_tools, retest_web_server, " +
-  "plus list_adapters / list_capabilities / list_intents to inspect what already exists. " +
-  "You also have always-available built-in web access: firecrawl_search (find pages), " +
-  "firecrawl_scrape (read one page as markdown), firecrawl_map (list a site's links), and " +
-  "firecrawl_crawl (read many pages). Use these to read or search the web directly — do NOT " +
-  "build a per-site MCP just to fetch web content; only build an MCP when a reusable, structured integration is needed. " +
-  "Prefer reusing an existing server or tool over creating a duplicate. " +
-  "After you create or import web tools, verify them with retest_web_server, which dry-runs the server's safe read/list tools and reports a per-tool pass/fail; " +
-  "if a tool fails, correct the path/query/headers/auth and retest. " +
-  "Only safe read/list operations are auto-invoked during verification — write or destructive tools are NEVER executed autonomously and require explicit user approval before use. " +
-  "When you are done, briefly summarize which servers/tools you built or reused and their verification status.";
+/**
+ * The builder agent's system prompt. The built-in web-access paragraph is
+ * conditional: when Firecrawl is not configured the agent is told web tools are
+ * unavailable up front, so it reports that web access needs setup instead of
+ * repeatedly calling firecrawl_* tools that would only fail.
+ */
+function builderSystemPrompt(): string {
+  const webLine = isFirecrawlConfigured()
+    ? "You also have always-available built-in web access: firecrawl_search (find pages), " +
+      "firecrawl_scrape (read one page as markdown), firecrawl_map (list a site's links), and " +
+      "firecrawl_crawl (read many pages). Use these to read or search the web directly — do NOT " +
+      "build a per-site MCP just to fetch web content; only build an MCP when a reusable, structured integration is needed. "
+    : "Built-in web access (firecrawl_search / firecrawl_scrape / firecrawl_map / firecrawl_crawl) is " +
+      "NOT available because the FIRECRAWL_API_KEY secret is not configured — these tools will fail, so do " +
+      "NOT call them or keep retrying. If the task requires reading or searching the web, report that web " +
+      "access needs to be set up (a Firecrawl API key) rather than attempting it. ";
+  return (
+    "You are an autonomous integration builder running inside a ContextOS run. " +
+    "To accomplish the task you may build new MCP servers and web tools using ONLY these tools: " +
+    "create_web_mcp_server, register_mcp_server, add_web_mcp_tool, import_openapi_tools, retest_web_server, " +
+    "plus list_adapters / list_capabilities / list_intents to inspect what already exists. " +
+    webLine +
+    "Prefer reusing an existing server or tool over creating a duplicate. " +
+    "After you create or import web tools, verify them with retest_web_server, which dry-runs the server's safe read/list tools and reports a per-tool pass/fail; " +
+    "if a tool fails, correct the path/query/headers/auth and retest. " +
+    "Only safe read/list operations are auto-invoked during verification — write or destructive tools are NEVER executed autonomously and require explicit user approval before use. " +
+    "When you are done, briefly summarize which servers/tools you built or reused and their verification status."
+  );
+}
 
 /**
  * A model endpoint is "live" (will not produce a deterministic stub) when it is
@@ -1117,7 +1133,7 @@ async function runBuilderCompletion(args: {
 
   const system =
     (args.systemPrompt ? `${args.systemPrompt}\n\n` : "") +
-    BUILDER_SYSTEM_PROMPT +
+    builderSystemPrompt() +
     (args.sharedBlock
       ? `\n\nContext available to you:\n${args.sharedBlock}`
       : "");

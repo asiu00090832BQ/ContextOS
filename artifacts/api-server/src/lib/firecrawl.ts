@@ -46,6 +46,24 @@ export function isFirecrawlConfigured(): boolean {
   return firecrawlApiKey() !== null;
 }
 
+/** The built-in web tool names backed by Firecrawl. */
+export const FIRECRAWL_TOOL_NAMES = [
+  "firecrawl_scrape",
+  "firecrawl_search",
+  "firecrawl_map",
+  "firecrawl_crawl",
+] as const;
+
+/**
+ * Notice appended to a web tool's catalog description (and surfaced to agents /
+ * the bot) when Firecrawl is not configured, so they are warned up front rather
+ * than discovering it only when a call fails mid-task.
+ */
+export const FIRECRAWL_UNCONFIGURED_NOTICE =
+  "UNAVAILABLE — web access is not configured (the FIRECRAWL_API_KEY secret is " +
+  "not set). Do NOT call this tool; it will fail. Tell the user to add a " +
+  "Firecrawl API key to enable web scraping, search, mapping, and crawling.";
+
 function requireKey(): string {
   const k = firecrawlApiKey();
   if (!k) {

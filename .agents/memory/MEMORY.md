@@ -12,3 +12,4 @@
 - [Bot/telegram model selection](contextos-bot-model-selection.md) — model lives in DB (not carried by publish); weak deepseek-chat-v3 ignores injected live-state snapshot; use managed Claude.
 - [Bot live-state freshness](contextos-bot-freshness.md) — "data is all wrong" = prompt directive won't force re-fetch; inject a live workspace snapshot per-turn into BOTH bot paths.
 - [Tool surfaces & agent tool path](contextos-tool-surfaces.md) — built-in tools need 3 separate gates: TOOLS (agents w/ full catalog), BOT_ALLOWED_TOOLS (bot/mcp), BUILDER_TOOL_NAMES (run agents — the only agent tool loop).
+- [Web-tool availability signalling](contextos-web-tool-availability.md) — firecrawl config state must be surfaced on 4 fronts (catalog desc, workspace snapshot, builder prompt, UI), not just fail at call time.

@@ -41,6 +41,9 @@ import {
   firecrawlSearch,
   firecrawlMap,
   firecrawlCrawl,
+  isFirecrawlConfigured,
+  FIRECRAWL_TOOL_NAMES,
+  FIRECRAWL_UNCONFIGURED_NOTICE,
 } from "./firecrawl";
 import { BOT_AGENT_NAME } from "./context";
 import { logger } from "./logger";
@@ -1823,10 +1826,19 @@ export async function buildWorkspaceStateBlock(
     ),
   ];
 
+  const webAccess = isFirecrawlConfigured()
+    ? "Web access (Firecrawl): AVAILABLE — firecrawl_search / firecrawl_scrape / " +
+      "firecrawl_map / firecrawl_crawl work for reading and searching the web."
+    : "Web access (Firecrawl): UNAVAILABLE — the FIRECRAWL_API_KEY secret is not " +
+      "set, so the firecrawl_search / firecrawl_scrape / firecrawl_map / " +
+      "firecrawl_crawl tools WILL FAIL. Do not attempt them or keep retrying; " +
+      "tell the user to add a Firecrawl API key to enable web access.";
+
   return (
     "\n\nLIVE WORKSPACE STATE (snapshot taken just now, at the start of this " +
     "turn — this is the ground truth; prefer it over anything said earlier in " +
     "the conversation, and call the read tools only when you need more detail):\n" +
+    `${webAccess}\n` +
     sections.join("\n")
   );
 }
@@ -1968,12 +1980,34 @@ export async function loadOwnedLongTermMemories(
  * When the caller is the ContextOS bot, only orchestration + own-memory tools
  * are advertised — no action tools and no constructed capabilities.
  */
+/**
+ * When Firecrawl is not configured, append an "UNAVAILABLE — needs setup"
+ * notice to each built-in web tool's description so any caller (bot, MCP client,
+ * or run agent reading the catalog) is warned up front rather than only
+ * discovering it when a call fails mid-task. Returns the list unchanged when web
+ * access is configured.
+ */
+function decorateWebToolAvailability(tools: McpTool[]): McpTool[] {
+  if (isFirecrawlConfigured()) return tools;
+  const webNames = new Set<string>(FIRECRAWL_TOOL_NAMES);
+  return tools.map((t) =>
+    webNames.has(t.name)
+      ? {
+          ...t,
+          description: `${t.description} [${FIRECRAWL_UNCONFIGURED_NOTICE}]`,
+        }
+      : t,
+  );
+}
+
 export async function listToolsForTenant(
   tenantId: string,
   caller?: ToolCaller,
 ): Promise<McpTool[]> {
   if (caller?.kind === "bot") {
-    return TOOLS.filter((t) => BOT_ALLOWED_TOOLS.has(t.name));
+    return decorateWebToolAvailability(
+      TOOLS.filter((t) => BOT_ALLOWED_TOOLS.has(t.name)),
+    );
   }
   const constructed = await listExecutableCapabilities(tenantId);
   const seen = new Set(TOOLS.map((t) => t.name));
@@ -2002,5 +2036,5 @@ export async function listToolsForTenant(
       inputSchema: toJsonSchema(c.inputSchemaJson),
     });
   }
-  return [...TOOLS, ...dynamic];
+  return decorateWebToolAvailability([...TOOLS, ...dynamic]);
 }

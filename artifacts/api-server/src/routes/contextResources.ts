@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc } from "drizzle-orm";
+import { isFirecrawlConfigured } from "../lib/firecrawl";
 import {
   db,
   tenantsTable,
@@ -295,6 +296,10 @@ router.delete("/context-packs/:id", async (req, res): Promise<void> => {
     return;
   }
   res.status(204).end();
+});
+
+router.get("/web-tools/status", async (_req, res): Promise<void> => {
+  res.json({ configured: isFirecrawlConfigured() });
 });
 
 router.get("/settings", async (req, res): Promise<void> => {
