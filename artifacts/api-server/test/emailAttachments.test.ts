@@ -16,8 +16,12 @@ mock.module("@workspace/db", {
   },
 });
 
-const { normalizeAttachments, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_TOTAL_BYTES, EmailAdminError } =
-  await import("../src/lib/emailAdmin");
+const {
+  normalizeAttachments,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS_TOTAL_BYTES,
+  EmailAdminError,
+} = await import("../src/lib/emailAdmin");
 
 /** Build an unpadded base64 string that decodes to exactly `bytes` (rounded up
  * to the nearest 3-byte group). "A" decodes to a valid byte, so "A".repeat(n)
@@ -47,6 +51,43 @@ describe("normalizeAttachments size guard", () => {
         assert.ok(err instanceof EmailAdminError);
         assert.equal((err as EmailAdminError).status, 400);
         assert.match((err as Error).message, /per-file limit/);
+        return true;
+      },
+    );
+  });
+
+  it("rejects a dangerous file extension regardless of content type", () => {
+    assert.throws(
+      () =>
+        normalizeAttachments([
+          {
+            filename: "invoice.pdf.exe",
+            content: base64OfSize(1024),
+            contentType: "application/pdf",
+          },
+        ]),
+      (err: unknown) => {
+        assert.ok(err instanceof EmailAdminError);
+        assert.equal((err as EmailAdminError).status, 400);
+        assert.match((err as Error).message, /blocked file type \(\.exe\)/);
+        return true;
+      },
+    );
+  });
+
+  it("rejects a dangerous MIME type even with an innocuous filename", () => {
+    assert.throws(
+      () =>
+        normalizeAttachments([
+          {
+            filename: "report",
+            content: base64OfSize(1024),
+            contentType: "application/x-msdownload",
+          },
+        ]),
+      (err: unknown) => {
+        assert.ok(err instanceof EmailAdminError);
+        assert.match((err as Error).message, /blocked content type/);
         return true;
       },
     );

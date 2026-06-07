@@ -44,6 +44,48 @@ const BASE64_RE = /^[A-Za-z0-9+/]+=*$/;
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10 MiB per file
 export const MAX_ATTACHMENTS_TOTAL_BYTES = 20 * 1024 * 1024; // 20 MiB combined
 
+/** Executable / script file extensions that mail servers routinely bounce or
+ * flag as malware. Lower-cased, without the leading dot. */
+export const BLOCKED_ATTACHMENT_EXTENSIONS = new Set<string>([
+  "exe", "com", "scr", "pif", "msi", "msp", "cpl", "gadget", "application",
+  "bat", "cmd", "vbs", "vbe", "js", "jse", "ws", "wsf", "wsc", "wsh", "ps1",
+  "ps1xml", "ps2", "ps2xml", "psc1", "psc2", "sh", "bash", "csh", "ksh",
+  "jar", "msh", "msh1", "msh2", "mshxml", "msh1xml", "msh2xml", "reg",
+  "hta", "lnk", "inf", "scf", "vb", "vxd", "dll", "sys", "ade", "adp",
+  "app", "deb", "rpm", "dmg", "apk", "iso", "img", "vbscript",
+]);
+
+/** Dangerous MIME types (lower-cased) blocked regardless of filename. */
+export const BLOCKED_ATTACHMENT_MIME_TYPES = new Set<string>([
+  "application/x-msdownload",
+  "application/x-msdos-program",
+  "application/x-dosexec",
+  "application/x-executable",
+  "application/x-mach-binary",
+  "application/x-elf",
+  "application/vnd.microsoft.portable-executable",
+  "application/x-sh",
+  "application/x-shellscript",
+  "application/x-bat",
+  "application/bat",
+  "application/x-msbatch",
+  "application/javascript",
+  "text/javascript",
+  "application/x-javascript",
+  "application/java-archive",
+  "application/vnd.android.package-archive",
+  "application/x-apple-diskimage",
+  "application/hta",
+  "application/x-ms-shortcut",
+]);
+
+/** Extract the lower-cased file extension (without the dot) from a filename. */
+function fileExtension(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  if (dot < 0 || dot === filename.length - 1) return "";
+  return filename.slice(dot + 1).toLowerCase();
+}
+
 /** Decoded byte length of a base64 string (accounting for `=` padding). */
 function decodedBase64Size(b64: string): number {
   const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
@@ -98,6 +140,23 @@ export function normalizeAttachments(
         `Attachment "${filename}" \`content\` must be base64-encoded.`,
       );
     }
+    const contentType = (att?.contentType ?? "").trim();
+    const ext = fileExtension(filename);
+    if (ext && BLOCKED_ATTACHMENT_EXTENSIONS.has(ext)) {
+      throw new EmailAdminError(
+        `Attachment "${filename}" has a blocked file type (.${ext}). ` +
+          `Executable or script attachments are not allowed.`,
+      );
+    }
+    if (
+      contentType &&
+      BLOCKED_ATTACHMENT_MIME_TYPES.has(contentType.toLowerCase())
+    ) {
+      throw new EmailAdminError(
+        `Attachment "${filename}" has a blocked content type ` +
+          `(${contentType}). Executable or script attachments are not allowed.`,
+      );
+    }
     const size = decodedBase64Size(content);
     if (size > MAX_ATTACHMENT_BYTES) {
       throw new EmailAdminError(
@@ -112,7 +171,6 @@ export function normalizeAttachments(
           `${formatBytes(MAX_ATTACHMENTS_TOTAL_BYTES)} combined limit.`,
       );
     }
-    const contentType = (att?.contentType ?? "").trim();
     return {
       filename,
       content,
