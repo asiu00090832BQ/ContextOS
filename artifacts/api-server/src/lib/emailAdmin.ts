@@ -37,6 +37,54 @@ export class EmailAdminError extends Error {
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const INBOX_DISPLAY_NAME = "ContextOS Bot";
 const WEBHOOK_PATH = "/api/email/webhook";
+const BASE64_RE = /^[A-Za-z0-9+/]+=*$/;
+
+/** A single outbound attachment as accepted by `sendEmail`. */
+export interface EmailAttachment {
+  /** Displayed file name (e.g. "report.pdf"). */
+  filename: string;
+  /** The file's bytes, base64-encoded. */
+  content: string;
+  /** MIME type; defaults to application/octet-stream when omitted. */
+  contentType?: string;
+}
+
+/**
+ * Validate and shape caller-supplied attachments into AgentMail's payload form.
+ * Each attachment needs a filename and base64 `content`; the MIME type defaults
+ * to application/octet-stream. Throws an `EmailAdminError` on malformed input so
+ * the web routes/bot get a clear 400 rather than a vague provider error.
+ */
+function normalizeAttachments(
+  attachments?: EmailAttachment[],
+): { filename: string; content: string; content_type: string }[] {
+  if (!attachments || attachments.length === 0) return [];
+  return attachments.map((att, i) => {
+    const filename = (att?.filename ?? "").trim();
+    const content = (att?.content ?? "").trim();
+    if (!filename) {
+      throw new EmailAdminError(
+        `Attachment ${i + 1} is missing a \`filename\`.`,
+      );
+    }
+    if (!content) {
+      throw new EmailAdminError(
+        `Attachment "${filename}" is missing base64 \`content\`.`,
+      );
+    }
+    if (!BASE64_RE.test(content)) {
+      throw new EmailAdminError(
+        `Attachment "${filename}" \`content\` must be base64-encoded.`,
+      );
+    }
+    const contentType = (att?.contentType ?? "").trim();
+    return {
+      filename,
+      content,
+      content_type: contentType || "application/octet-stream",
+    };
+  });
+}
 
 export interface EmailStatus {
   connected: boolean;
@@ -364,6 +412,10 @@ export async function removeAllowedSenderByAddress(opts: {
 /**
  * Send a brand-new email from the bot's configured inbox. The channel must be
  * set up (an inbox provisioned) first.
+ *
+ * Plain-text (`text`) is the default body. `html` adds an optional rich HTML
+ * body, and `attachments` optionally attaches one or more files (each a
+ * base64-encoded `content` with a `filename`). Both are opt-in.
  */
 export async function sendEmail(opts: {
   tenantId: string;
@@ -371,7 +423,16 @@ export async function sendEmail(opts: {
   to: string;
   subject?: string;
   text: string;
-}): Promise<{ messageId: string; to: string; from: string; subject: string }> {
+  html?: string;
+  attachments?: EmailAttachment[];
+}): Promise<{
+  messageId: string;
+  to: string;
+  from: string;
+  subject: string;
+  hasHtml: boolean;
+  attachmentCount: number;
+}> {
   const { tenantId, actor } = opts;
   const recipient = normalizeAddress(opts.to ?? "");
   if (!recipient || !EMAIL_RE.test(recipient)) {
@@ -383,6 +444,8 @@ export async function sendEmail(opts: {
   if (!body) {
     throw new EmailAdminError("`text` (the email body) is required.");
   }
+  const html = (opts.html ?? "").trim();
+  const attachments = normalizeAttachments(opts.attachments);
   const subject = (opts.subject ?? "").trim();
   const [config] = await db
     .select()
@@ -397,6 +460,8 @@ export async function sendEmail(opts: {
     to: recipient,
     subject: subject || undefined,
     text: body,
+    html: html || undefined,
+    attachments: attachments.length > 0 ? attachments : undefined,
   });
   await recordAudit({
     tenantId,
@@ -404,12 +469,20 @@ export async function sendEmail(opts: {
     action: "email.sent",
     resourceType: "email_channel",
     resourceId: config.inboxId,
-    summary: `Sent email to ${recipient}${subject ? ` — ${subject}` : ""}`,
+    summary: `Sent email to ${recipient}${subject ? ` — ${subject}` : ""}${
+      attachments.length > 0
+        ? ` (${attachments.length} attachment${
+            attachments.length === 1 ? "" : "s"
+          })`
+        : ""
+    }`,
   });
   return {
     messageId: sent.message_id,
     to: recipient,
     from: config.inboxEmail,
     subject,
+    hasHtml: Boolean(html),
+    attachmentCount: attachments.length,
   };
 }

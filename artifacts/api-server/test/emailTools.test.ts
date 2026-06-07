@@ -161,6 +161,61 @@ describe("bot email tools", () => {
     });
   });
 
+  it("routes send_email with an HTML body and attachments", async () => {
+    const bot = { kind: "bot" as const, agentId: "bot-agent" };
+    await callTool(
+      "t1",
+      "u1",
+      "send_email",
+      {
+        to: "bob@acme.com",
+        subject: "Report",
+        text: "See attached.",
+        html: "<p>See <b>attached</b>.</p>",
+        attachments: [
+          {
+            filename: "report.pdf",
+            content: "JVBERi0=",
+            contentType: "application/pdf",
+          },
+          { filename: "notes.txt", content: "aGVsbG8=" },
+        ],
+      },
+      bot,
+    );
+    assert.equal(sendEmail.mock.callCount(), 1);
+    const arg = sendEmail.mock.calls[0].arguments[0] as Record<string, unknown>;
+    assert.equal(arg.html, "<p>See <b>attached</b>.</p>");
+    assert.deepEqual(arg.attachments, [
+      {
+        filename: "report.pdf",
+        content: "JVBERi0=",
+        contentType: "application/pdf",
+      },
+      { filename: "notes.txt", content: "aGVsbG8=", contentType: undefined },
+    ]);
+  });
+
+  it("omits html/attachments for a plain-text send", async () => {
+    await callTool("t1", "u1", "send_email", {
+      to: "bob@acme.com",
+      text: "Just text",
+    });
+    assert.equal(sendEmail.mock.callCount(), 1);
+    const arg = sendEmail.mock.calls[0].arguments[0] as Record<string, unknown>;
+    assert.equal(arg.html, undefined);
+    assert.equal(arg.attachments, undefined);
+  });
+
+  it("advertises html and attachments on the send_email schema", () => {
+    const tool = TOOLS.find((t) => t.name === "send_email");
+    assert.ok(tool, "send_email tool missing");
+    const props = (tool.inputSchema as { properties: Record<string, unknown> })
+      .properties;
+    assert.ok(props.html, "html not advertised");
+    assert.ok(props.attachments, "attachments not advertised");
+  });
+
   it("routes allow-list add/remove by address", async () => {
     await callTool("t1", "u1", "add_allowed_email_sender", {
       address: "alice@example.com",

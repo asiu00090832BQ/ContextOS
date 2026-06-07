@@ -147,13 +147,35 @@ export async function sendReply(
 }
 
 /**
+ * A single outbound attachment. `content` is the file's bytes base64-encoded
+ * (AgentMail expects base64), `filename` is the displayed name, and
+ * `content_type` is the MIME type (defaults to application/octet-stream when
+ * omitted).
+ */
+export interface AgentMailAttachment {
+  filename: string;
+  content: string;
+  content_type?: string;
+}
+
+/**
  * Send a brand-new email (a fresh thread) from the bot's inbox. Unlike
  * `sendReply`, this starts a new conversation with the given recipient(s),
- * subject, and plain-text body. Used by the bot's `send_email` tool.
+ * subject, and body. Used by the bot's `send_email` tool.
+ *
+ * `text` is the plain-text body (the default). `html` optionally adds a rich
+ * HTML body, and `attachments` optionally attaches one or more files. Both are
+ * opt-in; a plain-text-only call behaves exactly as before.
  */
 export async function sendMessage(
   inboxId: string,
-  opts: { to: string | string[]; subject?: string; text: string },
+  opts: {
+    to: string | string[];
+    subject?: string;
+    text: string;
+    html?: string;
+    attachments?: AgentMailAttachment[];
+  },
 ): Promise<{ message_id: string; thread_id: string }> {
   return call(`/v0/inboxes/${encodeURIComponent(inboxId)}/messages`, {
     method: "POST",
@@ -161,6 +183,10 @@ export async function sendMessage(
       to: Array.isArray(opts.to) ? opts.to : [opts.to],
       ...(opts.subject ? { subject: opts.subject } : {}),
       text: opts.text,
+      ...(opts.html ? { html: opts.html } : {}),
+      ...(opts.attachments && opts.attachments.length > 0
+        ? { attachments: opts.attachments }
+        : {}),
     },
   });
 }

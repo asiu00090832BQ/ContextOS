@@ -60,6 +60,7 @@ import {
   addAllowedSender,
   removeAllowedSenderByAddress,
   sendEmail,
+  type EmailAttachment,
 } from "./emailAdmin";
 import { logger } from "./logger";
 
@@ -1011,7 +1012,7 @@ export const TOOLS: McpTool[] = [
   {
     name: "send_email",
     description:
-      "Send a brand-new plain-text email from the bot's inbox. The owner must provide the recipient address (no contact/name lookup). Requires the email channel to be set up first (connect_email).",
+      "Send a brand-new email from the bot's inbox. The owner must provide the recipient address (no contact/name lookup). Plain text is the default; optionally include an HTML body and/or file attachments. Requires the email channel to be set up first (connect_email).",
     inputSchema: {
       type: "object",
       properties: {
@@ -1025,7 +1026,37 @@ export const TOOLS: McpTool[] = [
         },
         text: {
           type: "string",
-          description: "Plain-text body of the email.",
+          description:
+            "Plain-text body of the email. Always provide this — it is the fallback shown when HTML can't render.",
+        },
+        html: {
+          type: "string",
+          description:
+            "Optional rich HTML body. When provided, clients render this instead of `text` (still supply `text` as a fallback).",
+        },
+        attachments: {
+          type: "array",
+          description:
+            "Optional list of file attachments. Each file's bytes must be base64-encoded in `content`.",
+          items: {
+            type: "object",
+            properties: {
+              filename: {
+                type: "string",
+                description: "Displayed file name, e.g. report.pdf.",
+              },
+              content: {
+                type: "string",
+                description: "The file's bytes, base64-encoded.",
+              },
+              contentType: {
+                type: "string",
+                description:
+                  "MIME type, e.g. application/pdf (defaults to application/octet-stream).",
+              },
+            },
+            required: ["filename", "content"],
+          },
         },
       },
       required: ["to", "text"],
@@ -1035,6 +1066,23 @@ export const TOOLS: McpTool[] = [
 
 function asString(v: unknown): string | undefined {
   return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+/**
+ * Shape the loosely-typed `attachments` tool argument into `EmailAttachment[]`.
+ * Returns undefined when absent (so plain-text sends are unaffected); detailed
+ * validation (filename/base64) happens in `emailAdmin.sendEmail`.
+ */
+function parseEmailAttachments(v: unknown): EmailAttachment[] | undefined {
+  if (!Array.isArray(v) || v.length === 0) return undefined;
+  return v.map((raw) => {
+    const att = (raw ?? {}) as Record<string, unknown>;
+    return {
+      filename: asString(att.filename) ?? "",
+      content: asString(att.content) ?? "",
+      contentType: asString(att.contentType),
+    };
+  });
 }
 
 /** Load a constructed adapter scoped to the tenant, or undefined. Only matches
@@ -2542,6 +2590,8 @@ export async function callTool(
         to: asString(args.to) ?? "",
         subject: asString(args.subject),
         text: asString(args.text) ?? "",
+        html: asString(args.html),
+        attachments: parseEmailAttachments(args.attachments),
       });
     default: {
       const result = await executeNamedCapability(tenantId, name, args);
