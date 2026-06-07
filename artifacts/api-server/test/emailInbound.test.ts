@@ -254,24 +254,29 @@ interface DeliverOpts {
 }
 
 function buildEvent(opts: {
-  from: string;
+  from?: string;
   eventType?: string;
   subject?: string;
   text?: string;
   inboxId?: string;
+  // Drop required message fields to simulate a malformed/misrouted delivery.
+  omit?: Array<"from" | "thread_id" | "message_id">;
 }): Record<string, unknown> {
+  const omit = new Set(opts.omit ?? []);
+  const message: Record<string, unknown> = {
+    inbox_id: opts.inboxId ?? INBOX.inbox_id,
+    thread_id: "thread_in_1",
+    message_id: "msg_in_1",
+    from: opts.from ?? "alice@example.com",
+    subject: opts.subject ?? "A question",
+    text: opts.text ?? "Hello bot, can you help me?",
+  };
+  for (const field of omit) delete message[field];
   return {
     type: "event",
     event_type: opts.eventType ?? "message.received",
     event_id: "evt_" + randomUUID(),
-    message: {
-      inbox_id: opts.inboxId ?? INBOX.inbox_id,
-      thread_id: "thread_in_1",
-      message_id: "msg_in_1",
-      from: opts.from,
-      subject: opts.subject ?? "A question",
-      text: opts.text ?? "Hello bot, can you help me?",
-    },
+    message,
   };
 }
 
@@ -498,6 +503,87 @@ describe("inbound email webhook end-to-end", () => {
     assert.equal(replyCalls().length, 0, "a disabled channel never replies");
     assert.equal(messageRows().length, 0, "nothing was persisted");
   });
+
+  for (const field of ["from", "thread_id", "message_id"] as const) {
+    it(`drops a malformed message missing \`${field}\` (no reply, no processing)`, async () => {
+      seedConfig();
+      // Allow-list the sender so the ONLY reason to drop is the missing field.
+      allowedSenders.add("alice@example.com");
+
+      const res = await deliver(
+        buildEvent({ from: "alice@example.com", omit: [field] }),
+      );
+      // Signature is valid → still acked so AgentMail does not retry.
+      assert.equal(res.status, 200);
+
+      await sleep(60);
+      assert.equal(
+        isSenderAllowed.mock.callCount(),
+        0,
+        "a missing required field drops before the allow-list check",
+      );
+      assert.equal(runToolChat.mock.callCount(), 0, "the model was never called");
+      assert.equal(replyCalls().length, 0, "no reply to a malformed message");
+      assert.equal(messageRows().length, 0, "nothing was persisted");
+      assert.equal(
+        (store["emailDroppedSendersTable"] ?? []).length,
+        0,
+        "a malformed message is not recorded as a dropped sender",
+      );
+    });
+  }
+
+  it("drops mail addressed to a different inbox_id (defense-in-depth)", async () => {
+    seedConfig();
+    // Allow-list the sender so the ONLY reason to drop is the foreign inbox.
+    allowedSenders.add("alice@example.com");
+
+    const res = await deliver(
+      buildEvent({ from: "alice@example.com", inboxId: "inbox_somebody_else" }),
+    );
+    // Signature is valid → still acked so AgentMail does not retry.
+    assert.equal(res.status, 200);
+
+    await sleep(60);
+    assert.equal(
+      isSenderAllowed.mock.callCount(),
+      0,
+      "a foreign inbox_id drops before the allow-list check",
+    );
+    assert.equal(runToolChat.mock.callCount(), 0, "the model was never called");
+    assert.equal(replyCalls().length, 0, "no reply for a foreign inbox");
+    assert.equal(messageRows().length, 0, "nothing was persisted");
+  });
+
+  for (const [label, text] of [
+    ["empty", ""],
+    ["whitespace-only", "   \n\t  "],
+  ] as const) {
+    it(`drops a message with a ${label} body (no reply, no processing)`, async () => {
+      seedConfig();
+      // Allow-list the sender so we DO reach the empty-body guard.
+      allowedSenders.add("alice@example.com");
+
+      const res = await deliver(buildEvent({ from: "alice@example.com", text }));
+      // Signature is valid → still acked so AgentMail does not retry.
+      assert.equal(res.status, 200);
+
+      await sleep(60);
+      assert.equal(
+        isSenderAllowed.mock.callCount(),
+        1,
+        "the allow-list is consulted before the empty-body guard",
+      );
+      assert.equal(runToolChat.mock.callCount(), 0, "the model was never called");
+      assert.equal(replyCalls().length, 0, "an empty message earns no reply");
+      assert.equal(messageRows().length, 0, "nothing was persisted");
+      assert.equal(
+        (store["emailDroppedSendersTable"] ?? []).length,
+        0,
+        "an allow-listed sender is never recorded as dropped",
+      );
+    });
+  }
 
   it("returns 503 and never processes when the channel is not configured", async () => {
     // No seedConfig() → no email_config row / webhook secret exists yet.
