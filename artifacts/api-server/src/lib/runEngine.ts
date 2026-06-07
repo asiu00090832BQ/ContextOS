@@ -1020,10 +1020,13 @@ const BUILDER_MAX_ITERATIONS = 8;
  */
 function builderSystemPrompt(): string {
   const webLine = isFirecrawlConfigured()
-    ? "You also have always-available built-in web access: firecrawl_search (find pages), " +
+    ? "You have always-available built-in web access via Firecrawl: firecrawl_search (find pages), " +
       "firecrawl_scrape (read one page as markdown), firecrawl_map (list a site's links), and " +
-      "firecrawl_crawl (read many pages). Use these to read or search the web directly — do NOT " +
-      "build a per-site MCP just to fetch web content; only build an MCP when a reusable, structured integration is needed. "
+      "firecrawl_crawl (read many pages). These are your DEFAULT for ALL web access — any time you need to " +
+      "read a page, search the web, or look something up online, ALWAYS use the firecrawl_* tools FIRST. " +
+      "Do NOT build a per-site MCP or construct web tools merely to fetch or read web content; only build an " +
+      "MCP when the task genuinely needs a reusable, structured integration (e.g. authenticated calls or " +
+      "write/action endpoints against a specific API). For plain reading and searching, default to Firecrawl. "
     : "Built-in web access (firecrawl_search / firecrawl_scrape / firecrawl_map / firecrawl_crawl) is " +
       "NOT available because the FIRECRAWL_API_KEY secret is not configured — these tools will fail, so do " +
       "NOT call them or keep retrying. If the task requires reading or searching the web, report that web " +
