@@ -108,6 +108,141 @@ export function renderTemplate(
   );
 }
 
+/** Thrown when a path argument cannot be safely placed in a URL segment. */
+export class UnsafePathArgumentError extends Error {}
+
+/**
+ * Percent-encode a single value so it is safe to splice into a URL path
+ * SEGMENT. `encodeURIComponent` escapes `/`, `?`, and `#`, so an argument can no
+ * longer change the host, add a query string / fragment, or split into extra
+ * path segments — any value with other characters becomes one inert segment.
+ *
+ * The one case encoding cannot fix is a value that is exactly a relative
+ * dot-segment (`.` or `..`): the WHATWG URL parser decodes and collapses every
+ * encoding of those (`%2e`, `%2E`, `.%2e`, …) during path normalization, so the
+ * segment would still traverse the path. Such a value is therefore rejected
+ * outright (fail fast, no request) rather than silently altering the path.
+ */
+function encodePathValue(value: unknown): string {
+  const raw = toScalar(value);
+  if (raw === "." || raw === "..") {
+    throw new UnsafePathArgumentError(
+      `Unsafe path argument "${raw}": a path segment may not be a relative dot-segment.`,
+    );
+  }
+  return encodeURIComponent(raw);
+}
+
+/**
+ * Render a URL path template, percent-encoding each substituted argument so a
+ * value cannot inject query/fragment delimiters or traverse the path. Static
+ * structure in the template (its literal `/` separators) is preserved; only the
+ * `{token}` substitutions are encoded.
+ */
+export function renderPathTemplate(
+  template: string,
+  args: Record<string, unknown>,
+): string {
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_m, key: string) =>
+    key in args ? encodePathValue(args[key]) : "",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Argument validation (minimal JSON-Schema checker)
+// ---------------------------------------------------------------------------
+
+function jsonTypeOf(value: unknown): string {
+  if (Array.isArray(value)) return "array";
+  if (value === null) return "null";
+  return typeof value;
+}
+
+/** Validate one value against a JSON-Schema property node. Returns an error
+ * sentence (without the field name) or null when the value is acceptable. */
+function validateValue(
+  value: unknown,
+  propSchema: Record<string, unknown>,
+): string | null {
+  const expected = propSchema.type;
+  if (typeof expected === "string") {
+    const actual = jsonTypeOf(value);
+    const typeOk =
+      expected === "integer"
+        ? actual === "number" && Number.isInteger(value as number)
+        : expected === "number"
+          ? actual === "number"
+          : expected === "string"
+            ? actual === "string"
+            : expected === "boolean"
+              ? actual === "boolean"
+              : expected === "array"
+                ? actual === "array"
+                : expected === "object"
+                  ? actual === "object"
+                  : // Unknown / unsupported type keyword: don't reject.
+                    true;
+    if (!typeOk) return `must be of type ${expected} (got ${actual})`;
+  }
+  if (Array.isArray(propSchema.enum) && !propSchema.enum.includes(value)) {
+    return `must be one of ${JSON.stringify(propSchema.enum)}`;
+  }
+  return null;
+}
+
+/**
+ * Validate a tool call's arguments against the capability's stored JSON input
+ * schema BEFORE any request is built. Returns a human-readable error string
+ * describing every violation, or null when the arguments satisfy the schema.
+ *
+ * This is a deliberately minimal checker (no external dependency — the package
+ * firewall blocks ad-hoc installs): it enforces `required` presence and the
+ * declared `type`/`enum` of each known property. Unknown properties are allowed
+ * (additionalProperties defaults to true), and a missing/non-object schema
+ * imposes no constraints so legacy tools keep working unchanged.
+ */
+export function validateArgsAgainstSchema(
+  schema: unknown,
+  args: Record<string, unknown>,
+): string | null {
+  if (!schema || typeof schema !== "object") return null;
+  const s = schema as {
+    type?: unknown;
+    properties?: unknown;
+    required?: unknown;
+  };
+  // Tool input schemas are always object schemas; if a non-object type is
+  // declared we can't meaningfully validate the args bag, so impose nothing.
+  if (s.type !== undefined && s.type !== "object") return null;
+
+  const errors: string[] = [];
+  const required = Array.isArray(s.required)
+    ? s.required.filter((r): r is string => typeof r === "string")
+    : [];
+  for (const key of required) {
+    const v = args[key];
+    if (!(key in args) || v === undefined || v === null) {
+      errors.push(`missing required argument "${key}"`);
+    }
+  }
+
+  const props =
+    s.properties && typeof s.properties === "object"
+      ? (s.properties as Record<string, unknown>)
+      : {};
+  for (const [key, value] of Object.entries(args)) {
+    // Absent/null values are governed by the required check above; a non-null
+    // value for a non-required field is still type-checked.
+    if (value === undefined || value === null) continue;
+    const propSchema = props[key];
+    if (!propSchema || typeof propSchema !== "object") continue;
+    const err = validateValue(value, propSchema as Record<string, unknown>);
+    if (err) errors.push(`argument "${key}" ${err}`);
+  }
+
+  return errors.length > 0 ? errors.join("; ") : null;
+}
+
 function renderDeep(value: unknown, args: Record<string, unknown>): unknown {
   if (typeof value === "string") return renderTemplate(value, args);
   if (Array.isArray(value)) return value.map((v) => renderDeep(v, args));
@@ -144,9 +279,18 @@ function ipIsPrivate(ip: string): boolean {
   if (lower === "::1" || lower === "::") return true;
   if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // ULA
   if (lower.startsWith("fe80")) return true; // link-local
-  // IPv4-mapped IPv6 (::ffff:a.b.c.d)
+  // IPv4-mapped IPv6 in dotted form (::ffff:a.b.c.d).
   const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   if (mapped) return ipIsPrivate(mapped[1]);
+  // IPv4-mapped IPv6 in compressed hex form (::ffff:hhhh:hhhh), which is how
+  // URL/DNS normalization renders e.g. ::ffff:10.0.0.1 as ::ffff:a00:1.
+  const hexMapped = lower.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hexMapped) {
+    const hi = parseInt(hexMapped[1], 16);
+    const lo = parseInt(hexMapped[2], 16);
+    const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+    return ipIsPrivate(ipv4);
+  }
   return false;
 }
 
@@ -182,8 +326,13 @@ export async function resolveSafeTarget(
       `Blocked private host "${host}". Enable private-network access on this server to allow it.`,
     );
   }
+  // For a literal IP host, `url.hostname` keeps the IPv6 brackets (e.g.
+  // "[::1]"), which would defeat isIP/ipIsPrivate and make IPv6 private-range
+  // detection dead. Strip them before classifying.
+  const hostIp =
+    host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
   // If the host is a literal IP, check it directly; otherwise resolve.
-  const literals = isIP(host) ? [host] : [];
+  const literals = isIP(hostIp) ? [hostIp] : [];
   let addresses = literals;
   if (addresses.length === 0) {
     try {
@@ -399,7 +548,18 @@ export async function executeHttpTool(
       error: "Constructed server has no base URL configured.",
     };
   }
-  const path = renderTemplate(recipe.pathTemplate, args);
+  let path: string;
+  try {
+    path = renderPathTemplate(recipe.pathTemplate, args);
+  } catch (err) {
+    return {
+      ok: false,
+      kind: "http",
+      durationMs: Date.now() - started,
+      error:
+        err instanceof Error ? err.message : "Invalid path argument.",
+    };
+  }
   const base = ctx.baseUrl.replace(/\/+$/, "");
   const joined = path.startsWith("/") ? `${base}${path}` : `${base}/${path}`;
 

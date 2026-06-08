@@ -9,6 +9,7 @@ import {
 import {
   executeRecipe,
   parseRecipe,
+  validateArgsAgainstSchema,
   type AuthConfig,
   type AuthType,
   type ExecutionResult,
@@ -44,6 +45,21 @@ export async function executeCapabilityRow(
       kind: "http",
       durationMs: 0,
       error: `Capability "${capability.name}" has no executable recipe.`,
+    };
+  }
+  // Validate the call's arguments against the tool's stored input schema BEFORE
+  // any request is built, so malformed/missing/wrong-typed arguments fail fast
+  // with a clear error and never reach the network.
+  const validationError = validateArgsAgainstSchema(
+    capability.inputSchemaJson,
+    args,
+  );
+  if (validationError) {
+    return {
+      ok: false,
+      kind: recipe.kind,
+      durationMs: 0,
+      error: `Invalid arguments for "${capability.name}": ${validationError}`,
     };
   }
   return executeRecipe(recipe, serverContextFromAdapter(adapter), args);
@@ -214,6 +230,10 @@ function sampleValueForParam(
       return 1;
     case "boolean":
       return true;
+    case "array":
+      return [];
+    case "object":
+      return {};
     default:
       return "1";
   }
