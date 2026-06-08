@@ -158,8 +158,35 @@ function jsonTypeOf(value: unknown): string {
   return typeof value;
 }
 
+// Lightweight checkers for the JSON-Schema `format` keyword. Format is an
+// annotation in vanilla JSON Schema, but constructed-tool authors use it to
+// signal intent, so we enforce the common, unambiguous ones. Unknown formats
+// are ignored (return true) so an unfamiliar value never blocks a call.
+const FORMAT_VALIDATORS: Record<string, (v: string) => boolean> = {
+  email: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+  uuid: (v) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v),
+  uri: (v) => isParsableUrl(v),
+  url: (v) => isParsableUrl(v),
+  "date-time": (v) => !Number.isNaN(Date.parse(v)),
+  date: (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)),
+  ipv4: (v) => isIP(v) === 4,
+  ipv6: (v) => isIP(v) === 6,
+};
+
+function isParsableUrl(v: string): boolean {
+  try {
+    // eslint-disable-next-line no-new
+    new URL(v);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Validate one value against a JSON-Schema property node. Returns an error
- * sentence (without the field name) or null when the value is acceptable. */
+ * sentence (without the field name) or null when the value is acceptable.
+ * Recurses one+ level into object `properties`/`required` and array `items`. */
 function validateValue(
   value: unknown,
   propSchema: Record<string, unknown>,
@@ -187,6 +214,97 @@ function validateValue(
   if (Array.isArray(propSchema.enum) && !propSchema.enum.includes(value)) {
     return `must be one of ${JSON.stringify(propSchema.enum)}`;
   }
+
+  // String constraints: length, regex pattern, semantic format.
+  if (typeof value === "string") {
+    const min = propSchema.minLength;
+    if (typeof min === "number" && value.length < min) {
+      return `must be at least ${min} character${min === 1 ? "" : "s"} long (got ${value.length})`;
+    }
+    const max = propSchema.maxLength;
+    if (typeof max === "number" && value.length > max) {
+      return `must be at most ${max} character${max === 1 ? "" : "s"} long (got ${value.length})`;
+    }
+    if (typeof propSchema.pattern === "string") {
+      let re: RegExp | null = null;
+      try {
+        re = new RegExp(propSchema.pattern);
+      } catch {
+        re = null; // An invalid author-supplied pattern imposes no constraint.
+      }
+      if (re && !re.test(value)) {
+        return `must match pattern ${propSchema.pattern}`;
+      }
+    }
+    if (typeof propSchema.format === "string") {
+      const check = FORMAT_VALIDATORS[propSchema.format];
+      if (check && !check(value)) {
+        return `must be a valid ${propSchema.format}`;
+      }
+    }
+  }
+
+  // Numeric range constraints (apply to number and integer alike).
+  if (typeof value === "number") {
+    const min = propSchema.minimum;
+    if (typeof min === "number" && value < min) {
+      return `must be >= ${min} (got ${value})`;
+    }
+    const max = propSchema.maximum;
+    if (typeof max === "number" && value > max) {
+      return `must be <= ${max} (got ${value})`;
+    }
+    const exMin = propSchema.exclusiveMinimum;
+    if (typeof exMin === "number" && value <= exMin) {
+      return `must be > ${exMin} (got ${value})`;
+    }
+    const exMax = propSchema.exclusiveMaximum;
+    if (typeof exMax === "number" && value >= exMax) {
+      return `must be < ${exMax} (got ${value})`;
+    }
+  }
+
+  // Nested object validation: required presence + per-property checks.
+  if (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    propSchema.properties &&
+    typeof propSchema.properties === "object"
+  ) {
+    const nested = value as Record<string, unknown>;
+    const nestedProps = propSchema.properties as Record<string, unknown>;
+    const nestedRequired = Array.isArray(propSchema.required)
+      ? propSchema.required.filter((r): r is string => typeof r === "string")
+      : [];
+    for (const key of nestedRequired) {
+      const v = nested[key];
+      if (!(key in nested) || v === undefined || v === null) {
+        return `is missing required property "${key}"`;
+      }
+    }
+    for (const [key, v] of Object.entries(nested)) {
+      if (v === undefined || v === null) continue;
+      const childSchema = nestedProps[key];
+      if (!childSchema || typeof childSchema !== "object") continue;
+      const err = validateValue(v, childSchema as Record<string, unknown>);
+      if (err) return `property "${key}" ${err}`;
+    }
+  }
+
+  // Array item validation: every element must satisfy the `items` schema.
+  if (
+    Array.isArray(value) &&
+    propSchema.items &&
+    typeof propSchema.items === "object"
+  ) {
+    const itemSchema = propSchema.items as Record<string, unknown>;
+    for (let i = 0; i < value.length; i++) {
+      const err = validateValue(value[i], itemSchema);
+      if (err) return `item ${i} ${err}`;
+    }
+  }
+
   return null;
 }
 

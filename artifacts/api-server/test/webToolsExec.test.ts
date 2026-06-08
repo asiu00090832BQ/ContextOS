@@ -121,6 +121,197 @@ describe("validateArgsAgainstSchema", () => {
   });
 });
 
+describe("validateArgsAgainstSchema — constraints", () => {
+  it("enforces string minLength / maxLength", () => {
+    const schema = {
+      type: "object",
+      properties: { name: { type: "string", minLength: 2, maxLength: 5 } },
+    };
+    assert.match(
+      validateArgsAgainstSchema(schema, { name: "a" }) ?? "",
+      /argument "name" must be at least 2 characters long \(got 1\)/,
+    );
+    assert.match(
+      validateArgsAgainstSchema(schema, { name: "abcdef" }) ?? "",
+      /argument "name" must be at most 5 characters long \(got 6\)/,
+    );
+    assert.equal(validateArgsAgainstSchema(schema, { name: "abc" }), null);
+  });
+
+  it("enforces numeric minimum / maximum", () => {
+    const schema = {
+      type: "object",
+      properties: { age: { type: "integer", minimum: 0, maximum: 120 } },
+    };
+    assert.match(
+      validateArgsAgainstSchema(schema, { age: -1 }) ?? "",
+      /argument "age" must be >= 0 \(got -1\)/,
+    );
+    assert.match(
+      validateArgsAgainstSchema(schema, { age: 200 }) ?? "",
+      /argument "age" must be <= 120 \(got 200\)/,
+    );
+    assert.equal(validateArgsAgainstSchema(schema, { age: 30 }), null);
+  });
+
+  it("enforces exclusiveMinimum / exclusiveMaximum", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        ratio: { type: "number", exclusiveMinimum: 0, exclusiveMaximum: 1 },
+      },
+    };
+    assert.match(
+      validateArgsAgainstSchema(schema, { ratio: 0 }) ?? "",
+      /argument "ratio" must be > 0 \(got 0\)/,
+    );
+    assert.match(
+      validateArgsAgainstSchema(schema, { ratio: 1 }) ?? "",
+      /argument "ratio" must be < 1 \(got 1\)/,
+    );
+    assert.equal(validateArgsAgainstSchema(schema, { ratio: 0.5 }), null);
+  });
+
+  it("enforces a regex pattern and ignores an invalid pattern", () => {
+    const schema = {
+      type: "object",
+      properties: { code: { type: "string", pattern: "^[A-Z]{3}$" } },
+    };
+    assert.match(
+      validateArgsAgainstSchema(schema, { code: "ab" }) ?? "",
+      /argument "code" must match pattern \^\[A-Z\]\{3\}\$/,
+    );
+    assert.equal(validateArgsAgainstSchema(schema, { code: "ABC" }), null);
+
+    // An unparsable author-supplied pattern imposes no constraint.
+    const bad = {
+      type: "object",
+      properties: { code: { type: "string", pattern: "(" } },
+    };
+    assert.equal(validateArgsAgainstSchema(bad, { code: "anything" }), null);
+  });
+
+  it("enforces known formats and ignores unknown ones", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        email: { type: "string", format: "email" },
+        id: { type: "string", format: "uuid" },
+        custom: { type: "string", format: "something-unknown" },
+      },
+    };
+    assert.match(
+      validateArgsAgainstSchema(schema, { email: "not-an-email" }) ?? "",
+      /argument "email" must be a valid email/,
+    );
+    assert.match(
+      validateArgsAgainstSchema(schema, {
+        email: "a@b.co",
+        id: "not-a-uuid",
+      }) ?? "",
+      /argument "id" must be a valid uuid/,
+    );
+    // Unknown format never blocks; well-formed values pass.
+    assert.equal(
+      validateArgsAgainstSchema(schema, {
+        email: "a@b.co",
+        id: "00000000-0000-0000-0000-000000000000",
+        custom: "whatever",
+      }),
+      null,
+    );
+  });
+
+  it("validates nested object required + property constraints", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        filter: {
+          type: "object",
+          properties: {
+            status: { type: "string", enum: ["open", "closed"] },
+            limit: { type: "integer", minimum: 1 },
+          },
+          required: ["status"],
+        },
+      },
+    };
+    assert.match(
+      validateArgsAgainstSchema(schema, { filter: { limit: 5 } }) ?? "",
+      /argument "filter" is missing required property "status"/,
+    );
+    assert.match(
+      validateArgsAgainstSchema(schema, {
+        filter: { status: "paused" },
+      }) ?? "",
+      /argument "filter" property "status" must be one of/,
+    );
+    assert.match(
+      validateArgsAgainstSchema(schema, {
+        filter: { status: "open", limit: 0 },
+      }) ?? "",
+      /argument "filter" property "limit" must be >= 1/,
+    );
+    assert.equal(
+      validateArgsAgainstSchema(schema, {
+        filter: { status: "open", limit: 5 },
+      }),
+      null,
+    );
+  });
+
+  it("validates array items against the items schema", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        tags: { type: "array", items: { type: "string", minLength: 2 } },
+      },
+    };
+    assert.match(
+      validateArgsAgainstSchema(schema, { tags: ["ok", 5] }) ?? "",
+      /argument "tags" item 1 must be of type string \(got number\)/,
+    );
+    assert.match(
+      validateArgsAgainstSchema(schema, { tags: ["ok", "x"] }) ?? "",
+      /argument "tags" item 1 must be at least 2 characters long/,
+    );
+    assert.equal(
+      validateArgsAgainstSchema(schema, { tags: ["ok", "fine"] }),
+      null,
+    );
+  });
+
+  it("validates objects nested inside array items (multi-level)", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        users: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { email: { type: "string", format: "email" } },
+            required: ["email"],
+          },
+        },
+      },
+    };
+    assert.match(
+      validateArgsAgainstSchema(schema, { users: [{ email: "bad" }] }) ?? "",
+      /argument "users" item 0 property "email" must be a valid email/,
+    );
+    assert.match(
+      validateArgsAgainstSchema(schema, { users: [{}] }) ?? "",
+      /argument "users" item 0 is missing required property "email"/,
+    );
+    assert.equal(
+      validateArgsAgainstSchema(schema, {
+        users: [{ email: "a@b.co" }],
+      }),
+      null,
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 2 + 3. Path-injection containment & query encoding (via executeHttpTool)
 // ---------------------------------------------------------------------------
