@@ -32,10 +32,13 @@ agent is ready on `PORT` (default `8080`).
 
 ## Use the agent
 
-- **Web UI:** run it alongside the API, then open the **Chat** page at `/chat`:
+- **Web UI:** with the API server running, start the web app:
   ```bash
   pnpm --filter @workspace/contextos run dev
   ```
+  It serves at `http://localhost:5173` and proxies `/api` to the API server
+  (default `http://localhost:8080`). Open the **Chat** page at `/chat`. Override
+  the port with `WEB_PORT` or the API target with `API_PROXY_TARGET` if needed.
 - **API:** create a conversation, then send it a message:
   ```bash
   # 1. create a conversation -> returns { "id": "<conversationId>" }
