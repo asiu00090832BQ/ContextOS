@@ -23,6 +23,8 @@ export interface AgentRun {
   /** @nullable */
   outputValid?: boolean | null;
   usedFallback?: boolean;
+  /** @nullable */
+  stubReason?: string | null;
   tokensUsed?: number;
   latencyMs?: number;
   costUsdMicros?: number;

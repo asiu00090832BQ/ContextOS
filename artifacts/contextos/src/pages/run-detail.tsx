@@ -3,7 +3,7 @@ import { useGetRun, getGetRunQueryKey, usePauseRun, useResumeRun, useCancelRun, 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProvenanceBadge } from "@/pages/runs";
-import { Activity, Pause, Play, Square, FileText, Cpu, CheckSquare } from "lucide-react";
+import { Activity, Pause, Play, Square, FileText, Cpu, CheckSquare, AlertTriangle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 
@@ -93,6 +93,41 @@ export function RunDetail() {
         </Card>
       </div>
 
+      {(run.stubCallCount ?? 0) > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <div className="font-semibold text-amber-500">
+                This run used simulated output
+              </div>
+              <p className="text-muted-foreground mt-1">
+                {run.stubCallCount === 1
+                  ? "1 agent step did not reach a real model and fell back to deterministic simulated output. The result below is placeholder output, not a real model response."
+                  : `${run.stubCallCount} agent steps did not reach a real model and fell back to deterministic simulated output. The results below are placeholder output, not real model responses.`}
+              </p>
+              {(() => {
+                const reasons = Array.from(
+                  new Set(
+                    (run.agentRuns ?? [])
+                      .filter((ar) => ar.usedFallback && ar.stubReason)
+                      .map((ar) => ar.stubReason as string),
+                  ),
+                );
+                if (reasons.length === 0) return null;
+                return (
+                  <ul className="mt-2 list-disc pl-5 space-y-1 text-muted-foreground">
+                    {reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {run.summary && (
         <Card className="bg-muted/10">
           <CardContent className="p-4 text-sm">
@@ -139,10 +174,10 @@ export function RunDetail() {
                             : 'bg-green-500/10 text-green-500 border border-green-500/30'
                         }`}
                         title={ar.usedFallback
-                          ? 'This agent ran against the deterministic simulated stub (no live model endpoint was reached).'
+                          ? (ar.stubReason ?? 'This agent ran against the deterministic simulated stub (no live model endpoint was reached).')
                           : 'This agent ran against a real configured model endpoint.'}
                       >
-                        {ar.usedFallback ? 'Stub' : 'Live'}
+                        {ar.usedFallback ? 'Simulated' : 'Live'}
                       </span>
                     )}
                     <span className="text-xs font-mono bg-muted px-2 rounded uppercase">{ar.status}</span>
@@ -150,6 +185,12 @@ export function RunDetail() {
                 </div>
                 <div className="text-xs text-muted-foreground uppercase font-mono mb-2">{ar.role}</div>
                 <div className="text-xs text-muted-foreground truncate">{ar.task}</div>
+                {ar.usedFallback && ar.stubReason && (
+                  <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-500">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>{ar.stubReason}</span>
+                  </div>
+                )}
               </div>
             ))}
             {(!run.agentRuns || run.agentRuns.length === 0) && <div className="text-sm text-muted-foreground italic">No sub-runs recorded.</div>}

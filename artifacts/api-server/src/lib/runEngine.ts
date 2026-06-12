@@ -1589,7 +1589,12 @@ async function runAgent(args: RunAgentArgs): Promise<{
           violation: assembled.violation,
         },
       },
-      outputJson: { content: result.content },
+      outputJson: {
+        content: result.content,
+        ...(result.usedStub && result.stubReason
+          ? { stubReason: result.stubReason }
+          : {}),
+      },
       outputValid: true,
       usedFallback: result.usedStub,
       tokensUsed: result.totalTokens,

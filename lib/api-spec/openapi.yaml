@@ -2362,6 +2362,7 @@ components:
         output: { $ref: "#/components/schemas/JsonObject" }
         outputValid: { type: ["boolean", "null"] }
         usedFallback: { type: boolean }
+        stubReason: { type: ["string", "null"] }
         tokensUsed: { type: integer }
         latencyMs: { type: integer }
         costUsdMicros: { type: integer }

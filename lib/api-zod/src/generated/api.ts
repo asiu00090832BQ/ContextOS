@@ -881,6 +881,7 @@ export const GetRunResponse = zod.object({
   "output": zod.record(zod.string(), zod.unknown()).optional(),
   "outputValid": zod.boolean().nullish(),
   "usedFallback": zod.boolean().optional(),
+  "stubReason": zod.string().nullish(),
   "tokensUsed": zod.number().optional(),
   "latencyMs": zod.number().optional(),
   "costUsdMicros": zod.number().optional(),

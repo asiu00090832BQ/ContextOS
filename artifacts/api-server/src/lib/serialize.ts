@@ -346,6 +346,8 @@ export function serializeAgentRun(
     output: j(r.outputJson),
     outputValid: r.outputValid,
     usedFallback: r.usedFallback,
+    stubReason:
+      (r.outputJson as { stubReason?: string } | null)?.stubReason ?? null,
     tokensUsed: r.tokensUsed,
     latencyMs: r.latencyMs,
     costUsdMicros: r.costUsdMicros,

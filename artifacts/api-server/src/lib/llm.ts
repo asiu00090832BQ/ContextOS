@@ -23,6 +23,12 @@ export interface LlmResult {
   costUsdMicros: number;
   finishReason: string;
   usedStub: boolean;
+  /**
+   * When `usedStub` is true, a short plain-language reason the real model was
+   * not reached (no endpoint / no API key / a provider error from
+   * describeProviderError). Undefined on a real (non-stub) completion.
+   */
+  stubReason?: string;
   latencyMs: number;
   timeToFirstTokenMs: number;
 }
@@ -81,7 +87,11 @@ function deterministicHash(input: string): number {
  * Deterministic stub completion — used when no real endpoint/key is available
  * or when a real provider call fails. Produces stable, plausible output.
  */
-export function stubComplete(req: LlmRequest, endpointLabel: string): LlmResult {
+export function stubComplete(
+  req: LlmRequest,
+  endpointLabel: string,
+  reason?: string,
+): LlmResult {
   const prompt = req.messages.map((m) => `${m.role}: ${m.content}`).join("\n");
   const seed = deterministicHash(prompt + endpointLabel);
   const promptTokens = req.messages.reduce(
@@ -108,6 +118,9 @@ export function stubComplete(req: LlmRequest, endpointLabel: string): LlmResult 
     costUsdMicros,
     finishReason: "stop",
     usedStub: true,
+    stubReason:
+      reason ??
+      "The real model wasn't reached, so deterministic simulated output was used instead.",
     latencyMs: 120 + (seed % 380),
     timeToFirstTokenMs: 40 + (seed % 90),
   };
@@ -453,11 +466,19 @@ export async function complete(
   req: LlmRequest,
 ): Promise<LlmResult> {
   const managed = endpoint?.apiKeyRef === MANAGED_ANTHROPIC_REF;
-  if (
-    !endpoint ||
-    (!managed && requiresApiKey(endpoint.providerType, endpoint) && !apiKey)
-  ) {
-    return stubComplete(req, endpoint?.name ?? "stub");
+  if (!endpoint) {
+    return stubComplete(
+      req,
+      "stub",
+      "No model endpoint is configured for this agent, so simulated output was used.",
+    );
+  }
+  if (!managed && requiresApiKey(endpoint.providerType, endpoint) && !apiKey) {
+    return stubComplete(
+      req,
+      endpoint.name,
+      "No API key is configured for this endpoint, so the real model could not be reached and simulated output was used.",
+    );
   }
 
   const start = Date.now();
@@ -483,11 +504,12 @@ export async function complete(
       timeToFirstTokenMs: Math.min(latencyMs, 80),
     };
   } catch (err) {
+    const info = describeProviderError(err);
     logger.warn(
       { err, endpoint: endpoint.name },
       "LLM provider call failed; using deterministic stub fallback",
     );
-    return stubComplete(req, endpoint.name);
+    return stubComplete(req, endpoint.name, info.summary);
   }
 }
 
