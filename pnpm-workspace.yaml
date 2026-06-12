@@ -73,7 +73,11 @@ onlyBuiltDependencies:
   - esbuild
   - msw
   - unrs-resolver
-
+allowBuilds:
+  '@swc/core': true
+  esbuild: true
+  msw: true
+  unrs-resolver: true
 overrides:
   # qs <6.5.3 / <6.9.7 etc. prototype-pollution fix — security pin.
   # (Lives here, not in package.json, because pnpm 10.x no longer reads the
