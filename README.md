@@ -98,12 +98,25 @@ The web dev server serves at `http://localhost:5173` and proxies `/api` to the A
     `TUNNEL_SUBDOMAIN` does not apply.
 
   **Keep the URL stable (localtunnel only):** set `TUNNEL_SUBDOMAIN=<name>` in
-  `.env` to request a fixed `https://<name>.loca.lt` URL that survives restarts.
-  Disable the auto-tunnel with `ENABLE_TUNNEL=0`, or change the tunnel server with
-  `TUNNEL_HOST`. Note: loca.lt may show a one-time reminder page and a requested
-  subdomain isn't guaranteed — the actual assigned URL is used regardless.
+  `.env` to request a fixed `https://<name>.loca.lt` URL. `./run.sh` re-requests
+  the same subdomain on every run, so the tunnel URL stays the same across
+  restarts. Disable the auto-tunnel with `ENABLE_TUNNEL=0`, or change the tunnel
+  server with `TUNNEL_HOST`. Note: loca.lt grants a requested subdomain only if
+  it's free — pick a unique name and check the printed URL, since a taken name
+  falls back to a random one.
 
-  **Manual / other options:** you can still set
+  **Pin it so the webhook never goes stale (recommended for localtunnel):** once
+  the subdomain is fixed the URL is predictable, so you can register it at boot:
+  1. Set `TUNNEL_SUBDOMAIN=contextos-bot` (any unique name) in `.env`.
+  2. Run `./run.sh` once and copy the printed `[tunnel] public URL:`
+     (e.g. `https://contextos-bot.loca.lt`).
+  3. Add `TELEGRAM_WEBHOOK_URL=https://contextos-bot.loca.lt/api/telegram/webhook`
+     to `.env`.
+  Every later run reuses the same URL, so the webhook is registered on startup and
+  won't break when the tunnel reconnects. (The auto-tunnel also re-checks and
+  corrects the webhook at runtime, so this step is a convenience, not required.)
+
+  **Self-hosted option:** if you host the server publicly yourself, set
   `TELEGRAM_WEBHOOK_URL=https://<your-host>/api/telegram/webhook` in `.env` to
   register a webhook on boot, or use the **Telegram** page (`/telegram`) or
   `POST /api/telegram/set-webhook`.

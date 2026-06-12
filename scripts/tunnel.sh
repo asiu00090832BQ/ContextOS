@@ -45,7 +45,7 @@ load_from_env_file() {
   esac
   export "$var=$val"
 }
-for _v in PORT TUNNEL_PROVIDER TUNNEL_SUBDOMAIN TUNNEL_HOST; do
+for _v in PORT TUNNEL_PROVIDER TUNNEL_SUBDOMAIN TUNNEL_HOST TELEGRAM_WEBHOOK_URL; do
   load_from_env_file "$_v"
 done
 
@@ -171,6 +171,13 @@ else
 fi
 
 echo "[tunnel] webhook ready: ${WEBHOOK_URL} (${PROVIDER} pid ${TUNNEL_PID}; keep ./run.sh running)"
+
+# With a fixed subdomain the URL is stable across runs, so suggest pinning it for
+# boot-time registration. Skip the hint once TELEGRAM_WEBHOOK_URL is already set.
+if [ "$PROVIDER" = "localtunnel" ] && [ -n "$SUBDOMAIN" ] && [ -z "${TELEGRAM_WEBHOOK_URL:-}" ]; then
+  echo "[tunnel] tip: pin this URL for boot-time registration by adding to .env:"
+  echo "[tunnel]   TELEGRAM_WEBHOOK_URL=${WEBHOOK_URL}"
+fi
 
 # Keep the tunnel alive; run.sh terminates this script (and thus the tunnel) on exit.
 wait "$TUNNEL_PID"
