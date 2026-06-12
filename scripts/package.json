@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
-    "seed": "tsx ./src/seed.ts",
-    "clear": "tsx ./src/clear.ts",
-    "push-prod": "tsx ./src/push-dev-to-prod.ts",
+    "seed": "tsx --env-file-if-exists=../.env ./src/seed.ts",
+    "clear": "tsx --env-file-if-exists=../.env ./src/clear.ts",
+    "push-prod": "tsx --env-file-if-exists=../.env ./src/push-dev-to-prod.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

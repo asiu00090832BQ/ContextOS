@@ -67,12 +67,23 @@ web tooling in steps 5–8 are optional and can be enabled at any time.
 
 ### 1. Configure credentials and secrets
 
-ContextOS reads all credentials from environment variables / secrets — never commit secret
-values to the repository. Set these in your environment (or, on Replit, via the Secrets pane).
+ContextOS reads all credentials from environment variables — never commit secret values to the
+repository. Depending on where you run it, those variables come from one of three places:
+
+- **Local / GitHub clone** — a `.env` file in the repository root (see
+  [Setup from a GitHub clone](#setup-from-a-github-clone) below). The API server and the
+  `seed` / `clear` / `push` / `push-prod` commands load it automatically.
+- **Replit** — the Secrets pane. `DATABASE_URL` is provided automatically; add the rest as needed.
+- **Other hosted deployments** — that platform's environment / secret manager.
+
+Variables already present in the environment always take precedence over the `.env` file, so a
+platform's injected secrets are never overridden.
 
 **Required**
 
 - `DATABASE_URL` — Postgres connection string. The API server will not start without it.
+- `PORT` — the port the API server listens on. Replit and most hosts inject this automatically;
+  set it yourself only for a local/GitHub-clone run (the template defaults to `8080`).
 
 **Optional — channels and web tools**
 
@@ -112,6 +123,20 @@ per-provider environment secret. The managed Anthropic endpoint (see step 3) nee
 - `MODEL_SECRET_STORE_PATH` — where model-endpoint keys are stored locally (see above).
 - `LOG_LEVEL` — logger verbosity.
 - `NODE_ENV` — `development` / `production`.
+
+#### Setup from a GitHub clone
+
+If you cloned this repository outside Replit, copy the committed template and fill in your values:
+
+```bash
+cp .env.example .env
+# then edit .env and set at least DATABASE_URL and PORT
+```
+
+The API server and the `seed` / `clear` / `push` / `push-prod` commands read this root `.env`
+automatically — you do not need to export each variable by hand. `.env` is gitignored, so your
+secrets stay out of version control. From here, continue with steps 2–4 to bootstrap the database,
+start the services, and configure model endpoints.
 
 ### 2. Bootstrap the database
 
