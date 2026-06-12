@@ -1,9 +1,14 @@
 # ContextOS
 
+[![Cross-platform setup](https://github.com/asiu00090832BQ/ContextOS/actions/workflows/cross-platform-setup.yml/badge.svg)](https://github.com/asiu00090832BQ/ContextOS/actions/workflows/cross-platform-setup.yml)
+
 A single-user, multi-tenant context + MCP platform for AI agents: define agents, give them
 isolated or shared context, connect tools via the Model Context Protocol (MCP), and run agents
 over a web UI or external channels (Telegram, email). pnpm monorepo — Express API, React + Vite
 web, PostgreSQL + Drizzle.
+
+The clone-and-run steps below are exercised on every push by CI on Linux, macOS, and Windows
+(see the badge above), so a fresh clone is verified to install and build on all three.
 
 ## Setup
 

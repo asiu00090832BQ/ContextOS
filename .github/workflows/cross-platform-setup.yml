@@ -1,0 +1,83 @@
+name: Cross-platform setup
+
+# Proves the README's clone-and-run instructions ("cp .env.example .env" then
+# install + build the web UI) actually work on Linux, macOS, AND Windows.
+#
+# Why: the clone-and-run setup once broke on macOS/Windows because the pnpm
+# config was implicitly linux-only (platform native binaries stripped, dead
+# package.json `pnpm` field). Nothing caught it until a user hit it. This job
+# re-runs that exact setup on all three OSes and fails loudly if:
+#   - pnpm install warns that it ignored config (e.g. the dead package.json
+#     `pnpm` field) or errors on ignored build scripts,
+#   - a host-platform native binary is missing (esbuild / rollup / lightningcss
+#     / @tailwindcss/oxide),
+#   - the web build fails.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    name: Clone-and-run (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    # Use bash everywhere (Git Bash on Windows) so `cp`, pipes and pipefail
+    # behave identically across runners.
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout (fresh clone)
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Create .env from .env.example
+        run: cp .env.example .env
+
+      - name: Install dependencies
+        run: pnpm install 2>&1 | tee install.log
+
+      - name: Fail on ignored pnpm config
+        run: |
+          status=0
+          flag() {
+            if grep -niE "$1" install.log >/dev/null; then
+              echo "::error::$2"
+              grep -niE "$1" install.log || true
+              status=1
+            fi
+          }
+          # The dead package.json `pnpm` field — silently dropped config.
+          flag 'the "pnpm" field in package\.json is no longer read' \
+            'pnpm ignored the package.json "pnpm" field. Move that config into pnpm-workspace.yaml.'
+          # Native/build scripts that pnpm refused to run.
+          flag 'ERR_PNPM_IGNORED_BUILDS' \
+            'pnpm refused to run a build script. Add the package to onlyBuiltDependencies in pnpm-workspace.yaml.'
+          if [ "$status" -ne 0 ]; then
+            echo "pnpm install reported ignored configuration (see above)."
+            exit 1
+          fi
+          echo "No ignored pnpm config detected."
+
+      - name: Verify host-platform native binaries
+        run: node scripts/check-native-binaries.mjs
+
+      - name: Build the web UI
+        run: pnpm --filter @workspace/contextos run build

@@ -31,3 +31,14 @@ macOS/Windows. Both live in pnpm config, not app code.
   `pnpm why qs -r` (expect a single resolved 6.15.x).
 - `onlyBuiltDependencies` (incl. `esbuild`) already lives in the workspace yaml,
   so esbuild's postinstall runs once the host's binary actually installs.
+
+## 3. CI guards this regression class now
+- A GitHub Actions matrix job (Linux/macOS/Windows) reproduces the README
+  clone-and-run (`cp .env.example .env` → `pnpm install` → web build) and fails
+  loudly on: the dead package.json `pnpm` field warning, `ERR_PNPM_IGNORED_BUILDS`,
+  a missing host-platform native binary, or a failed web build.
+- The native-binary check is a standalone Node ESM script (no deps) that scans
+  `node_modules/.pnpm` for the host's esbuild/rollup/lightningcss/oxide package by
+  matching os+arch tokens (libc/abi-agnostic), so it works on all 3 platforms.
+- **If you touch pnpm-workspace.yaml overrides or native optional deps, expect
+  this CI to catch a platform strip; don't "fix" it by deleting the check.**
