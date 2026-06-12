@@ -18,3 +18,4 @@
 - [pnpm cross-platform install](contextos-pnpm-cross-platform.md) — don't strip non-linux native binaries via overrides (breaks Mac/Win); pnpm 10.x ignores package.json `pnpm` field.
 - [Standalone web dev](contextos-standalone-web-dev.md) — `pnpm --filter run` fail = ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL wrapper; web needs PORT/BASE_PATH; standalone use WEB_PORT (not API's PORT=8080); /api proxy gated to non-Replit.
 - [Startup auto-provisioning (2-step run)](contextos-startup-provisioning.md) — boot applies schema (dev) + auto-provisions bot model from env key (OpenAI>Anthropic>Google>OpenRouter); idempotent; Azure/openai_compatible excluded (need base URL); PORT 8080.
+- [GitHub push credential broken](contextos-github-push-credential.md) — Replit git-transport auth can fail UNAUTHENTICATED while API/repo-creation works; push via user PAT + temp GIT_ASKPASS.
