@@ -57,11 +57,21 @@ const PROVIDER_PRECEDENCE: ProviderSpec[] = [
   {
     providerType: "openrouter",
     envVar: "OPENROUTER_API_KEY",
-    modelName: "anthropic/claude-3.5-sonnet",
+    // Gemini Flash served THROUGH OpenRouter (providerType stays "openrouter").
+    modelName: "google/gemini-3.5-flash",
     baseUrl: "https://openrouter.ai/api/v1",
     label: "OpenRouter",
   },
 ];
+
+/**
+ * A previously-shipped OpenRouter default model that OpenRouter has since
+ * retired (it no longer appears in their live `/api/v1/models` catalog), so any
+ * request using it fails. Clones provisioned before the default was updated
+ * still carry this slug on their auto-provisioned endpoint; `healRetiredModels`
+ * rewrites only those rows to the current default below.
+ */
+const RETIRED_OPENROUTER_MODEL = "anthropic/claude-3.5-sonnet";
 
 interface ProvisionChoice {
   name: string;
@@ -187,6 +197,41 @@ export async function ensureBotModel(
     { provider: choice.label, model: choice.modelName, endpoint: choice.name },
     "Auto-provisioned ContextOS Bot model from environment",
   );
+}
+
+/**
+ * Heal auto-provisioned model endpoints that still point at a retired default
+ * model. `ensureBotModel` is idempotent and returns early once the bot has a
+ * model policy, so it will NOT fix an endpoint that was provisioned before the
+ * default model was updated — the stale model id lives on the endpoint row.
+ *
+ * This is deliberately narrow: it only touches a row whose name matches the
+ * auto-provisioned OpenRouter endpoint ("OpenRouter (from .env)") AND whose
+ * model is exactly the known-retired slug, so a model the user deliberately set
+ * is never overwritten. Idempotent: once healed, the WHERE clause no longer
+ * matches.
+ */
+export async function healRetiredModels(tenantId: string): Promise<void> {
+  const spec = PROVIDER_PRECEDENCE.find((s) => s.providerType === "openrouter");
+  if (!spec) return;
+  const endpointName = `${spec.label} (from .env)`;
+  const healed = await db
+    .update(modelEndpointsTable)
+    .set({ modelName: spec.modelName })
+    .where(
+      and(
+        eq(modelEndpointsTable.tenantId, tenantId),
+        eq(modelEndpointsTable.name, endpointName),
+        eq(modelEndpointsTable.modelName, RETIRED_OPENROUTER_MODEL),
+      ),
+    )
+    .returning({ id: modelEndpointsTable.id });
+  if (healed.length > 0) {
+    logger.info(
+      { count: healed.length, from: RETIRED_OPENROUTER_MODEL, to: spec.modelName },
+      "Healed auto-provisioned OpenRouter endpoint(s) pointing at a retired model",
+    );
+  }
 }
 
 /**

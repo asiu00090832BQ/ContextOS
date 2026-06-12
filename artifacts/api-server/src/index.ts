@@ -8,6 +8,7 @@ import {
   ensureSchema,
   ensureBotModel,
   ensureTelegramWebhook,
+  healRetiredModels,
 } from "./lib/provisioning";
 
 // Sweep expired (>48h) Telegram/email chat history on this cadence (and at boot).
@@ -32,6 +33,7 @@ if (Number.isNaN(port) || port <= 0) {
 async function prepare(): Promise<void> {
   await ensureSchema();
   const { tenant, botAgent } = await bootstrapContext();
+  await healRetiredModels(tenant.id);
   await ensureBotModel(tenant.id, botAgent.id);
 }
 
