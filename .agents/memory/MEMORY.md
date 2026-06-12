@@ -15,3 +15,4 @@
 - [Web-tool availability signalling](contextos-web-tool-availability.md) — firecrawl config state must be surfaced on 4 fronts (catalog desc, workspace snapshot, builder prompt, UI), not just fail at call time.
 - [api-server test db-mock table list](contextos-test-db-mock.md) — adding a table reachable from mcpServer's import graph breaks tests that hardcode @workspace/db exports; keep shared helpers in leaf utils to avoid cycles.
 - [Email channel (AgentMail)](contextos-email-channel.md) — 2nd inbox into SAME bot; proxy 401 until proposeIntegration binds; Svix raw-body+timestamp verify; stored webhook secret; allow-list = silent ignore.
+- [Startup auto-provisioning (2-step run)](contextos-startup-provisioning.md) — boot applies schema (dev) + auto-provisions bot model from env key (OpenAI>Anthropic>Google>OpenRouter); idempotent; Azure/openai_compatible excluded (need base URL); PORT 8080.
