@@ -2476,6 +2476,8 @@ components:
         ok: { type: boolean }
         latencyMs: { type: integer }
         message: { type: string }
+        detail: { type: ["string", "null"] }
+        mode: { type: ["string", "null"] }
         model: { type: ["string", "null"] }
         promptTokens: { type: ["integer", "null"] }
         completionTokens: { type: ["integer", "null"] }

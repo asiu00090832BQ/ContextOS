@@ -11,6 +11,10 @@ export interface ModelTestResult {
   latencyMs: number;
   message: string;
   /** @nullable */
+  detail?: string | null;
+  /** @nullable */
+  mode?: string | null;
+  /** @nullable */
   model?: string | null;
   /** @nullable */
   promptTokens?: number | null;

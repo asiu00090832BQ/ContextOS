@@ -1572,6 +1572,8 @@ export const TestModelEndpointResponse = zod.object({
   "ok": zod.boolean(),
   "latencyMs": zod.number(),
   "message": zod.string(),
+  "detail": zod.string().nullish(),
+  "mode": zod.string().nullish(),
   "model": zod.string().nullish(),
   "promptTokens": zod.number().nullish(),
   "completionTokens": zod.number().nullish(),

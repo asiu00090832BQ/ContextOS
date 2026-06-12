@@ -10,7 +10,17 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ServerCog, Plus, Trash2, Activity, RefreshCw, Globe, Pencil } from "lucide-react";
+import {
+  ServerCog,
+  Plus,
+  Trash2,
+  Activity,
+  RefreshCw,
+  Globe,
+  Pencil,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +50,42 @@ const EMPTY_FORM = {
   apiKey: "",
   isDefault: false,
 };
+
+// Toast body that shows the brief message by default and reveals the full,
+// expanded explanation only when the user clicks "Show details".
+function ExpandableDetail({
+  brief,
+  detail,
+}: {
+  brief?: string;
+  detail?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (!brief && !detail) return null;
+  const hasMore = !!detail && detail.trim() !== (brief ?? "").trim();
+  return (
+    <div className="space-y-1.5">
+      <p>{expanded && detail ? detail : (brief ?? detail)}</p>
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="inline-flex items-center gap-1 text-xs font-medium underline underline-offset-2 opacity-90 hover:opacity-100"
+        >
+          {expanded ? (
+            <>
+              <ChevronUp className="w-3 h-3" /> Hide details
+            </>
+          ) : (
+            <>
+              <ChevronDown className="w-3 h-3" /> Show details
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function ModelEndpoints() {
   const queryClient = useQueryClient();
@@ -163,16 +209,18 @@ export function ModelEndpoints() {
     try {
       const result: any = await testMutation.mutateAsync({ id });
       const ok = result?.ok ?? result?.status === "active";
+      const brief: string | undefined = result?.message ?? undefined;
+      const detail: string | undefined = result?.detail ?? undefined;
+      const live = result?.mode === "live";
       toast({
         title: ok
-          ? "Endpoint is live"
-          : "Not reachable — runs will use the simulated stub",
-        description:
-          result?.message ??
-          result?.detail ??
-          (ok
-            ? undefined
-            : "No live model was reached, so replies fall back to the deterministic simulated stub."),
+          ? live
+            ? "Endpoint live"
+            : "Endpoint reachable"
+          : "Endpoint test failed",
+        description: (
+          <ExpandableDetail brief={brief} detail={detail} />
+        ),
         variant: ok ? undefined : "destructive",
       });
       invalidate();
@@ -564,6 +612,42 @@ export function ModelEndpoints() {
                     }`}
                   ></div>
                   {endpoint.status}
+                </div>
+
+                <div className="text-muted-foreground">Mode</div>
+                <div className="font-mono uppercase flex items-center gap-1">
+                  {(() => {
+                    const mode = (endpoint.lastTestResult as { mode?: string } | null)
+                      ?.mode;
+                    if (!mode)
+                      return (
+                        <span
+                          className="text-muted-foreground normal-case"
+                          title="Run 'Test (server)' to check whether this endpoint reaches a real model or will run simulated."
+                        >
+                          Untested
+                        </span>
+                      );
+                    const live = mode === "live";
+                    return (
+                      <>
+                        <div
+                          className={`w-2 h-2 rounded-full ${
+                            live ? "bg-green-500" : "bg-amber-500"
+                          }`}
+                        ></div>
+                        <span
+                          title={
+                            live
+                              ? "Reaches the real provider — runs use real models."
+                              : "Not reaching the provider — runs fall back to the simulated stub. Test the endpoint to see why."
+                          }
+                        >
+                          {live ? "Live" : "Simulated"}
+                        </span>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 

@@ -41,6 +41,32 @@ function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
+/**
+ * Error carrying an upstream HTTP status (and a short body snippet) from a
+ * provider call, so describeProviderError can map status codes (401/403/404/
+ * 429/...) to plain-language explanations instead of surfacing a bare number.
+ */
+export class ProviderHttpError extends Error {
+  status: number;
+  body: string;
+  constructor(status: number, body = "") {
+    super(`provider ${status}`);
+    this.name = "ProviderHttpError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/** Read a small slice of an error response body for diagnostic context. */
+async function readErrorBody(res: Response): Promise<string> {
+  try {
+    const text = await res.text();
+    return text.slice(0, 500).trim();
+  } catch {
+    return "";
+  }
+}
+
 function deterministicHash(input: string): number {
   let h = 2166136261;
   for (let i = 0; i < input.length; i++) {
@@ -164,10 +190,7 @@ async function callOpenAiCompatible({
     }),
     signal: AbortSignal.timeout(endpoint.requestTimeoutMs),
   });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`provider ${res.status}${body ? `: ${body.slice(0, 300)}` : ""}`);
-  }
+  if (!res.ok) throw new ProviderHttpError(res.status, await readErrorBody(res));
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
   };
@@ -205,10 +228,7 @@ async function callAnthropic({
     }),
     signal: AbortSignal.timeout(endpoint.requestTimeoutMs),
   });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`provider ${res.status}${body ? `: ${body.slice(0, 300)}` : ""}`);
-  }
+  if (!res.ok) throw new ProviderHttpError(res.status, await readErrorBody(res));
   const data = (await res.json()) as { content?: { text?: string }[] };
   return data.content?.map((c) => c.text ?? "").join("") ?? "";
 }
@@ -241,10 +261,7 @@ async function callGoogle({
     }),
     signal: AbortSignal.timeout(endpoint.requestTimeoutMs),
   });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`provider ${res.status}${body ? `: ${body.slice(0, 300)}` : ""}`);
-  }
+  if (!res.ok) throw new ProviderHttpError(res.status, await readErrorBody(res));
   const data = (await res.json()) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
   };
@@ -300,13 +317,28 @@ async function callProvider(args: ProviderCallArgs): Promise<string> {
 }
 
 /**
- * Produce a human-readable reason for a failed provider call. Node's `fetch`
- * wraps low-level network/TLS errors in a generic "fetch failed" whose real
- * cause lives on `err.cause` — surface that so users can tell a timeout from a
- * refused connection, a bad TLS cert, or an unreachable (e.g. private LAN) host.
+ * Two-level description of a failed provider call: a one-line `summary` for the
+ * default view and an expanded `detail` with the likely cause, what to do, and
+ * any raw signal from the provider. Maps common HTTP statuses (401/403/404/
+ * 429/402/5xx) to plain-language explanations, and unwraps the low-level
+ * network/TLS cause that Node's `fetch` hides on `err.cause`.
  */
-export function describeProviderError(err: unknown): string {
-  if (!(err instanceof Error)) return String(err);
+export interface ProviderErrorInfo {
+  summary: string;
+  detail: string;
+}
+
+export function describeProviderError(err: unknown): ProviderErrorInfo {
+  // Upstream HTTP failures carry the status and a body snippet — map the status
+  // to an actionable explanation rather than surfacing a bare number.
+  if (err instanceof ProviderHttpError) {
+    return describeHttpStatus(err.status, err.body);
+  }
+
+  if (!(err instanceof Error)) {
+    const text = String(err);
+    return { summary: text, detail: text };
+  }
 
   const cause = (err as { cause?: unknown }).cause;
   const causeMsg =
@@ -324,53 +356,86 @@ export function describeProviderError(err: unknown): string {
   const hay = `${err.name} ${err.message} ${code} ${causeMsg}`;
 
   if (/timeout|timed ?out|ETIMEDOUT/i.test(hay)) {
-    return "Connection timed out. The server did not respond in time — this is what happens when the Base URL points to a private / LAN address (e.g. 192.168.x.x, 10.x.x.x, localhost) that this cloud-hosted server cannot reach. Expose your model with a public tunnel (ngrok, Cloudflare Tunnel, or Tailscale Funnel) and use that public HTTPS URL instead.";
+    return {
+      summary: "Connection timed out — the model server didn't respond in time.",
+      detail:
+        "Connection timed out. The server did not respond in time — this is what happens when the Base URL points to a private / LAN address (e.g. 192.168.x.x, 10.x.x.x, localhost) that this cloud-hosted server cannot reach. Expose your model with a public tunnel (ngrok, Cloudflare Tunnel, or Tailscale Funnel) and use that public HTTPS URL instead.",
+    };
   }
   if (/ECONNREFUSED/i.test(hay)) {
-    return "Connection refused. Nothing accepted the connection at that host/port from the cloud — if it's a private / LAN address it isn't reachable from here. Expose your model with a public tunnel and use that URL.";
+    return {
+      summary: "Connection refused — nothing answered at that host/port.",
+      detail:
+        "Connection refused. Nothing accepted the connection at that host/port from the cloud — if it's a private / LAN address it isn't reachable from here. Expose your model with a public tunnel and use that URL.",
+    };
   }
   if (/ENOTFOUND|EAI_AGAIN/i.test(hay)) {
-    return "Host not found (DNS). The domain in the Base URL could not be resolved from the cloud. Check the URL, or use a public tunnel URL.";
+    return {
+      summary: "Host not found — the Base URL's domain couldn't be resolved.",
+      detail:
+        "Host not found (DNS). The domain in the Base URL could not be resolved from the cloud. Check the URL, or use a public tunnel URL.",
+    };
   }
   if (/certificate|self.?signed|SSL|TLS|DEPTH_ZERO|ERR_TLS/i.test(hay)) {
-    return "TLS certificate error. The server's HTTPS certificate is self-signed or untrusted by the cloud. Use a tunnel that provides a valid certificate (ngrok / Cloudflare Tunnel) instead of a raw self-signed HTTPS endpoint.";
+    return {
+      summary: "TLS certificate error — the server's HTTPS cert isn't trusted.",
+      detail:
+        "TLS certificate error. The server's HTTPS certificate is self-signed or untrusted by the cloud. Use a tunnel that provides a valid certificate (ngrok / Cloudflare Tunnel) instead of a raw self-signed HTTPS endpoint.",
+    };
   }
-  // Upstream HTTP status (the provider answered but rejected the call). The
-  // thrown message is shaped like "provider 403" / "provider 403: <body>" or
-  // "Provider responded 403.", so pull the status out of those known prefixes
-  // (anchored to avoid matching unrelated 3-digit numbers like a port).
-  const statusMatch = hay.match(/(?:provider|responded)[^\d]{0,4}(\d{3})/i);
-  if (statusMatch) {
-    const mapped = describeHttpStatus(Number(statusMatch[1]));
-    if (mapped) return mapped;
-  }
-  return causeMsg ? `${err.message} (${causeMsg})` : err.message;
+  const full = causeMsg ? `${err.message} (${causeMsg})` : err.message;
+  return { summary: err.message, detail: full };
 }
 
-/**
- * Map a common upstream HTTP status to a short, actionable explanation. Returns
- * null for statuses we don't have specific guidance for, so the caller can fall
- * back to the raw message.
- */
-function describeHttpStatus(status: number): string | null {
-  switch (status) {
-    case 400:
-      return "The provider rejected the request (400). The model name is likely invalid for this provider, or a parameter isn't supported by this model. Verify the exact model id (use \"Fetch models\").";
-    case 401:
-      return "Authentication failed (401). The API key is missing, invalid, or expired for this provider. Re-enter a valid key on this endpoint.";
-    case 402:
-      return "Payment required (402). This provider account is out of credits or has no active billing. Add credits/billing for this key, or switch to a model your plan covers.";
-    case 403:
-      return "Access denied (403). The key is valid but not allowed to use this model or endpoint. Enable access to this model for your key, or pick a model the key can use.";
-    case 404:
-      return "Not found (404). The model name doesn't exist at this provider, or the Base URL path is wrong. Check the exact model id (use \"Fetch models\") and the Base URL.";
-    case 429:
-      return "Rate limited (429). Too many requests, or you've hit a quota/credit limit for this provider. Wait and retry, or check your plan's limits and credits.";
-    default:
-      if (status >= 500)
-        return `The provider had a server error (${status}). This is on the provider's side — wait a moment and try again.`;
-      return null;
+/** Map an upstream HTTP status to a brief summary and an expanded explanation. */
+function describeHttpStatus(status: number, body: string): ProviderErrorInfo {
+  const raw = body ? ` Provider said: ${body}` : "";
+  if (status === 401) {
+    return {
+      summary: "Authentication failed (401) — the API key looks invalid or expired.",
+      detail:
+        `The provider rejected the credentials with HTTP 401 (Unauthorized). The API key is likely missing, mistyped, revoked, or expired — or it belongs to a different provider. Re-check the key and save it again.${raw}`,
+    };
   }
+  if (status === 403) {
+    return {
+      summary: "Access denied (403) — your key isn't allowed to use this model.",
+      detail:
+        `The provider accepted the request but refused it with HTTP 403 (Forbidden). Common causes: the key doesn't have access to this model, your account or region isn't enabled for it, billing isn't set up, or the model name is gated. Check the model is enabled for your account and that billing/credits are active.${raw}`,
+    };
+  }
+  if (status === 404) {
+    return {
+      summary: "Not found (404) — the model name or Base URL may be wrong.",
+      detail:
+        `The provider returned HTTP 404 (Not Found). Usually the model name doesn't exist for this provider, or the Base URL points at the wrong path. Verify the exact model id and the Base URL.${raw}`,
+    };
+  }
+  if (status === 402) {
+    return {
+      summary: "Payment required (402) — the account has no credits.",
+      detail:
+        `The provider returned HTTP 402 (Payment Required). Your account is out of credits or has no active billing. Add credits or set up billing with the provider, then retry.${raw}`,
+    };
+  }
+  if (status === 429) {
+    return {
+      summary: "Rate limited or out of credits (429).",
+      detail:
+        `The provider returned HTTP 429 (Too Many Requests). Either you're sending requests too fast, or the account has hit its quota / run out of credits. Wait and retry, raise your rate limit, or add credits.${raw}`,
+    };
+  }
+  if (status >= 500) {
+    return {
+      summary: `Provider error (${status}) — the upstream service failed.`,
+      detail:
+        `The provider returned HTTP ${status}, an error on their side. This is usually temporary — retry in a bit. If it persists, check the provider's status page.${raw}`,
+    };
+  }
+  return {
+    summary: `Provider rejected the request (${status}).`,
+    detail: `The provider responded with HTTP ${status}.${raw}`,
+  };
 }
 
 /**
@@ -502,18 +567,30 @@ function dedupeSort(ids: string[]): string[] {
   return [...new Set(ids.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
+export interface EndpointTestResult {
+  ok: boolean;
+  /** "live" (real provider reachable) | "not_testable" | "error" — the latter two run simulated. */
+  mode: "live" | "not_testable" | "error";
+  latencyMs: number;
+  /** One-line message for the default view. */
+  summary: string;
+  /** Expanded explanation: likely cause, what to do, and any raw provider signal. */
+  detail: string;
+}
+
 /** Connectivity test for an endpoint. Returns a structured result. */
 export async function testEndpoint(
   endpoint: ModelEndpoint,
   apiKey: string | null,
-): Promise<{ ok: boolean; mode: string; latencyMs: number; detail: string }> {
+): Promise<EndpointTestResult> {
   if (requiresApiKey(endpoint.providerType, endpoint) && !apiKey) {
     return {
       ok: false,
       mode: "not_testable",
       latencyMs: 0,
+      summary: "No API key — this endpoint can't run live and will use the simulated stub.",
       detail:
-        "No API key configured; a live connection cannot be tested. Runs will use the deterministic stub until a key is added.",
+        "No API key is configured, so a live connection cannot be tested. Until a key is added, ContextOS runs will NOT reach the real provider — they fall back to the deterministic simulated stub, which returns placeholder output instead of real model responses. Add an API key to make this endpoint live.",
     };
   }
   const start = Date.now();
@@ -523,18 +600,22 @@ export async function testEndpoint(
       apiKey,
       req: { messages: [{ role: "user", content: "ping" }], maxTokens: 8 },
     });
+    const latencyMs = Date.now() - start;
     return {
       ok: true,
       mode: "live",
-      latencyMs: Date.now() - start,
-      detail: "Live provider responded successfully.",
+      latencyMs,
+      summary: `Live — the provider responded in ${latencyMs}ms. Real models will be used.`,
+      detail: `Live provider responded successfully in ${latencyMs}ms. ContextOS runs against this endpoint will reach the real model.`,
     };
   } catch (err) {
+    const info = describeProviderError(err);
     return {
       ok: false,
       mode: "error",
       latencyMs: Date.now() - start,
-      detail: describeProviderError(err),
+      summary: `${info.summary} Runs will fall back to the simulated stub until this is fixed.`,
+      detail: `${info.detail}\n\nWhile this test fails, ContextOS makes no live request to the provider for this endpoint — runs fall back to the deterministic simulated stub (placeholder output), so real models won't be reached until the test passes.`,
     };
   }
 }

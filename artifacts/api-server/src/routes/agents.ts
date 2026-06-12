@@ -533,7 +533,7 @@ router.post("/model-endpoints/list-models", async (req, res): Promise<void> => {
     const models = await listModels({ providerType, baseUrl, host, port, apiKey });
     res.json(ListProviderModelsResponse.parse({ models }));
   } catch (err) {
-    res.status(502).json({ error: describeProviderError(err) });
+    res.status(502).json({ error: describeProviderError(err).detail });
   }
 });
 
@@ -574,7 +574,9 @@ router.post("/model-endpoints/:id/test", async (req, res): Promise<void> => {
     TestModelEndpointResponse.parse({
       ok: result.ok,
       latencyMs: result.latencyMs,
-      message: result.detail,
+      message: result.summary,
+      detail: result.detail,
+      mode: result.mode,
       model: row.modelName,
       usedStub,
     }),
