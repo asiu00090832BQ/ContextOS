@@ -46,3 +46,25 @@ agent is ready on `PORT` (default `8080`).
     -H 'content-type: application/json' \
     -d '{"content":"Hello"}'
   ```
+- **Telegram:** chat with the bot from Telegram.
+  1. Add `TELEGRAM_BOT_TOKEN` (from BotFather) to `.env`, then restart.
+  2. Give Telegram a public **https** URL for the webhook (it can't reach
+     localhost/dev preview), then register it: set `TELEGRAM_WEBHOOK_URL` so it
+     registers on boot, or use the **Telegram** page (`/telegram`) or
+     `POST /api/telegram/set-webhook`.
+
+  Then DM your bot. It uses the same model as the web/API agent, and the webhook
+  secret is derived from the token (nothing to set).
+
+  **Get a public https URL with localtunnel:** with the server running on `PORT`
+  (default 8080), open a second terminal and run:
+  ```bash
+  pnpm dlx localtunnel --port 8080
+  ```
+  It prints a public URL like `https://xyz.loca.lt`. Point the webhook at it:
+  ```bash
+  export TELEGRAM_WEBHOOK_URL=https://xyz.loca.lt/api/telegram/webhook
+  ```
+  Add `--subdomain <name>` to keep a stable URL across restarts. For a permanent
+  setup, host the server publicly instead — run `./run.sh` behind HTTPS, or on
+  Replit Publish the app and use its `.replit.app` URL.
