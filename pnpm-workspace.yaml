@@ -68,16 +68,22 @@ catalog:
 
 autoInstallPeers: false
 
+# Allow-list of dependencies permitted to run install/build scripts.
+# pnpm <= 10 reads `onlyBuiltDependencies` (a list); pnpm >= 11 removed it in
+# favor of `allowBuilds` (a name->bool map) and defaults strictDepBuilds to true.
+# Declaring BOTH keeps a single clone building on pnpm 10 (Replit) and 11+ (local).
 onlyBuiltDependencies:
   - '@swc/core'
   - esbuild
   - msw
   - unrs-resolver
+
 allowBuilds:
   '@swc/core': true
   esbuild: true
   msw: true
   unrs-resolver: true
+
 overrides:
   # qs <6.5.3 / <6.9.7 etc. prototype-pollution fix — security pin.
   # (Lives here, not in package.json, because pnpm 10.x no longer reads the
