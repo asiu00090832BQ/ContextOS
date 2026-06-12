@@ -164,7 +164,10 @@ async function callOpenAiCompatible({
     }),
     signal: AbortSignal.timeout(endpoint.requestTimeoutMs),
   });
-  if (!res.ok) throw new Error(`provider ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`provider ${res.status}${body ? `: ${body.slice(0, 300)}` : ""}`);
+  }
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
   };
@@ -202,7 +205,10 @@ async function callAnthropic({
     }),
     signal: AbortSignal.timeout(endpoint.requestTimeoutMs),
   });
-  if (!res.ok) throw new Error(`provider ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`provider ${res.status}${body ? `: ${body.slice(0, 300)}` : ""}`);
+  }
   const data = (await res.json()) as { content?: { text?: string }[] };
   return data.content?.map((c) => c.text ?? "").join("") ?? "";
 }
@@ -235,7 +241,10 @@ async function callGoogle({
     }),
     signal: AbortSignal.timeout(endpoint.requestTimeoutMs),
   });
-  if (!res.ok) throw new Error(`provider ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`provider ${res.status}${body ? `: ${body.slice(0, 300)}` : ""}`);
+  }
   const data = (await res.json()) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
   };
@@ -326,7 +335,42 @@ export function describeProviderError(err: unknown): string {
   if (/certificate|self.?signed|SSL|TLS|DEPTH_ZERO|ERR_TLS/i.test(hay)) {
     return "TLS certificate error. The server's HTTPS certificate is self-signed or untrusted by the cloud. Use a tunnel that provides a valid certificate (ngrok / Cloudflare Tunnel) instead of a raw self-signed HTTPS endpoint.";
   }
+  // Upstream HTTP status (the provider answered but rejected the call). The
+  // thrown message is shaped like "provider 403" / "provider 403: <body>" or
+  // "Provider responded 403.", so pull the status out of those known prefixes
+  // (anchored to avoid matching unrelated 3-digit numbers like a port).
+  const statusMatch = hay.match(/(?:provider|responded)[^\d]{0,4}(\d{3})/i);
+  if (statusMatch) {
+    const mapped = describeHttpStatus(Number(statusMatch[1]));
+    if (mapped) return mapped;
+  }
   return causeMsg ? `${err.message} (${causeMsg})` : err.message;
+}
+
+/**
+ * Map a common upstream HTTP status to a short, actionable explanation. Returns
+ * null for statuses we don't have specific guidance for, so the caller can fall
+ * back to the raw message.
+ */
+function describeHttpStatus(status: number): string | null {
+  switch (status) {
+    case 400:
+      return "The provider rejected the request (400). The model name is likely invalid for this provider, or a parameter isn't supported by this model. Verify the exact model id (use \"Fetch models\").";
+    case 401:
+      return "Authentication failed (401). The API key is missing, invalid, or expired for this provider. Re-enter a valid key on this endpoint.";
+    case 402:
+      return "Payment required (402). This provider account is out of credits or has no active billing. Add credits/billing for this key, or switch to a model your plan covers.";
+    case 403:
+      return "Access denied (403). The key is valid but not allowed to use this model or endpoint. Enable access to this model for your key, or pick a model the key can use.";
+    case 404:
+      return "Not found (404). The model name doesn't exist at this provider, or the Base URL path is wrong. Check the exact model id (use \"Fetch models\") and the Base URL.";
+    case 429:
+      return "Rate limited (429). Too many requests, or you've hit a quota/credit limit for this provider. Wait and retry, or check your plan's limits and credits.";
+    default:
+      if (status >= 500)
+        return `The provider had a server error (${status}). This is on the provider's side — wait a moment and try again.`;
+      return null;
+  }
 }
 
 /**

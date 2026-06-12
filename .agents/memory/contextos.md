@@ -210,6 +210,16 @@ In this environment, `rg`/`bash` stdout sometimes corrupts substrings (e.g. `Dia
 use `read` for exact strings before editing; don't trust rg/bash output for verbatim identifiers.
 No test runner is configured — bundle standalone checks with esbuild (`scripts/verify-isolation.ts`).
 
+## Model-endpoint PATCH clobber trap (edit UI)
+`PATCH /model-endpoints/:id` treats any *defined* field as an update, so sending an empty-string
+`baseUrl`/`host` overwrites a stored value with "". An edit form that always serializes its inputs
+will silently wipe connection fields the user never touched (e.g. host/port-backed rows), and for
+`openai_compatible` an empty baseUrl is rejected (400). **How to apply:** the edit form must OMIT
+empty connection fields (`baseUrl`/`host`/`port`/`requestTimeoutMs`/`apiKey`) — only send them when
+non-empty; blank apiKey = keep current. Also keep create vs edit "fetched models" in separate state
+or they leak across dialogs. `POST /model-endpoints/list-models` accepts `endpointId` to reuse the
+stored key, so the edit "Fetch models" works without re-entering the key.
+
 ## Composite project ref — stale .d.ts after schema change
 lib/db is a `composite` project that emits declarations to `dist` (emitDeclarationOnly); api-server
 references it. After editing `lib/db/src/schema/*`, a plain `tsc --noEmit` in api-server reads the

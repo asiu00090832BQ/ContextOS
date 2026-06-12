@@ -3,13 +3,14 @@ import {
   useListModelEndpoints,
   getListModelEndpointsQueryKey,
   useCreateModelEndpoint,
+  useUpdateModelEndpoint,
   useDeleteModelEndpoint,
   useTestModelEndpoint,
   useListProviderModels,
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ServerCog, Plus, Trash2, Activity, RefreshCw, Globe } from "lucide-react";
+import { ServerCog, Plus, Trash2, Activity, RefreshCw, Globe, Pencil } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -47,28 +48,55 @@ export function ModelEndpoints() {
   });
 
   const createMutation = useCreateModelEndpoint();
+  const updateMutation = useUpdateModelEndpoint();
   const deleteMutation = useDeleteModelEndpoint();
   const testMutation = useTestModelEndpoint();
   const listModelsMutation = useListProviderModels();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [browserCheckingId, setBrowserCheckingId] = useState<string | null>(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
+  const [editForm, setEditForm] = useState({
+    id: "",
+    name: "",
+    providerType: "openai",
+    modelName: "",
+    baseUrl: "",
+    host: "",
+    port: "",
+    apiKey: "",
+    requestTimeoutMs: "",
+    isDefault: false,
+    hasKey: false,
+  });
   const [models, setModels] = useState<string[]>([]);
+  const [editModels, setEditModels] = useState<string[]>([]);
 
-  const handleFetchModels = async () => {
+  const runFetchModels = async (
+    src: {
+      providerType: string;
+      baseUrl: string;
+      host: string;
+      port: string;
+      apiKey: string;
+      endpointId?: string;
+    },
+    setResult: (models: string[]) => void,
+  ) => {
     try {
       const result = await listModelsMutation.mutateAsync({
         data: {
-          providerType: formData.providerType,
-          baseUrl: formData.baseUrl.trim() || undefined,
-          host: formData.host.trim() || undefined,
-          port: formData.port.trim() ? Number(formData.port) : undefined,
-          apiKey: formData.apiKey.trim() || undefined,
+          providerType: src.providerType,
+          baseUrl: src.baseUrl.trim() || undefined,
+          host: src.host.trim() || undefined,
+          port: src.port.trim() ? Number(src.port) : undefined,
+          apiKey: src.apiKey.trim() || undefined,
+          ...(src.endpointId ? { endpointId: src.endpointId } : {}),
         },
       });
-      setModels(result.models);
+      setResult(result.models);
       toast({
         title: result.models.length
           ? `Found ${result.models.length} models`
@@ -82,6 +110,13 @@ export function ModelEndpoints() {
       });
     }
   };
+
+  const handleFetchModels = () => runFetchModels(formData, setModels);
+  const handleFetchEditModels = () =>
+    runFetchModels(
+      { ...editForm, endpointId: editForm.id },
+      setEditModels,
+    );
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: getListModelEndpointsQueryKey() });
@@ -129,8 +164,15 @@ export function ModelEndpoints() {
       const result: any = await testMutation.mutateAsync({ id });
       const ok = result?.ok ?? result?.status === "active";
       toast({
-        title: ok ? "Endpoint reachable" : "Endpoint test failed",
-        description: result?.message ?? result?.detail ?? undefined,
+        title: ok
+          ? "Endpoint is live"
+          : "Not reachable — runs will use the simulated stub",
+        description:
+          result?.message ??
+          result?.detail ??
+          (ok
+            ? undefined
+            : "No live model was reached, so replies fall back to the deterministic simulated stub."),
         variant: ok ? undefined : "destructive",
       });
       invalidate();
@@ -241,6 +283,77 @@ export function ModelEndpoints() {
     } catch (error: any) {
       toast({
         title: "Failed to delete endpoint",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleEditOpen = (endpoint: {
+    id: string;
+    name: string;
+    providerType: string;
+    modelName: string;
+    baseUrl?: string | null;
+    host?: string | null;
+    port?: number | null;
+    requestTimeoutMs?: number | null;
+    isDefault?: boolean;
+    apiKeyMasked?: string | null;
+  }) => {
+    setEditForm({
+      id: endpoint.id,
+      name: endpoint.name,
+      providerType: endpoint.providerType,
+      modelName: endpoint.modelName,
+      baseUrl: endpoint.baseUrl ?? "",
+      host: endpoint.host ?? "",
+      port: endpoint.port != null ? String(endpoint.port) : "",
+      apiKey: "",
+      requestTimeoutMs:
+        endpoint.requestTimeoutMs != null ? String(endpoint.requestTimeoutMs) : "",
+      isDefault: Boolean(endpoint.isDefault),
+      hasKey: Boolean(endpoint.apiKeyMasked),
+    });
+    setEditModels([]);
+    setIsEditOpen(true);
+  };
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editForm.providerType === "openai_compatible" && !editForm.baseUrl.trim()) {
+      toast({
+        title: "Base URL required",
+        description:
+          "OpenAI-compatible (local / self-hosted) endpoints need a Base URL.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      await updateMutation.mutateAsync({
+        id: editForm.id,
+        data: {
+          name: editForm.name,
+          modelName: editForm.modelName,
+          isDefault: editForm.isDefault,
+          // Only send connection fields when present so untouched/empty inputs
+          // don't overwrite a stored baseUrl/host (e.g. host/port-backed rows).
+          ...(editForm.baseUrl.trim() ? { baseUrl: editForm.baseUrl.trim() } : {}),
+          ...(editForm.host.trim() ? { host: editForm.host.trim() } : {}),
+          ...(editForm.port.trim() ? { port: Number(editForm.port) } : {}),
+          ...(editForm.requestTimeoutMs.trim()
+            ? { requestTimeoutMs: Number(editForm.requestTimeoutMs) }
+            : {}),
+          ...(editForm.apiKey.trim() ? { apiKey: editForm.apiKey.trim() } : {}),
+        },
+      });
+      toast({ title: "Model endpoint updated" });
+      setIsEditOpen(false);
+      invalidate();
+    } catch (error: any) {
+      toast({
+        title: "Failed to update endpoint",
         description: error.message,
         variant: "destructive",
       });
@@ -482,6 +595,14 @@ export function ModelEndpoints() {
                   </button>
                 )}
                 <button
+                  onClick={() => handleEditOpen(endpoint)}
+                  title="Edit this endpoint's model, Base URL, key, timeout, or default."
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted transition-colors"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Edit
+                </button>
+                <button
                   onClick={() => handleDelete(endpoint.id)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors"
                 >
@@ -498,6 +619,170 @@ export function ModelEndpoints() {
           </div>
         )}
       </div>
+
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Edit Model Endpoint</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUpdate} className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Name</label>
+              <input
+                required
+                value={editForm.name}
+                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                className="w-full p-2 rounded-md border bg-background"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Provider</label>
+              <input
+                disabled
+                value={
+                  PROVIDERS.find((p) => p.value === editForm.providerType)?.label ??
+                  editForm.providerType
+                }
+                className="w-full p-2 rounded-md border bg-muted text-muted-foreground"
+              />
+              <p className="text-xs text-muted-foreground">
+                Provider type can't be changed. Delete and re-add to switch providers.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Model Name</label>
+                <button
+                  type="button"
+                  onClick={handleFetchEditModels}
+                  disabled={listModelsMutation.isPending}
+                  className="flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                >
+                  <RefreshCw
+                    className={`w-3 h-3 ${listModelsMutation.isPending ? "animate-spin" : ""}`}
+                  />
+                  {listModelsMutation.isPending ? "Fetching..." : "Fetch models"}
+                </button>
+              </div>
+              {editModels.length > 0 ? (
+                <>
+                  <select
+                    required
+                    value={editForm.modelName}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, modelName: e.target.value })
+                    }
+                    className="w-full p-2 rounded-md border bg-background"
+                  >
+                    <option value="" disabled>
+                      Select a model…
+                    </option>
+                    {editModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setEditModels([])}
+                    className="text-xs text-muted-foreground hover:underline"
+                  >
+                    Enter manually instead
+                  </button>
+                </>
+              ) : (
+                <input
+                  required
+                  value={editForm.modelName}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, modelName: e.target.value })
+                  }
+                  className="w-full p-2 rounded-md border bg-background"
+                  placeholder="e.g. gpt-4o, claude-3-5-sonnet"
+                />
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Base URL{" "}
+                <span className="text-muted-foreground font-normal">
+                  {editForm.providerType === "openai_compatible"
+                    ? "(required for local / self-hosted)"
+                    : "(optional)"}
+                </span>
+              </label>
+              <input
+                required={editForm.providerType === "openai_compatible"}
+                value={editForm.baseUrl}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, baseUrl: e.target.value })
+                }
+                className="w-full p-2 rounded-md border bg-background"
+                placeholder="e.g. http://localhost:1234/v1"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                API Key{" "}
+                <span className="text-muted-foreground font-normal">
+                  {editForm.hasKey ? "(leave blank to keep current)" : "(optional)"}
+                </span>
+              </label>
+              <input
+                type="password"
+                value={editForm.apiKey}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, apiKey: e.target.value })
+                }
+                className="w-full p-2 rounded-md border bg-background"
+                placeholder={editForm.hasKey ? "•••• keep current key" : "sk-..."}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Request timeout (ms){" "}
+                <span className="text-muted-foreground font-normal">(optional)</span>
+              </label>
+              <input
+                type="number"
+                min={1000}
+                value={editForm.requestTimeoutMs}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, requestTimeoutMs: e.target.value })
+                }
+                className="w-full p-2 rounded-md border bg-background"
+                placeholder="e.g. 60000 for slow / reasoning models"
+              />
+            </div>
+
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input
+                type="checkbox"
+                checked={editForm.isDefault}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, isDefault: e.target.checked })
+                }
+                className="h-4 w-4 rounded border"
+              />
+              Set as default endpoint
+            </label>
+
+            <button
+              disabled={updateMutation.isPending}
+              type="submit"
+              className="w-full py-2 bg-primary text-primary-foreground rounded-md font-medium disabled:opacity-60"
+            >
+              {updateMutation.isPending ? "Saving..." : "Save changes"}
+            </button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
