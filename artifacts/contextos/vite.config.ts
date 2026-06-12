@@ -4,18 +4,14 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
-const isReplit = process.env.REPL_ID !== undefined;
+const isDev = process.env.NODE_ENV !== "production";
 
-// On Replit, the platform injects a per-artifact PORT that must be used.
-// Standalone, ignore any PORT meant for the API server (e.g. PORT=8080 from
-// .env) and use a dedicated WEB_PORT or a local default to avoid a collision.
-const rawPort = isReplit ? process.env.PORT : process.env.WEB_PORT ?? "5173";
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
+// Pick the web port without ever crashing on a missing var:
+//   WEB_PORT  -> explicit override (use this to avoid colliding with the API
+//                server's PORT, e.g. 8080, when both run from the same shell)
+//   PORT      -> injected by the Replit workflow / most hosts
+//   5173      -> local default
+const rawPort = process.env.WEB_PORT ?? process.env.PORT ?? "5173";
 
 const port = Number(rawPort);
 
@@ -23,14 +19,9 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid port value: "${rawPort}"`);
 }
 
-// On Replit the platform injects BASE_PATH; standalone defaults to root.
-const basePath = process.env.BASE_PATH ?? (isReplit ? undefined : "/");
-
-if (!basePath) {
-  throw new Error(
-    "BASE_PATH environment variable is required but was not provided.",
-  );
-}
+// Replit's workflow injects BASE_PATH for path-based routing; default to root
+// for standalone/local runs.
+const basePath = process.env.BASE_PATH ?? "/";
 
 export default defineConfig({
   base: basePath,
@@ -72,17 +63,17 @@ export default defineConfig({
     fs: {
       strict: true,
     },
-    // Standalone dev: forward the web app's relative /api calls to the local
-    // API server. On Replit the platform proxy handles /api routing, so this
-    // is left off there.
-    proxy: isReplit
-      ? undefined
-      : {
+    // Dev only: forward the web app's relative /api calls to the local API
+    // server. Harmless on Replit, where the platform proxy already routes /api
+    // (those requests never reach Vite).
+    proxy: isDev
+      ? {
           "/api": {
             target: process.env.API_PROXY_TARGET ?? "http://localhost:8080",
             changeOrigin: true,
           },
-        },
+        }
+      : undefined,
   },
   preview: {
     port,

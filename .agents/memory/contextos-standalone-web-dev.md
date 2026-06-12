@@ -13,13 +13,17 @@ description: Why the contextos web crashes when run by hand, and the PORT/proxy 
   in a plain shell crashes on the missing vars unless defaults are provided.
 
 **Rules (keep both environments working):**
-- Detect Replit via `REPL_ID`. On Replit the platform injects a *per-artifact*
-  PORT — it is authoritative, must be used as-is.
-- Standalone, do NOT reuse `PORT`: `.env` sets `PORT=8080` for the API server,
-  so the web inheriting it collides. Use a dedicated `WEB_PORT` (default 5173).
-- `/api` dev proxy must be gated to non-Replit only. On Replit the platform
-  proxy routes `/api` to the api-server artifact and vite never sees it; turning
-  the vite proxy on there would point at the wrong port.
+- Do NOT gate the config on `REPL_ID`. A Replit *shell* has `REPL_ID` set but
+  `PORT`/`BASE_PATH` are injected only into the *workflow* process — so gating on
+  `REPL_ID` makes manual `pnpm --filter ... run dev` crash on missing PORT.
+- Resolve the web port as `WEB_PORT ?? PORT ?? 5173` and never throw on a missing
+  value (default instead). `WEB_PORT` is the escape hatch to avoid colliding with
+  the API server's `PORT` (e.g. 8080 from `.env`) when both run in one shell.
+- `BASE_PATH ?? "/"` — the workflow injects it; default to root otherwise.
+- `/api` dev proxy: gate on dev mode (`NODE_ENV !== "production"`), not Replit.
+  It's harmless on Replit because the platform proxy routes `/api` to the
+  api-server artifact and those requests never reach Vite.
 
-**Why:** the multi-artifact router gives each artifact its own injected PORT, but
-a shared `.env` PORT for the API leaks into any artifact run by hand.
+**Why:** the multi-artifact router gives each *workflow* its own injected PORT,
+but those vars are absent in a plain shell — so the config must default, not
+require, and must not assume "on Replit ⇒ PORT is set".
