@@ -32,6 +32,22 @@ macOS/Windows. Both live in pnpm config, not app code.
 - `onlyBuiltDependencies` (incl. `esbuild`) already lives in the workspace yaml,
   so esbuild's postinstall runs once the host's binary actually installs.
 
+## 2b. pnpm 11 removed `onlyBuiltDependencies` -> use `allowBuilds` (keep both)
+- pnpm >=11 dropped `onlyBuiltDependencies`/`neverBuiltDependencies`/
+  `ignoredBuiltDependencies` in favor of `allowBuilds` (a name->bool map) and now
+  defaults `strictDepBuilds: true`. So a dep with a build script that isn't in
+  `allowBuilds` is BLOCKED and fails install with `ERR_PNPM_IGNORED_BUILDS`.
+- **Symptom:** clone builds on Replit (pnpm 10.26.1) but a contributor on pnpm
+  11.x gets `ERR_PNPM_IGNORED_BUILDS: esbuild@<v>` because v11 silently ignores
+  our `onlyBuiltDependencies` list.
+- **Fix:** declare BOTH keys in `pnpm-workspace.yaml` — the list for pnpm 10 and
+  an `allowBuilds:` map (`esbuild: true`, `@swc/core: true`, `msw: true`,
+  `unrs-resolver: true`) for pnpm 11+. pnpm 10 ignores the unknown `allowBuilds`
+  key; pnpm 11 ignores the removed list. No version pinning needed; keep the two
+  in sync when adding a built dep.
+- **One-off local unblock** on an already-installed pnpm-11 clone: `pnpm
+  approve-builds` (approve esbuild) writes the allowBuilds entry itself.
+
 ## 3. CI guards this regression class now
 - A GitHub Actions matrix job (Linux/macOS/Windows) reproduces the README
   clone-and-run (`cp .env.example .env` → `pnpm install` → web build) and fails
