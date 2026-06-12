@@ -27,3 +27,20 @@ description: Why the contextos web crashes when run by hand, and the PORT/proxy 
 **Why:** the multi-artifact router gives each *workflow* its own injected PORT,
 but those vars are absent in a plain shell — so the config must default, not
 require, and must not assume "on Replit ⇒ PORT is set".
+
+**Single-URL (beginner) mode — API serves the built web UI:**
+- The api-server optionally serves the built web at its root, gated on
+  `CONTEXTOS_WEB_DIR` (a dir containing `index.html`). Static middleware + an
+  SPA fallback are mounted AFTER `app.use("/api", router)`, and the fallback
+  skips any path starting with `/api` so API + webhook routes are never shadowed.
+- The gate must stay opt-in: `CONTEXTOS_WEB_DIR` is set only by `run.sh` default
+  mode. Never set it on Replit — the web is its own artifact/workflow there, and
+  setting it would make the api-server double-serve the UI.
+- `run.sh` is dual-mode: default builds the web (`contextos run build` →
+  `dist/public`), exports `CONTEXTOS_WEB_DIR`, serves UI+API at one URL;
+  `--api-only` runs the API alone for separate Vite dev. Readiness poll hits
+  `/api/healthz` (NOT `/` — root only exists in single-URL mode).
+- Chat over the HTTP API is async: `POST /api/conversations/:id/messages` returns
+  the user's own message; the agent reply arrives via SSE
+  `GET /api/conversations/:id/events` (Accept: text/event-stream) or by polling
+  `GET /api/conversations/:id/messages`. README must not imply a sync reply.
