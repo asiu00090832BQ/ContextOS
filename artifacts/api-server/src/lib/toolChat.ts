@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { anthropic as managedAnthropic } from "@workspace/integrations-anthropic-ai";
 import type { ModelEndpoint } from "@workspace/db";
 import { logger } from "./logger";
+import { defaultOpenAiCompatibleBase } from "./providerDefaults";
 
 /** Default model used when talking to the Replit-managed Anthropic integration. */
 export const MANAGED_ANTHROPIC_MODEL = "claude-sonnet-4-6";
@@ -578,7 +579,10 @@ export async function runToolChat(
   }
 
   // OpenAI-compatible family (openai, openai_compatible, openrouter, azure).
-  const base = resolveBaseUrl(endpoint, "https://api.openai.com/v1");
+  const base = resolveBaseUrl(
+    endpoint,
+    defaultOpenAiCompatibleBase(endpoint.providerType),
+  );
   const text = await runOpenAiToolChat(
     base,
     opts.apiKey,

@@ -1,6 +1,7 @@
 import type { ModelEndpoint } from "@workspace/db";
 import { anthropic as managedAnthropic } from "@workspace/integrations-anthropic-ai";
 import { logger } from "./logger";
+import { defaultOpenAiCompatibleBase } from "./providerDefaults";
 import { MANAGED_ANTHROPIC_REF, MANAGED_ANTHROPIC_MODEL } from "./toolChat";
 
 export interface LlmMessage {
@@ -172,7 +173,11 @@ async function callOpenAiCompatible({
   apiKey,
   req,
 }: ProviderCallArgs): Promise<string> {
-  const base = resolveBaseUrl(endpoint, "https://api.openai.com/v1", "/v1");
+  const base = resolveBaseUrl(
+    endpoint,
+    defaultOpenAiCompatibleBase(endpoint.providerType),
+    "/v1",
+  );
   const url = `${base.replace(/\/$/, "")}/chat/completions`;
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -551,7 +556,11 @@ export async function listModels(input: ListModelsInput): Promise<string[]> {
   }
 
   // openai / openai_compatible / openrouter / azure_openai
-  const base = resolveBaseFromInput(input, "https://api.openai.com/v1", "/v1");
+  const base = resolveBaseFromInput(
+    input,
+    defaultOpenAiCompatibleBase(input.providerType),
+    "/v1",
+  );
   const headers: Record<string, string> = {};
   if (input.apiKey) headers.authorization = `Bearer ${input.apiKey}`;
   const res = await fetch(`${base.replace(/\/$/, "")}/models`, {
