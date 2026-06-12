@@ -88,9 +88,17 @@ fi
 PORT="${PORT:-8080}"
 URL="http://localhost:${PORT}"
 
+TUNNEL_PID=""
 pnpm --filter @workspace/api-server run dev &
 SERVER_PID=$!
-trap 'kill -TERM "$SERVER_PID" 2>/dev/null; exit' INT TERM
+cleanup() {
+  kill -TERM "$SERVER_PID" 2>/dev/null || true
+  [ -n "$TUNNEL_PID" ] && kill -TERM "$TUNNEL_PID" 2>/dev/null || true
+}
+# Tear down both the server and the tunnel on any exit path (signal, crash, or
+# normal end), so a dying server never leaves an orphaned tunnel behind.
+trap 'cleanup; exit' INT TERM
+trap cleanup EXIT
 
 # Announce the URL once the server is accepting connections.
 for _ in $(seq 1 90); do
@@ -107,5 +115,29 @@ for _ in $(seq 1 90); do
   kill -0 "$SERVER_PID" 2>/dev/null || break
   sleep 1
 done
+
+# 7. Public tunnel + Telegram webhook (local runs only). When a Telegram bot
+#    token is configured, open a localtunnel and point the bot's webhook at it so
+#    the bot is reachable with no manual steps. Skipped on Replit (already public)
+#    and when ENABLE_TUNNEL is a falsy value (0/false/no/off).
+ENABLE_TUNNEL="${ENABLE_TUNNEL:-auto}"
+should_tunnel() {
+  [ -z "${REPL_ID:-}" ] || return 1
+  case "$ENABLE_TUNNEL" in
+    0|false|no|off) return 1 ;;
+  esac
+  [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && return 0
+  if [ -f .env ] && grep -Eq "^[[:space:]]*TELEGRAM_BOT_TOKEN[[:space:]]*=[[:space:]]*[^[:space:]\"']" .env; then
+    return 0
+  fi
+  return 1
+}
+
+if should_tunnel; then
+  echo ""
+  echo "Opening a public tunnel and registering the Telegram webhook..."
+  PORT="$PORT" ./scripts/tunnel.sh &
+  TUNNEL_PID=$!
+fi
 
 wait "$SERVER_PID"

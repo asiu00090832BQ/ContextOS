@@ -74,32 +74,27 @@ The web dev server serves at `http://localhost:5173` and proxies `/api` to the A
   curl -s http://localhost:8080/api/conversations/<conversationId>/messages
   ```
 - **Telegram:** chat with the bot from Telegram.
-  1. Add `TELEGRAM_BOT_TOKEN` (from BotFather) to `.env`, then restart.
-  2. Give Telegram a public **https** URL for the webhook (it can't reach
-     localhost/dev preview), then register it: set `TELEGRAM_WEBHOOK_URL` so it
-     registers on boot, or use the **Telegram** page (`/telegram`) or
-     `POST /api/telegram/set-webhook`.
+  1. Add `TELEGRAM_BOT_TOKEN` (from BotFather) to `.env`.
+  2. Run `./run.sh`. On a local (non-Replit) run, when a bot token is present it
+     automatically opens a public tunnel with the bundled
+     [localtunnel](https://github.com/localtunnel/localtunnel) package and registers
+     it as the Telegram webhook — no extra terminals or commands. If no webhook is
+     set yet (or it points elsewhere) it is set to the generated tunnel URL; if it
+     already matches, nothing changes.
 
   Then DM your bot. It uses the same model as the web/API agent, and the webhook
   secret is derived from the token (nothing to set).
 
-  **Get a public https URL with localtunnel:** with the server running on `PORT`
-  (default 8080), open a second terminal and run:
-  ```bash
-  pnpm dlx localtunnel --port 8080
-  ```
-  It prints a public URL like `https://xyz.loca.lt` (leave this terminal open —
-  closing it drops the tunnel). Then register the webhook against it. The tunnel
-  terminal is busy, so do this from a **third** terminal:
-  ```bash
-  curl -sX POST http://localhost:8080/api/telegram/set-webhook \
-    -H 'content-type: application/json' \
-    -d '{"url":"https://xyz.loca.lt/api/telegram/webhook"}'
-  ```
-  Alternatively, put `TELEGRAM_WEBHOOK_URL=https://xyz.loca.lt/api/telegram/webhook`
-  in `.env` and restart the server so it registers on boot (note: a free
-  localtunnel URL changes each run — use `--subdomain <name>` to keep it stable).
-  You can also register from the **Telegram** page (`/telegram`) in the web UI.
+  **Keep the URL stable:** set `TUNNEL_SUBDOMAIN=<name>` in `.env` to request a
+  fixed `https://<name>.loca.lt` URL that survives restarts. Disable the
+  auto-tunnel with `ENABLE_TUNNEL=0`, or change the tunnel server with
+  `TUNNEL_HOST`. Note: loca.lt may show a one-time reminder page and a requested
+  subdomain isn't guaranteed — the actual assigned URL is used regardless.
+
+  **Manual / other options:** you can still set
+  `TELEGRAM_WEBHOOK_URL=https://<your-host>/api/telegram/webhook` in `.env` to
+  register a webhook on boot, or use the **Telegram** page (`/telegram`) or
+  `POST /api/telegram/set-webhook`.
 
   For a permanent setup, host the server publicly instead — run `./run.sh` behind
   HTTPS, or on Replit Publish the app and use its `.replit.app` URL.
