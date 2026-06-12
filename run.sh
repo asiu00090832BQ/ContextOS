@@ -134,6 +134,23 @@ should_tunnel() {
   return 1
 }
 
+read_cfg() {  # value of $1 from environment, else .env, else empty
+  local val; eval "val=\${$1:-}"
+  if [ -n "$val" ]; then printf '%s' "$val"; return; fi
+  [ -f .env ] || return
+  grep -E "^[[:space:]]*$1[[:space:]]*=" .env | tail -n1 \
+    | sed -E "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//; s/[[:space:]]*\$//; s/^[\"']//; s/[\"']\$//"
+}
+# Pin a stable localtunnel subdomain so the public URL (and the Telegram webhook
+# pointed at it) stays the same across runs. Your own value always wins: set
+# TUNNEL_SUBDOMAIN in the environment or .env to use a different name. Only
+# applies to localtunnel; cloudflared assigns a random URL and ignores it.
+case "$(read_cfg TUNNEL_PROVIDER)" in
+  ""|localtunnel|lt)
+    [ -n "$(read_cfg TUNNEL_SUBDOMAIN)" ] || export TUNNEL_SUBDOMAIN="contextos-tunnel-subdomain"
+    ;;
+esac
+
 if should_tunnel; then
   echo ""
   echo "Opening a public tunnel and registering the Telegram webhook..."

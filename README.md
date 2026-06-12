@@ -97,13 +97,16 @@ The web dev server serves at `http://localhost:5173` and proxies `/api` to the A
     clear message instead of silently failing. The URL is random per run and
     `TUNNEL_SUBDOMAIN` does not apply.
 
-  **Keep the URL stable (localtunnel only):** set `TUNNEL_SUBDOMAIN=<name>` in
-  `.env` to request a fixed `https://<name>.loca.lt` URL. `./run.sh` re-requests
-  the same subdomain on every run, so the tunnel URL stays the same across
-  restarts. Disable the auto-tunnel with `ENABLE_TUNNEL=0`, or change the tunnel
-  server with `TUNNEL_HOST`. Note: loca.lt grants a requested subdomain only if
-  it's free — pick a unique name and check the printed URL, since a taken name
-  falls back to a random one.
+  **Keep the URL stable (localtunnel only):** for localtunnel, `./run.sh`
+  defaults to the fixed subdomain `contextos-tunnel-subdomain`
+  (`https://contextos-tunnel-subdomain.loca.lt`) and re-requests it on every run,
+  so the tunnel URL stays the same across restarts out of the box. Set
+  `TUNNEL_SUBDOMAIN=<name>` in `.env` to use your own name instead. Disable the
+  auto-tunnel with `ENABLE_TUNNEL=0`, or change the tunnel server with
+  `TUNNEL_HOST`. Note: loca.lt grants a requested subdomain only if it's free —
+  it's globally unique, so if the name is taken (e.g. another machine is using
+  it) loca.lt falls back to a random URL; pick your own unique name and check the
+  printed URL.
 
   **Pin it so the webhook never goes stale (recommended for localtunnel):** once
   the subdomain is fixed the URL is predictable, so you can register it at boot:
