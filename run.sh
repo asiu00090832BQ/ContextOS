@@ -25,9 +25,46 @@ if [ ! -f .env ] && [ -z "${DATABASE_URL:-}" ]; then
   exit 1
 fi
 
-# 3. Install dependencies.
+# 3. Warn if no model-provider key is configured (in the environment or .env).
+#    On Replit dev a keyless managed model is used as a fallback, so skip there.
+has_provider_key() {
+  local v val
+  for v in OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY; do
+    eval "val=\${$v:-}"
+    [ -n "$val" ] && return 0
+    if [ -f .env ] && grep -Eq "^[[:space:]]*${v}[[:space:]]*=[[:space:]]*[^[:space:]\"']" .env; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+if ! has_provider_key && [ -z "${REPL_ID:-}" ]; then
+  echo "Warning: no model-provider key found (OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENROUTER_API_KEY)." >&2
+  echo "         The server will start, but the agent will have no model until you set one in .env." >&2
+fi
+
+# 4. Install dependencies.
 pnpm install
 
-# 4. Run the API server: builds, applies the DB schema, auto-provisions the bot
+# 5. Run the API server: builds, applies the DB schema, auto-provisions the bot
 #    model from your .env key, and serves on PORT (default 8080).
-exec pnpm --filter @workspace/api-server run dev
+PORT="${PORT:-8080}"
+URL="http://localhost:${PORT}"
+
+pnpm --filter @workspace/api-server run dev &
+SERVER_PID=$!
+trap 'kill -TERM "$SERVER_PID" 2>/dev/null; exit' INT TERM
+
+# Announce the URL once the server is accepting connections.
+for _ in $(seq 1 90); do
+  if curl -sS -o /dev/null "${URL}/" 2>/dev/null; then
+    echo ""
+    echo "ContextOS is up: ${URL}"
+    break
+  fi
+  kill -0 "$SERVER_PID" 2>/dev/null || break
+  sleep 1
+done
+
+wait "$SERVER_PID"

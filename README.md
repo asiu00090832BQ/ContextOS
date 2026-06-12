@@ -24,14 +24,25 @@ recommended.
    ```
 
 `./run.sh` installs dependencies and starts the API server, which applies the database schema and
-auto-provisions the bot's model from your `.env` key on first boot. The agent is then ready on
-`PORT` (default `8080`).
+auto-provisions the bot's model from your `.env` key on first boot. It prints the URL once the
+agent is ready on `PORT` (default `8080`).
 
 > On Replit, `DATABASE_URL` and provider keys are injected as secrets, so you can skip step 1 and
 > just run `./run.sh`.
 
-Optional — run the web UI alongside the API:
+## Use the agent
 
-```bash
-pnpm --filter @workspace/contextos run dev
-```
+- **Web UI:** run it alongside the API, then open the **Chat** page at `/chat`:
+  ```bash
+  pnpm --filter @workspace/contextos run dev
+  ```
+- **API:** create a conversation, then send it a message:
+  ```bash
+  # 1. create a conversation -> returns { "id": "<conversationId>" }
+  curl -sX POST http://localhost:8080/api/conversations
+
+  # 2. send a message
+  curl -sX POST http://localhost:8080/api/conversations/<conversationId>/messages \
+    -H 'content-type: application/json' \
+    -d '{"content":"Hello"}'
+  ```
