@@ -117,9 +117,10 @@ for _ in $(seq 1 90); do
 done
 
 # 7. Public tunnel + Telegram webhook (local runs only). When a Telegram bot
-#    token is configured, open a localtunnel and point the bot's webhook at it so
-#    the bot is reachable with no manual steps. Skipped on Replit (already public)
-#    and when ENABLE_TUNNEL is a falsy value (0/false/no/off).
+#    token is configured, open a public tunnel (localtunnel by default, or
+#    cloudflared via TUNNEL_PROVIDER) and point the bot's webhook at it so the bot
+#    is reachable with no manual steps. Skipped on Replit (already public) and
+#    when ENABLE_TUNNEL is a falsy value (0/false/no/off).
 ENABLE_TUNNEL="${ENABLE_TUNNEL:-auto}"
 should_tunnel() {
   [ -z "${REPL_ID:-}" ] || return 1

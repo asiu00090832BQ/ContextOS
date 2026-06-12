@@ -1,32 +1,63 @@
 #!/usr/bin/env bash
 #
-# Open a public tunnel to the local server with the `localtunnel` package and
-# register the resulting URL as the Telegram webhook. Designed to be launched in
-# the background by run.sh, but it can also be run on its own while the server is
-# already up.
+# Open a public tunnel to the local server and register the resulting URL as the
+# Telegram webhook. Designed to be launched in the background by run.sh, but it
+# can also be run on its own while the server is already up.
 #
-# Behaviour:
+# Two tunnel backends are supported, chosen with TUNNEL_PROVIDER:
+#   - localtunnel (default) — the bundled `lt` package; URLs look like
+#     https://<subdomain>.loca.lt. No account needed, but loca.lt may serve a
+#     one-time browser "reminder" interstitial and occasionally drops
+#     connections, which can intermittently break webhook delivery.
+#   - cloudflared — Cloudflare's quick tunnel (`cloudflared tunnel --url ...`);
+#     URLs look like https://<random>.trycloudflare.com. Valid TLS, no account,
+#     and generally more dependable. Requires the `cloudflared` binary on PATH.
+#
+# Behaviour (both providers):
 #   - Tunnels the same PORT the server binds to (default 8080).
-#   - Requests a fixed subdomain (TUNNEL_SUBDOMAIN) so the URL is stable across
-#     restarts; loca.lt grants it when free, otherwise it assigns one and we use
-#     whatever URL it actually returns.
+#   - Waits for the provider to print its public https URL, then waits until the
+#     local API is healthy.
 #   - Reads the currently-registered Telegram webhook and, if it is missing or
 #     points somewhere else, sets it to the generated tunnel URL. If it already
-#     matches, nothing changes.
+#     matches, nothing changes (idempotent).
 #
-# Note: loca.lt may serve a one-time browser reminder page; non-browser callers
-# such as Telegram generally pass through. For a rock-solid setup, host the
-# server publicly instead (see the README).
+# For a rock-solid setup, host the server publicly instead (see the README).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Pull tunnel-related config from the root .env when it isn't already present in
+# the environment. Environment values always take precedence (matching run.sh
+# and the API server), so this only fills the gaps — which means selecting a
+# backend with TUNNEL_PROVIDER=... in .env works whether this script is launched
+# by run.sh or on its own.
+load_from_env_file() {
+  local var="$1" file=".env" line val
+  [ -n "${!var:-}" ] && return 0
+  [ -f "$file" ] || return 0
+  line="$(grep -E "^[[:space:]]*${var}[[:space:]]*=" "$file" | tail -n1 || true)"
+  [ -n "$line" ] || return 0
+  val="${line#*=}"
+  val="${val%%$'\r'}"
+  val="$(printf '%s' "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  case "$val" in
+    \"*\") val="${val#\"}"; val="${val%\"}" ;;
+    \'*\') val="${val#\'}"; val="${val%\'}" ;;
+  esac
+  export "$var=$val"
+}
+for _v in PORT TUNNEL_PROVIDER TUNNEL_SUBDOMAIN TUNNEL_HOST; do
+  load_from_env_file "$_v"
+done
+
 PORT="${PORT:-8080}"
 LOCAL_URL="http://localhost:${PORT}"
+PROVIDER="${TUNNEL_PROVIDER:-localtunnel}"
 SUBDOMAIN="${TUNNEL_SUBDOMAIN:-}"
 TUNNEL_HOST="${TUNNEL_HOST:-https://localtunnel.me}"
-LT_LOG="${TMPDIR:-/tmp}/contextos-tunnel.log"
+TUNNEL_LOG="${TMPDIR:-/tmp}/contextos-tunnel.log"
 
-# Prefer the binary installed at the workspace root; fall back to `pnpm exec`.
+# Prefer the localtunnel binary installed at the workspace root; fall back to
+# `pnpm exec`.
 run_lt() {
   if [ -x "node_modules/.bin/lt" ]; then
     node_modules/.bin/lt "$@"
@@ -35,35 +66,67 @@ run_lt() {
   fi
 }
 
-LT_ARGS=(--port "$PORT" --host "$TUNNEL_HOST")
-if [ -n "$SUBDOMAIN" ]; then
-  LT_ARGS+=(--subdomain "$SUBDOMAIN")
-fi
+# Launch the chosen provider in the background, writing its output to TUNNEL_LOG.
+# Sets TUNNEL_PID and URL_REGEX (the pattern used to scrape the public URL).
+start_provider() {
+  : > "$TUNNEL_LOG"
+  case "$PROVIDER" in
+    localtunnel|lt)
+      if [ ! -x "node_modules/.bin/lt" ] && ! pnpm exec lt --version >/dev/null 2>&1; then
+        echo "[tunnel] TUNNEL_PROVIDER=localtunnel but the 'lt' binary isn't available." >&2
+        echo "[tunnel] Run 'pnpm install' first, or set TUNNEL_PROVIDER=cloudflared." >&2
+        exit 1
+      fi
+      local lt_args=(--port "$PORT" --host "$TUNNEL_HOST")
+      [ -n "$SUBDOMAIN" ] && lt_args+=(--subdomain "$SUBDOMAIN")
+      echo "[tunnel] opening localtunnel to ${LOCAL_URL} ..."
+      run_lt "${lt_args[@]}" >"$TUNNEL_LOG" 2>&1 &
+      TUNNEL_PID=$!
+      # localtunnel only prints its own URL, so match the first https URL. This
+      # stays correct when TUNNEL_HOST points at a non-loca.lt localtunnel server.
+      URL_REGEX='https://[A-Za-z0-9.-]+'
+      ;;
+    cloudflared|cloudflare)
+      if ! command -v cloudflared >/dev/null 2>&1; then
+        echo "[tunnel] TUNNEL_PROVIDER=cloudflared but the 'cloudflared' binary isn't installed." >&2
+        echo "[tunnel] Install it (https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)" >&2
+        echo "[tunnel] or set TUNNEL_PROVIDER=localtunnel to use the bundled tunnel." >&2
+        exit 1
+      fi
+      [ -n "$SUBDOMAIN" ] && echo "[tunnel] note: TUNNEL_SUBDOMAIN is ignored for cloudflared quick tunnels (a random *.trycloudflare.com URL is assigned)." >&2
+      echo "[tunnel] opening cloudflared quick tunnel to ${LOCAL_URL} ..."
+      cloudflared tunnel --no-autoupdate --url "$LOCAL_URL" >"$TUNNEL_LOG" 2>&1 &
+      TUNNEL_PID=$!
+      URL_REGEX='https://[A-Za-z0-9.-]+\.trycloudflare\.com'
+      ;;
+    *)
+      echo "[tunnel] unknown TUNNEL_PROVIDER='${PROVIDER}' (expected 'localtunnel' or 'cloudflared')." >&2
+      exit 1
+      ;;
+  esac
+}
 
-echo "[tunnel] opening public tunnel to ${LOCAL_URL} ..."
-: > "$LT_LOG"
-run_lt "${LT_ARGS[@]}" >"$LT_LOG" 2>&1 &
-LT_PID=$!
+start_provider
 
 # Always tear the tunnel down when this script stops.
-trap 'kill -TERM "$LT_PID" 2>/dev/null || true' INT TERM EXIT
+trap 'kill -TERM "$TUNNEL_PID" 2>/dev/null || true' INT TERM EXIT
 
-# Wait for localtunnel to print its public URL.
+# Wait for the provider to print its public URL.
 PUBLIC_URL=""
 for _ in $(seq 1 30); do
-  PUBLIC_URL="$(grep -oE 'https://[A-Za-z0-9.-]+' "$LT_LOG" | head -n1 || true)"
+  PUBLIC_URL="$(grep -oE "$URL_REGEX" "$TUNNEL_LOG" | head -n1 || true)"
   [ -n "$PUBLIC_URL" ] && break
-  if ! kill -0 "$LT_PID" 2>/dev/null; then
-    echo "[tunnel] localtunnel exited before printing a URL:" >&2
-    cat "$LT_LOG" >&2 || true
+  if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+    echo "[tunnel] ${PROVIDER} exited before printing a URL:" >&2
+    cat "$TUNNEL_LOG" >&2 || true
     exit 1
   fi
   sleep 1
 done
 
 if [ -z "$PUBLIC_URL" ]; then
-  echo "[tunnel] could not determine the tunnel URL. localtunnel output:" >&2
-  cat "$LT_LOG" >&2 || true
+  echo "[tunnel] could not determine the tunnel URL. ${PROVIDER} output:" >&2
+  cat "$TUNNEL_LOG" >&2 || true
   exit 1
 fi
 
@@ -107,7 +170,7 @@ else
   fi
 fi
 
-echo "[tunnel] webhook ready: ${WEBHOOK_URL} (tunnel pid ${LT_PID}; keep ./run.sh running)"
+echo "[tunnel] webhook ready: ${WEBHOOK_URL} (${PROVIDER} pid ${TUNNEL_PID}; keep ./run.sh running)"
 
 # Keep the tunnel alive; run.sh terminates this script (and thus the tunnel) on exit.
-wait "$LT_PID"
+wait "$TUNNEL_PID"

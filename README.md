@@ -76,18 +76,30 @@ The web dev server serves at `http://localhost:5173` and proxies `/api` to the A
 - **Telegram:** chat with the bot from Telegram.
   1. Add `TELEGRAM_BOT_TOKEN` (from BotFather) to `.env`.
   2. Run `./run.sh`. On a local (non-Replit) run, when a bot token is present it
-     automatically opens a public tunnel with the bundled
-     [localtunnel](https://github.com/localtunnel/localtunnel) package and registers
-     it as the Telegram webhook — no extra terminals or commands. If no webhook is
-     set yet (or it points elsewhere) it is set to the generated tunnel URL; if it
-     already matches, nothing changes.
+     automatically opens a public tunnel and registers it as the Telegram webhook
+     — no extra terminals or commands. If no webhook is set yet (or it points
+     elsewhere) it is set to the generated tunnel URL; if it already matches,
+     nothing changes.
 
   Then DM your bot. It uses the same model as the web/API agent, and the webhook
   secret is derived from the token (nothing to set).
 
-  **Keep the URL stable:** set `TUNNEL_SUBDOMAIN=<name>` in `.env` to request a
-  fixed `https://<name>.loca.lt` URL that survives restarts. Disable the
-  auto-tunnel with `ENABLE_TUNNEL=0`, or change the tunnel server with
+  **Choose a tunnel backend** with `TUNNEL_PROVIDER` in `.env`:
+  - `localtunnel` (default) — the bundled
+    [localtunnel](https://github.com/localtunnel/localtunnel) package
+    (`https://<name>.loca.lt`). No account, but loca.lt may show a one-time
+    browser reminder page and occasionally drops connections, which can
+    intermittently break webhook delivery.
+  - `cloudflared` — a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+    (`https://<random>.trycloudflare.com`). Valid TLS, no account, and generally
+    more dependable — recommended if localtunnel is flaky. Requires the
+    `cloudflared` binary on your PATH; if it isn't installed, `./run.sh` prints a
+    clear message instead of silently failing. The URL is random per run and
+    `TUNNEL_SUBDOMAIN` does not apply.
+
+  **Keep the URL stable (localtunnel only):** set `TUNNEL_SUBDOMAIN=<name>` in
+  `.env` to request a fixed `https://<name>.loca.lt` URL that survives restarts.
+  Disable the auto-tunnel with `ENABLE_TUNNEL=0`, or change the tunnel server with
   `TUNNEL_HOST`. Note: loca.lt may show a one-time reminder page and a requested
   subdomain isn't guaranteed — the actual assigned URL is used regardless.
 
