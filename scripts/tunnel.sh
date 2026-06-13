@@ -135,7 +135,8 @@ WEBHOOK_URL="${PUBLIC_URL}/api/telegram/webhook"
 echo "[tunnel] public URL: ${PUBLIC_URL}"
 
 # Wait until the local API is healthy before touching the webhook; abort if it
-# never comes up rather than reporting a half-configured webhook.
+# never comes up rather than reporting a half-configured webhook. (Without a local
+# API the tunnel only serves errors, so there is nothing worth keeping up here.)
 HEALTHY=0
 for _ in $(seq 1 60); do
   if curl -fsS -o /dev/null "${LOCAL_URL}/api/healthz" 2>/dev/null; then
@@ -149,29 +150,96 @@ if [ "$HEALTHY" -ne 1 ]; then
   exit 1
 fi
 
-# Read the currently-registered webhook (empty if none).
-CURRENT_URL="$(curl -fsS "${LOCAL_URL}/api/telegram/status" 2>/dev/null \
-  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);process.stdout.write((j.webhook&&j.webhook.url)||"")}catch{process.stdout.write("")}})' 2>/dev/null || true)"
+# Wait until the PUBLIC tunnel URL actually serves traffic before registering the
+# webhook. cloudflared prints its URL BEFORE its edge connections are fully
+# registered, so the fresh hostname briefly returns Cloudflare 530 (and DNS for a
+# new *.trycloudflare.com name needs a moment to propagate). Registering against a
+# not-yet-ready URL makes Telegram reject it. Probe /api/healthz through the tunnel
+# until it answers. Only needed for cloudflared; localtunnel is reachable as soon
+# as it prints its URL (and may serve a reminder interstitial that would confuse
+# this probe), so skip it there.
+PUBLIC_READY=0
+case "$PROVIDER" in
+  cloudflared|cloudflare)
+    echo "[tunnel] waiting for the tunnel URL to come up (cloudflared edge + DNS warm-up) ..."
+    for _ in $(seq 1 40); do
+      if curl -fsS -o /dev/null --max-time 3 "${PUBLIC_URL}/api/healthz" 2>/dev/null; then
+        PUBLIC_READY=1
+        break
+      fi
+      if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+        echo "[tunnel] ${PROVIDER} exited before its public URL became reachable:" >&2
+        cat "$TUNNEL_LOG" >&2 || true
+        exit 1
+      fi
+      sleep 1
+    done
+    ;;
+  *)
+    PUBLIC_READY=1
+    ;;
+esac
+if [ "$PUBLIC_READY" -ne 1 ]; then
+  echo "[tunnel] WARNING: tunnel URL ${PUBLIC_URL} is not reachable yet (still" >&2
+  echo "[tunnel]          establishing, or Cloudflare 530). Skipping automatic webhook" >&2
+  echo "[tunnel]          registration, but leaving the tunnel RUNNING so it can finish" >&2
+  echo "[tunnel]          coming up. Re-run ./run.sh if the bot stays silent." >&2
+fi
 
-if [ "$CURRENT_URL" = "$WEBHOOK_URL" ]; then
-  echo "[tunnel] Telegram webhook already set to ${WEBHOOK_URL}"
-else
-  if [ -n "$CURRENT_URL" ]; then
-    echo "[tunnel] updating Telegram webhook: ${CURRENT_URL} -> ${WEBHOOK_URL}"
+# Register (or correct) the Telegram webhook. Telegram only accepts a URL it can
+# actually reach, so transient tunnel/DNS warm-up can still make an attempt fail;
+# retry with backoff. A failure here is NOT fatal: the tunnel itself is healthy and
+# the server re-checks at runtime, so we keep the tunnel alive instead of tearing
+# it down (an early `exit` would fire the EXIT trap and kill a working tunnel).
+LAST_WEBHOOK_ERROR=""
+register_webhook() {
+  local current resp
+  current="$(curl -fsS "${LOCAL_URL}/api/telegram/status" 2>/dev/null \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);process.stdout.write((j.webhook&&j.webhook.url)||"")}catch{process.stdout.write("")}})' 2>/dev/null || true)"
+  if [ "$current" = "$WEBHOOK_URL" ]; then
+    echo "[tunnel] Telegram webhook already set to ${WEBHOOK_URL}"
+    return 0
+  fi
+  if [ -n "$current" ]; then
+    echo "[tunnel] updating Telegram webhook: ${current} -> ${WEBHOOK_URL}"
   else
     echo "[tunnel] no Telegram webhook set; registering ${WEBHOOK_URL}"
   fi
-  if RESP="$(curl -fsS -X POST "${LOCAL_URL}/api/telegram/set-webhook" \
+  if resp="$(curl -fsS -X POST "${LOCAL_URL}/api/telegram/set-webhook" \
     -H 'content-type: application/json' \
     -d "{\"url\":\"${WEBHOOK_URL}\"}" 2>&1)"; then
-    echo "[tunnel] webhook registered: ${RESP}"
-  else
-    echo "[tunnel] FAILED to register Telegram webhook: ${RESP}" >&2
-    exit 1
+    echo "[tunnel] webhook registered: ${resp}"
+    return 0
+  fi
+  LAST_WEBHOOK_ERROR="$resp"
+  return 1
+}
+
+WEBHOOK_OK=0
+if [ "$PUBLIC_READY" -eq 1 ]; then
+  for attempt in 1 2 3 4 5; do
+    if register_webhook; then
+      WEBHOOK_OK=1
+      break
+    fi
+    echo "[tunnel] webhook registration attempt ${attempt}/5 failed: ${LAST_WEBHOOK_ERROR}" >&2
+    sleep 3
+  done
+  if [ "$WEBHOOK_OK" -ne 1 ]; then
+    echo "[tunnel] WARNING: could not register the Telegram webhook after 5 attempts" >&2
+    echo "[tunnel]          (last error: ${LAST_WEBHOOK_ERROR}). Leaving the tunnel" >&2
+    echo "[tunnel]          RUNNING. Retry without restarting via the Telegram page or:" >&2
+    echo "[tunnel]            curl -X POST ${LOCAL_URL}/api/telegram/set-webhook \\" >&2
+    echo "[tunnel]              -H 'content-type: application/json' \\" >&2
+    echo "[tunnel]              -d '{\"url\":\"${WEBHOOK_URL}\"}'" >&2
   fi
 fi
 
-echo "[tunnel] webhook ready: ${WEBHOOK_URL} (${PROVIDER} pid ${TUNNEL_PID}; keep ./run.sh running)"
+if [ "$WEBHOOK_OK" -eq 1 ]; then
+  echo "[tunnel] webhook ready: ${WEBHOOK_URL} (${PROVIDER} pid ${TUNNEL_PID}; keep ./run.sh running)"
+else
+  echo "[tunnel] tunnel up: ${PUBLIC_URL} (${PROVIDER} pid ${TUNNEL_PID}; keep ./run.sh running)"
+fi
 
 # Warn when localtunnel could not grant the requested subdomain and fell back to a
 # different (random) URL. loca.lt subdomains are globally unique, so a requested
