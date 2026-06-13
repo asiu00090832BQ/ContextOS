@@ -172,12 +172,30 @@ fi
 
 echo "[tunnel] webhook ready: ${WEBHOOK_URL} (${PROVIDER} pid ${TUNNEL_PID}; keep ./run.sh running)"
 
-# With a fixed subdomain the URL is stable across runs, so suggest pinning it for
-# boot-time registration. Skip the hint once TELEGRAM_WEBHOOK_URL is already set.
-if [ "$PROVIDER" = "localtunnel" ] && [ -n "$SUBDOMAIN" ] && [ -z "${TELEGRAM_WEBHOOK_URL:-}" ]; then
-  echo "[tunnel] tip: pin this URL for boot-time registration by adding to .env:"
-  echo "[tunnel]   TELEGRAM_WEBHOOK_URL=${WEBHOOK_URL}"
+# Warn when localtunnel could not grant the requested subdomain and fell back to a
+# different (random) URL. loca.lt subdomains are globally unique, so a requested
+# name that is already taken yields a random URL — which is NOT stable across runs.
+if [ "$PROVIDER" = "localtunnel" ] && [ -n "$SUBDOMAIN" ]; then
+  GRANTED_HOST="${PUBLIC_URL#https://}"
+  GRANTED_HOST="${GRANTED_HOST#http://}"
+  GRANTED_SUBDOMAIN="${GRANTED_HOST%%.*}"
+  if [ "$GRANTED_SUBDOMAIN" != "$SUBDOMAIN" ]; then
+    echo "[tunnel] WARNING: requested subdomain '${SUBDOMAIN}' was unavailable, so loca.lt"
+    echo "[tunnel]          assigned '${GRANTED_SUBDOMAIN}' instead. This URL is NOT stable"
+    echo "[tunnel]          across runs. Set TUNNEL_SUBDOMAIN in .env to a unique name to"
+    echo "[tunnel]          claim a stable URL."
+  fi
 fi
+
+# Always print the exact webhook URL to copy into .env, in a clearly delimited
+# block, so it is easy to find even when TELEGRAM_WEBHOOK_URL is already set (e.g.
+# to a now-stale value you need to update).
+echo "[tunnel] ----------------------------------------------------------------"
+echo "[tunnel] Telegram webhook URL — paste this line into .env:"
+echo "[tunnel]"
+echo "[tunnel]   TELEGRAM_WEBHOOK_URL=${WEBHOOK_URL}"
+echo "[tunnel]"
+echo "[tunnel] ----------------------------------------------------------------"
 
 # Keep the tunnel alive; run.sh terminates this script (and thus the tunnel) on exit.
 wait "$TUNNEL_PID"
