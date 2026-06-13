@@ -46,7 +46,7 @@ load_from_env_file() {
   esac
   export "$var=$val"
 }
-for _v in PORT TUNNEL_PROVIDER TUNNEL_SUBDOMAIN TUNNEL_HOST TELEGRAM_WEBHOOK_URL; do
+for _v in PORT TUNNEL_PROVIDER TUNNEL_SUBDOMAIN TUNNEL_HOST TELEGRAM_WEBHOOK_URL CLOUDFLARED_PROTOCOL; do
   load_from_env_file "$_v"
 done
 
@@ -95,8 +95,21 @@ start_provider() {
         exit 1
       fi
       [ -n "$SUBDOMAIN" ] && echo "[tunnel] note: TUNNEL_SUBDOMAIN is ignored for cloudflared quick tunnels (a random *.trycloudflare.com URL is assigned)." >&2
-      echo "[tunnel] opening cloudflared quick tunnel to ${LOCAL_URL} ..."
-      cloudflared tunnel --no-autoupdate --url "$LOCAL_URL" >"$TUNNEL_LOG" 2>&1 &
+      # cloudflared defaults to the QUIC transport (outbound UDP 7844). Many
+      # networks block/drop UDP 7844, so the edge connections never register, the
+      # *.trycloudflare.com hostname is never published (Cloudflare 530, then DNS
+      # NXDOMAIN), and the webhook can't be set. Default to http2 (TCP 443), which
+      # works through such networks. Override with CLOUDFLARED_PROTOCOL=quic|auto.
+      CF_PROTOCOL="${CLOUDFLARED_PROTOCOL:-http2}"
+      case "$CF_PROTOCOL" in
+        http2|quic|auto) ;;
+        *)
+          echo "[tunnel] invalid CLOUDFLARED_PROTOCOL='${CF_PROTOCOL}' (expected http2, quic, or auto)." >&2
+          exit 1
+          ;;
+      esac
+      echo "[tunnel] opening cloudflared quick tunnel to ${LOCAL_URL} (protocol: ${CF_PROTOCOL}) ..."
+      cloudflared tunnel --no-autoupdate --protocol "$CF_PROTOCOL" --url "$LOCAL_URL" >"$TUNNEL_LOG" 2>&1 &
       TUNNEL_PID=$!
       URL_REGEX='https://[A-Za-z0-9.-]+\.trycloudflare\.com'
       ;;
@@ -161,8 +174,8 @@ fi
 PUBLIC_READY=0
 case "$PROVIDER" in
   cloudflared|cloudflare)
-    echo "[tunnel] waiting for the tunnel URL to come up (cloudflared edge + DNS warm-up) ..."
-    for _ in $(seq 1 40); do
+    echo "[tunnel] waiting for the tunnel URL to come up (cloudflared edge + DNS warm-up; up to ~90s) ..."
+    for _ in $(seq 1 90); do
       if curl -fsS -o /dev/null --max-time 3 "${PUBLIC_URL}/api/healthz" 2>/dev/null; then
         PUBLIC_READY=1
         break
@@ -184,6 +197,11 @@ if [ "$PUBLIC_READY" -ne 1 ]; then
   echo "[tunnel]          establishing, or Cloudflare 530). Skipping automatic webhook" >&2
   echo "[tunnel]          registration, but leaving the tunnel RUNNING so it can finish" >&2
   echo "[tunnel]          coming up. Re-run ./run.sh if the bot stays silent." >&2
+  if [ "$PROVIDER" = "cloudflared" ] || [ "$PROVIDER" = "cloudflare" ]; then
+    echo "[tunnel]          If this keeps happening, your network may be blocking" >&2
+    echo "[tunnel]          cloudflared's edge. The default transport is http2; try" >&2
+    echo "[tunnel]          CLOUDFLARED_PROTOCOL=quic or =auto, or TUNNEL_PROVIDER=localtunnel." >&2
+  fi
 fi
 
 # Register (or correct) the Telegram webhook. Telegram only accepts a URL it can

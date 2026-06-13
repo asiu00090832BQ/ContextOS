@@ -93,6 +93,14 @@ The web dev server serves at `http://localhost:5173` and proxies `/api` to the A
     message instead of silently failing. The URL is random per run, so leave
     `TELEGRAM_WEBHOOK_URL` empty and let `./run.sh` register the current URL each
     run (`TUNNEL_SUBDOMAIN` does not apply).
+
+    cloudflared connects to Cloudflare's edge over HTTP/2 (TCP 443) by default
+    here, set via `CLOUDFLARED_PROTOCOL=http2`. cloudflared's own default is QUIC
+    (outbound UDP 7844), which many networks block or drop — that leaves the
+    tunnel stuck (Cloudflare 530, then the hostname fails DNS) and the webhook
+    never registers. If your network allows UDP 7844 you can set
+    `CLOUDFLARED_PROTOCOL=quic` (or `auto`); if the tunnel still won't come up,
+    fall back to `TUNNEL_PROVIDER=localtunnel`.
   - `localtunnel` — the bundled
     [localtunnel](https://github.com/localtunnel/localtunnel) package
     (`https://<name>.loca.lt`). No account or install, but loca.lt may show a
