@@ -84,40 +84,34 @@ The web dev server serves at `http://localhost:5173` and proxies `/api` to the A
   Then DM your bot. It uses the same model as the web/API agent, and the webhook
   secret is derived from the token (nothing to set).
 
-  **Choose a tunnel backend** with `TUNNEL_PROVIDER` in `.env`:
-  - `localtunnel` (default) — the bundled
+  **Tunnel backend** — chosen with `TUNNEL_PROVIDER` in `.env`. The default is
+  `cloudflared`:
+  - `cloudflared` (default) — a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+    (`https://<random>.trycloudflare.com`). Valid TLS, no account, and dependable.
+    Requires the `cloudflared` binary on your PATH — on macOS install it with
+    `brew install cloudflared`; if it isn't installed, `./run.sh` prints a clear
+    message instead of silently failing. The URL is random per run, so leave
+    `TELEGRAM_WEBHOOK_URL` empty and let `./run.sh` register the current URL each
+    run (`TUNNEL_SUBDOMAIN` does not apply).
+  - `localtunnel` — the bundled
     [localtunnel](https://github.com/localtunnel/localtunnel) package
-    (`https://<name>.loca.lt`). No account, but loca.lt may show a one-time
-    browser reminder page and occasionally drops connections, which can
-    intermittently break webhook delivery.
-  - `cloudflared` — a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
-    (`https://<random>.trycloudflare.com`). Valid TLS, no account, and generally
-    more dependable — recommended if localtunnel is flaky. Requires the
-    `cloudflared` binary on your PATH; if it isn't installed, `./run.sh` prints a
-    clear message instead of silently failing. The URL is random per run and
-    `TUNNEL_SUBDOMAIN` does not apply.
+    (`https://<name>.loca.lt`). No account or install, but loca.lt may show a
+    one-time browser reminder page, drop connections, or fail to return a URL.
+    Use it only if you can't install cloudflared: set `TUNNEL_PROVIDER=localtunnel`.
 
-  **Keep the URL stable (localtunnel only):** for localtunnel, `./run.sh`
-  defaults to the fixed subdomain `contextos-tunnel-subdomain`
-  (`https://contextos-tunnel-subdomain.loca.lt`) and re-requests it on every run,
-  so the tunnel URL stays the same across restarts out of the box. Set
-  `TUNNEL_SUBDOMAIN=<name>` in `.env` to use your own name instead. Disable the
-  auto-tunnel with `ENABLE_TUNNEL=0`, or change the tunnel server with
-  `TUNNEL_HOST`. Note: loca.lt grants a requested subdomain only if it's free —
-  it's globally unique, so if the name is taken (e.g. another machine is using
-  it) loca.lt falls back to a random URL; pick your own unique name and check the
-  printed URL.
+  Disable the auto-tunnel entirely with `ENABLE_TUNNEL=0`.
 
-  **Pin it so the webhook never goes stale (recommended for localtunnel):** once
-  the subdomain is fixed the URL is predictable, so you can register it at boot:
-  1. Set `TUNNEL_SUBDOMAIN=contextos-bot` (any unique name) in `.env`.
-  2. Run `./run.sh` once and copy the printed `[tunnel] public URL:`
-     (e.g. `https://contextos-bot.loca.lt`).
-  3. Add `TELEGRAM_WEBHOOK_URL=https://contextos-bot.loca.lt/api/telegram/webhook`
-     to `.env`.
-  Every later run reuses the same URL, so the webhook is registered on startup and
-  won't break when the tunnel reconnects. (The auto-tunnel also re-checks and
-  corrects the webhook at runtime, so this step is a convenience, not required.)
+  **Want a URL that never changes?** cloudflared's URL changes each run, which is
+  fine because the webhook is re-registered automatically every run. If you do
+  need a stable URL, use localtunnel with a fixed subdomain instead:
+  1. Set `TUNNEL_PROVIDER=localtunnel` and `TUNNEL_SUBDOMAIN=<unique-name>` in
+     `.env`. loca.lt subdomains are globally unique; if the name is taken you get
+     a random URL instead (the script warns you when this happens). When
+     `TUNNEL_SUBDOMAIN` is empty it falls back to `contextos-tunnel-subdomain`.
+  2. `./run.sh` re-requests that subdomain on every run, so the URL stays the same.
+  3. Optionally pin it for boot-time registration by adding
+     `TELEGRAM_WEBHOOK_URL=https://<unique-name>.loca.lt/api/telegram/webhook` to
+     `.env`.
 
   **Self-hosted option:** if you host the server publicly yourself, set
   `TELEGRAM_WEBHOOK_URL=https://<your-host>/api/telegram/webhook` in `.env` to

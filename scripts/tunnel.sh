@@ -5,13 +5,14 @@
 # can also be run on its own while the server is already up.
 #
 # Two tunnel backends are supported, chosen with TUNNEL_PROVIDER:
-#   - localtunnel (default) — the bundled `lt` package; URLs look like
-#     https://<subdomain>.loca.lt. No account needed, but loca.lt may serve a
-#     one-time browser "reminder" interstitial and occasionally drops
-#     connections, which can intermittently break webhook delivery.
-#   - cloudflared — Cloudflare's quick tunnel (`cloudflared tunnel --url ...`);
-#     URLs look like https://<random>.trycloudflare.com. Valid TLS, no account,
-#     and generally more dependable. Requires the `cloudflared` binary on PATH.
+#   - cloudflared (default) — Cloudflare's quick tunnel (`cloudflared tunnel
+#     --url ...`); URLs look like https://<random>.trycloudflare.com. Valid TLS,
+#     no account, and generally dependable. Requires the `cloudflared` binary on
+#     PATH (macOS: `brew install cloudflared`).
+#   - localtunnel — the bundled `lt` package; URLs look like
+#     https://<subdomain>.loca.lt. No account or install needed, but loca.lt may
+#     serve a one-time browser "reminder" interstitial, drop connections, or fail
+#     to return a URL, which can intermittently break webhook delivery.
 #
 # Behaviour (both providers):
 #   - Tunnels the same PORT the server binds to (default 8080).
@@ -51,7 +52,7 @@ done
 
 PORT="${PORT:-8080}"
 LOCAL_URL="http://localhost:${PORT}"
-PROVIDER="${TUNNEL_PROVIDER:-localtunnel}"
+PROVIDER="${TUNNEL_PROVIDER:-cloudflared}"
 SUBDOMAIN="${TUNNEL_SUBDOMAIN:-}"
 TUNNEL_HOST="${TUNNEL_HOST:-https://localtunnel.me}"
 TUNNEL_LOG="${TMPDIR:-/tmp}/contextos-tunnel.log"

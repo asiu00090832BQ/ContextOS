@@ -117,8 +117,8 @@ for _ in $(seq 1 90); do
 done
 
 # 7. Public tunnel + Telegram webhook (local runs only). When a Telegram bot
-#    token is configured, open a public tunnel (localtunnel by default, or
-#    cloudflared via TUNNEL_PROVIDER) and point the bot's webhook at it so the bot
+#    token is configured, open a public tunnel (cloudflared by default, or
+#    localtunnel via TUNNEL_PROVIDER) and point the bot's webhook at it so the bot
 #    is reachable with no manual steps. Skipped on Replit (already public) and
 #    when ENABLE_TUNNEL is a falsy value (0/false/no/off).
 ENABLE_TUNNEL="${ENABLE_TUNNEL:-auto}"
@@ -141,12 +141,13 @@ read_cfg() {  # value of $1 from environment, else .env, else empty
   grep -E "^[[:space:]]*$1[[:space:]]*=" .env | tail -n1 \
     | sed -E "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//; s/[[:space:]]*\$//; s/^[\"']//; s/[\"']\$//"
 }
-# Pin a stable localtunnel subdomain so the public URL (and the Telegram webhook
-# pointed at it) stays the same across runs. Your own value always wins: set
-# TUNNEL_SUBDOMAIN in the environment or .env to use a different name. Only
-# applies to localtunnel; cloudflared assigns a random URL and ignores it.
+# When localtunnel is explicitly selected, pin a stable subdomain so its public
+# URL (and the Telegram webhook pointed at it) stays the same across runs. Your
+# own value always wins: set TUNNEL_SUBDOMAIN in the environment or .env to use a
+# different name. This does NOT apply to the default cloudflared backend, which
+# assigns a random URL and ignores subdomains.
 case "$(read_cfg TUNNEL_PROVIDER)" in
-  ""|localtunnel|lt)
+  localtunnel|lt)
     [ -n "$(read_cfg TUNNEL_SUBDOMAIN)" ] || export TUNNEL_SUBDOMAIN="contextos-tunnel-subdomain"
     ;;
 esac
